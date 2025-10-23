@@ -1,0 +1,22 @@
+[
+  { "name": "Bangkok", "country": "Thailand", "region": "Central", "has_airport": true, "is_popular": true, "status": "active" },
+  { "name": "Phuket", "country": "Thailand", "region": "South", "has_airport": true, "is_popular": true, "status": "active" },
+  { "name": "Chiang Mai", "country": "Thailand", "region": "North", "has_airport": true, "is_popular": true, "status": "active" },
+  { "name": "Pattaya", "country": "Thailand", "region": "East", "has_airport": false, "is_popular": true, "status": "active" },
+  { "name": "Dubai", "country": "UAE", "region": "Dubai", "has_airport": true, "is_popular": true, "status": "active" },
+  { "name": "Abu Dhabi", "country": "UAE", "region": "Abu Dhabi", "has_airport": true, "is_popular": false, "status": "active" },
+  { "name": "Sharjah", "country": "UAE", "region": "Sharjah", "has_airport": true, "is_popular": false, "status": "disabled" },
+  { "name": "Ajman", "country": "UAE", "region": "Ajman", "has_airport": false, "is_popular": false, "status": "disabled" },
+  { "name": "Hua Hin", "country": "Thailand", "region": "Central", "has_airport": false, "is_popular": false, "status": "active" },
+  { "name": "Krabi", "country": "Thailand", "region": "South", "has_airport": true, "is_popular": true, "status": "active" },
+  { "name": "Koh Samui", "country": "Thailand", "region": "South", "has_airport": true, "is_popular": true, "status": "active" },
+  { "name": "Koh Phangan", "country": "Thailand", "region": "South", "has_airport": false, "is_popular": false, "status": "active" },
+  { "name": "Phi Phi Islands", "country": "Thailand", "region": "South", "has_airport": false, "is_popular": true, "status": "active" },
+  { "name": "Koh Yao Yai", "country": "Thailand", "region": "South", "has_airport": false, "is_popular": false, "status": "active" },
+  { "name": "Rayong", "country": "Thailand", "region": "East", "has_airport": false, "is_popular": false, "status": "active" },
+  { "name": "Kanchanaburi", "country": "Thailand", "region": "West", "has_airport": false, "is_popular": false, "status": "active" },
+  { "name": "Ayutthaya", "country": "Thailand", "region": "Central", "has_airport": false, "is_popular": false, "status": "active" },
+  { "name": "Fujairah", "country": "UAE", "region": "Fujairah", "has_airport": true, "is_popular": false, "status": "active" },
+  { "name": "Ras Al Khaimah", "country": "UAE", "region": "Ras Al Khaimah", "has_airport": true, "is_popular": false, "status": "active" },
+  { "name": "Umm Al Quwain", "country": "UAE", "region": "Umm Al Quwain", "has_airport": false, "is_popular": false, "status": "active" }
+]

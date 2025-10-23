@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Agent Signup</title>
+</head>
+<body>
+    <h1>Test Agent Signup</h1>
+    <form id="signupForm">
+        <input type="email" id="email" placeholder="Email" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <button type="submit">Sign Up</button>
+    </form>
+    <div id="result"></div>
+
+    <script type="module">
+        import { createClient } from 'https://cdn.skypack.dev/@supabase/supabase-js';
+        
+        const supabase = createClient(
+            'https://xzofytokwszfwiupsdvi.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh6b2Z5dG9rd3N6ZndpdXBzZHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgzNTM0MTEsImV4cCI6MjA3MzkyOTQxMX0.FnTL4m0EmxzlNSRfCD12Gc1_PUpOI4rHvaRemr46CiQ'
+        );
+
+        document.getElementById('signupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            console.log('Testing signup with redirect to:', 'http://localhost:3001/login');
+            
+            try {
+                const { data, error } = await supabase.auth.signUp({
+                    email,
+                    password,
+                    options: {
+                        emailRedirectTo: 'http://localhost:3001/login',
+                        data: {
+                            role: 'agent'
+                        }
+                    }
+                });
+                
+                document.getElementById('result').innerHTML = 
+                    `<h3>Result:</h3><pre>${JSON.stringify({ data, error }, null, 2)}</pre>`;
+                    
+            } catch (err) {
+                document.getElementById('result').innerHTML = 
+                    `<h3>Error:</h3><pre>${err.message}</pre>`;
+            }
+        });
+    </script>
+</body>
+</html>

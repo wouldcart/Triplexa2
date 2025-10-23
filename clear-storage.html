@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Storage Test</title>
+</head>
+<body>
+    <h1>Clear Storage and Test Currency Selection</h1>
+    <button onclick="clearStorage()">Clear All Storage</button>
+    <button onclick="checkStorage()">Check Storage</button>
+    <div id="output"></div>
+
+    <script>
+        function clearStorage() {
+            localStorage.clear();
+            sessionStorage.clear();
+            document.getElementById('output').innerHTML = '<p>Storage cleared!</p>';
+        }
+
+        function checkStorage() {
+            const output = document.getElementById('output');
+            let html = '<h3>LocalStorage Contents:</h3>';
+            
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = localStorage.getItem(key);
+                html += `<p><strong>${key}:</strong> ${value}</p>`;
+            }
+            
+            if (localStorage.length === 0) {
+                html += '<p>No localStorage items found.</p>';
+            }
+            
+            output.innerHTML = html;
+        }
+
+        // Check storage on load
+        window.onload = checkStorage;
+    </script>
+</body>
+</html>

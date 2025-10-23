@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Currency Debug Tool</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        button { margin: 5px; padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .danger { background: #dc3545; }
+        .danger:hover { background: #c82333; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Currency Debug Tool</h1>
+    
+    <div class="section">
+        <h2>Current localStorage Data</h2>
+        <button onclick="showAllStorage()">Show All localStorage</button>
+        <button onclick="showCurrencyData()">Show Currency-Related Data</button>
+        <pre id="storageOutput"></pre>
+    </div>
+    
+    <div class="section">
+        <h2>Clear Currency Data</h2>
+        <button onclick="clearCurrencyConverter()" class="danger">Clear Currency Converter Settings</button>
+        <button onclick="clearAppSettings()" class="danger">Clear App Settings</button>
+        <button onclick="clearApplicationSettings()" class="danger">Clear Application Settings</button>
+        <button onclick="clearAllCurrencyData()" class="danger">Clear All Currency-Related Data</button>
+        <pre id="clearOutput"></pre>
+    </div>
+    
+    <div class="section">
+        <h2>Test Currency Defaults</h2>
+        <button onclick="testDefaults()">Test Default Values</button>
+        <pre id="testOutput"></pre>
+    </div>
+
+    <script>
+        function showAllStorage() {
+            const output = document.getElementById('storageOutput');
+            const data = {};
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                data[key] = localStorage.getItem(key);
+            }
+            output.textContent = JSON.stringify(data, null, 2);
+        }
+        
+        function showCurrencyData() {
+            const output = document.getElementById('storageOutput');
+            const currencyKeys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.toLowerCase().includes('currency') || 
+                    key.toLowerCase().includes('settings') ||
+                    key.toLowerCase().includes('app')) {
+                    currencyKeys.push({
+                        key: key,
+                        value: localStorage.getItem(key)
+                    });
+                }
+            }
+            output.textContent = JSON.stringify(currencyKeys, null, 2);
+        }
+        
+        function clearCurrencyConverter() {
+            localStorage.removeItem('currencyConverterSettings');
+            document.getElementById('clearOutput').textContent = 'Cleared currencyConverterSettings';
+        }
+        
+        function clearAppSettings() {
+            localStorage.removeItem('app_settings');
+            document.getElementById('clearOutput').textContent = 'Cleared app_settings';
+        }
+        
+        function clearApplicationSettings() {
+            localStorage.removeItem('applicationSettings');
+            document.getElementById('clearOutput').textContent = 'Cleared applicationSettings';
+        }
+        
+        function clearAllCurrencyData() {
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.toLowerCase().includes('currency') || 
+                    key.toLowerCase().includes('settings') ||
+                    key.toLowerCase().includes('app')) {
+                    keysToRemove.push(key);
+                }
+            }
+            
+            keysToRemove.forEach(key => localStorage.removeItem(key));
+            document.getElementById('clearOutput').textContent = `Cleared ${keysToRemove.length} keys: ${keysToRemove.join(', ')}`;
+        }
+        
+        function testDefaults() {
+            const output = document.getElementById('testOutput');
+            const defaults = {
+                'GeneralSettings default_currency': 'USD',
+                'CurrencyConverter baseCurrency': 'USD',
+                'CurrencyConverter newRate.toCurrency': '(empty string)',
+                'Database default_currency': 'USD'
+            };
+            output.textContent = JSON.stringify(defaults, null, 2);
+        }
+    </script>
+</body>
+</html>
