@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { DollarSign, Plus, Edit, Trash, TrendingUp, Percent } from 'lucide-react';
 import { toast } from 'sonner';
@@ -136,6 +136,9 @@ const CommissionManagementTab: React.FC = () => {
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Add New Commission Slab</DialogTitle>
+                  <DialogDescription>
+                    Create a commission tier with thresholds, rate, and applicable products.
+                  </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div>

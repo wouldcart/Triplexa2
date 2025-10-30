@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -155,6 +155,9 @@ const GenerateProposalDialog: React.FC<GenerateProposalDialogProps> = ({
             <Wand2 className="h-5 w-5" />
             Generate Proposal
           </DialogTitle>
+          <DialogDescription>
+            Configure options and generate a tailored travel proposal for the enquiry.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

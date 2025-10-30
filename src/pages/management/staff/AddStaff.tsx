@@ -18,8 +18,8 @@ import { format } from 'date-fns';
 import { Save, X, Plus, Trash2, Target, ArrowLeft, Calendar as CalendarIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageLayout from '@/components/layout/PageLayout';
-import { EnhancedStaffMember, Target as TargetType } from '@/types/staff';
-import { departments } from '@/data/departmentData';
+import { EnhancedStaffMember, Target as TargetType, Department } from '@/types/staff';
+import { departmentService } from '@/services/departmentService';
 import { toast } from '@/hooks/use-toast';
 import { v4 as uuidv4 } from 'uuid';
 import EmployeeCodeField from '@/components/staff/EmployeeCodeField';
@@ -30,7 +30,6 @@ import WorkingHoursSection from '@/components/staff/WorkingHoursSection';
 import LoginCredentials from '@/components/staff/LoginCredentials';
 import { validateEmployeeCode, isEmployeeCodeUnique } from '@/utils/employeeCodeGenerator';
 import { validatePasswordStrength, checkUsernameUniqueness } from '@/utils/credentialGenerator';
-import { saveStaffMember } from '@/services/staffStorageService';
 import { syncStaffWithAuthSystem } from '@/services/credentialService';
 import { ensureReferralExistsForStaff } from '@/services/staffReferralService';
 
@@ -39,12 +38,15 @@ const staffSchema = z.object({
   email: z.string().email('Invalid email address'),
   phone: z.string().min(10, 'Phone number must be at least 10 characters'),
   department: z.string().min(1, 'Department is required'),
-  role: z.string().min(1, 'Role is required'),
+  role: z.enum(['manager', 'staff', 'hr_manager'], {
+    required_error: 'Role is required'
+  }),
+  position: z.string().min(1, 'Position/Designation is required'),
   status: z.enum(['active', 'inactive', 'on-leave']),
   employeeId: z.string()
-    .min(4, "Employee code must be 4 digits")
-    .max(4, "Employee code must be 4 digits")
-    .refine(validateEmployeeCode, "Employee code must be numeric"),
+    .min(1, "Employee code must be at least 1 digit")
+    .max(10, "Employee code must be at most 10 digits")
+    .refine(validateEmployeeCode, "Employee code must be digits only"),
   operationalCountries: z.array(z.string()).min(1, "Please select at least one operational country"),
   skills: z.array(z.string()),
   certifications: z.array(z.string()),
@@ -85,22 +87,70 @@ const AddStaff: React.FC = () => {
     sunday: { isWorking: false, shifts: [] }
   });
   const [targets, setTargets] = useState<TargetType[]>([]);
+  const [dobInput, setDobInput] = useState('');
+  const [departmentList, setDepartmentList] = useState<Department[]>([]);
+  const [loadingDepartments, setLoadingDepartments] = useState<boolean>(false);
 
   const form = useForm<StaffFormData>({
     resolver: zodResolver(staffSchema),
     defaultValues: {
+      name: '',
+      email: '',
+      phone: '',
+      department: '',
+      role: 'staff',
+      position: '',
+      status: 'active',
+      employeeId: '',
       skills: [],
       certifications: [],
       operationalCountries: [],
+      reportingManager: '',
       joinDate: new Date(),
+      username: '',
+      password: '',
+      confirmPassword: '',
       mustChangePassword: true,
     }
   });
 
   const watchedEmail = form.watch('email');
   const watchedName = form.watch('name');
+  const watchedDOB = form.watch('dateOfBirth');
+  const selectedDeptCode = form.watch('department');
+  const selectedDept = React.useMemo(() => {
+    return departmentList.find((d) => d.code === selectedDeptCode);
+  }, [departmentList, selectedDeptCode]);
+  const selectedDeptName = selectedDept?.name || selectedDeptCode;
 
-  const onSubmit = (data: StaffFormData) => {
+  React.useEffect(() => {
+    setDobInput(watchedDOB ? format(watchedDOB, 'dd/MM/yyyy') : '');
+  }, [watchedDOB]);
+
+  // Load departments from Supabase (public.departments)
+  React.useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setLoadingDepartments(true);
+        const { data, source } = await departmentService.getDepartments();
+        if (!mounted) return;
+        if (source === 'db' && Array.isArray(data)) {
+          setDepartmentList(data);
+        } else {
+          setDepartmentList([]);
+        }
+      } catch (err) {
+        console.warn('Failed to load departments', err);
+        if (mounted) setDepartmentList([]);
+      } finally {
+        if (mounted) setLoadingDepartments(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const onSubmit = async (data: StaffFormData) => {
     const newStaff: EnhancedStaffMember = {
       id: uuidv4(),
       name: data.name,
@@ -108,6 +158,7 @@ const AddStaff: React.FC = () => {
       phone: data.phone,
       department: data.department,
       role: data.role,
+      position: data.position,
       status: data.status,
       employeeId: data.employeeId,
       operationalCountries: data.operationalCountries,
@@ -158,14 +209,17 @@ const AddStaff: React.FC = () => {
       reportingManager: data.reportingManager
     };
 
-    // Save staff member
-    saveStaffMember(newStaff);
+    // Create login credentials and sync with auth system first
+    // This will create the auth user and let the `handle_new_user` trigger
+    // populate the profiles row, avoiding RLS violations from direct inserts.
+    const authUserId = await syncStaffWithAuthSystem(newStaff, data.username, data.password, data.mustChangePassword);
 
-    // Create login credentials and sync with auth system
-    syncStaffWithAuthSystem(newStaff, data.username, data.password, data.mustChangePassword);
-
-    // Generate and persist staff referral link (non-blocking)
-    ensureReferralExistsForStaff(newStaff.id).catch((err) => console.warn('Referral generation failed:', err));
+    // Generate and persist staff referral link using Supabase auth user ID
+    if (authUserId) {
+      ensureReferralExistsForStaff(authUserId).catch((err) => console.warn('Referral generation failed:', err));
+    } else {
+      console.warn('Referral generation skipped: missing Supabase auth user ID.');
+    }
 
     console.log('New staff member created with login credentials:', { 
       staff: newStaff.name, 
@@ -322,37 +376,43 @@ const AddStaff: React.FC = () => {
                     render={({ field }) => (
                       <FormItem className="flex flex-col">
                         <FormLabel className="text-gray-900 dark:text-gray-100">Date of Birth</FormLabel>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                variant={"outline"}
-                                className={cn(
-                                  "w-full pl-3 text-left font-normal bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100",
-                                  !field.value && "text-muted-foreground"
-                                )}
-                              >
-                                {field.value ? (
-                                  format(field.value, "PPP")
-                                ) : (
-                                  <span>Pick a date</span>
-                                )}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={field.onChange}
-                              disabled={(date) =>
-                                date > new Date() || date < new Date("1900-01-01")
+                        <FormControl>
+                          <Input
+                            placeholder="DD/MM/YYYY"
+                            className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                            value={dobInput}
+                            onChange={(e) => setDobInput(e.target.value)}
+                            onBlur={() => {
+                              const v = dobInput.trim();
+                              const parts = v.split('/');
+                              if (parts.length === 3) {
+                                const [d, m, y] = parts;
+                                const day = Number(d);
+                                const month = Number(m);
+                                const year = Number(y);
+                                if (!Number.isNaN(year) && !Number.isNaN(month) && !Number.isNaN(day)) {
+                                  const candidate = new Date(year, month - 1, day);
+                                  const today = new Date();
+                                  const eighteenYearsAgo = new Date(
+                                    today.getFullYear() - 18,
+                                    today.getMonth(),
+                                    today.getDate()
+                                  );
+                                  const minDate = new Date('1900-01-01');
+                                  if (candidate <= eighteenYearsAgo && candidate >= minDate) {
+                                    form.clearErrors('dateOfBirth');
+                                    field.onChange(candidate);
+                                    return;
+                                  }
+                                }
                               }
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
+                              form.setError('dateOfBirth', {
+                                type: 'manual',
+                                message: 'Enter valid date DD/MM/YYYY and must be 18+',
+                              });
+                            }}
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -397,34 +457,56 @@ const AddStaff: React.FC = () => {
                           </PopoverContent>
                         </Popover>
                         <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+              </FormItem>
+            )}
+          />
 
-                  <FormField
-                    control={form.control}
-                    name="department"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-gray-900 dark:text-gray-100">Department</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value || undefined}>
-                          <FormControl>
-                            <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100">
-                              <SelectValue placeholder="Select department" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {departments.map((dept) => (
-                              <SelectItem key={dept.id} value={dept.id}>
-                                {dept.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
+          <FormField
+            control={form.control}
+            name="department"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-gray-900 dark:text-gray-100">Department</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value || undefined}>
+                  <FormControl>
+                    <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100">
+                      <SelectValue placeholder="Select department" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {loadingDepartments && (
+                      <div className="px-2 py-1 text-sm text-muted-foreground">Loading departments…</div>
                     )}
-                  />
+                    {!loadingDepartments && departmentList.length === 0 && (
+                      <SelectItem value="__no_departments__" disabled>
+                        No departments available
+                      </SelectItem>
+                    )}
+                    {departmentList.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.code}>
+                        {dept.name} 
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="position"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-gray-900 dark:text-gray-100">Position / Designation</FormLabel>
+                <FormControl>
+                  <Input {...field} placeholder="e.g., Sales Executive" className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
                   <FormField
                     control={form.control}
@@ -432,9 +514,18 @@ const AddStaff: React.FC = () => {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-gray-900 dark:text-gray-100">Role</FormLabel>
-                        <FormControl>
-                          <Input {...field} className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100" />
-                        </FormControl>
+                        <Select onValueChange={field.onChange} value={field.value || undefined}>
+                          <FormControl>
+                            <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100">
+                              <SelectValue placeholder="Select role" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="staff">Staff</SelectItem>
+                            <SelectItem value="manager">Manager</SelectItem>
+                            <SelectItem value="hr_manager">HR Manager</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -455,7 +546,7 @@ const AddStaff: React.FC = () => {
                           <SelectContent>
                             <SelectItem value="active">Active</SelectItem>
                             <SelectItem value="inactive">Inactive</SelectItem>
-                            <SelectItem value="on-leave">On Leave</SelectItem>
+                           
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -595,7 +686,7 @@ const AddStaff: React.FC = () => {
               <CardContent>
                 {form.watch('department') && form.watch('role') && (
                   <TargetSettings
-                    department={form.watch('department')}
+                    department={selectedDeptName}
                     role={form.watch('role')}
                     targets={targets}
                     onTargetsChange={setTargets}

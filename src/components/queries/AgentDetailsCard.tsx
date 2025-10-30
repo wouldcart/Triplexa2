@@ -81,7 +81,7 @@ export const AgentDetailsCard: React.FC<AgentDetailsCardProps> = ({
             Agent Details
           </CardTitle>
           <Button variant="outline" size="sm" asChild>
-            <Link to={`/management/agents/view/${agent.id}`}>
+            <Link to={`/management/agents/${agent.id}`}>
               <ExternalLink className="h-4 w-4 mr-1" />
               View Profile
             </Link>

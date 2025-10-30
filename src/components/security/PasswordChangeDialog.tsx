@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -64,7 +64,15 @@ export const PasswordChangeDialog: React.FC<PasswordChangeDialogProps> = ({ chil
     setIsLoading(true);
 
     try {
-      const result = await AuthService.updatePassword(currentPassword, newPassword);
+      // Re-authenticate with current password for stronger protection
+      const reauth = await AuthService.reauthenticateWithPassword(currentPassword);
+      if (!reauth.ok) {
+        setError(reauth.error || 'Current password is incorrect');
+        setIsLoading(false);
+        return;
+      }
+
+      const result = await AuthService.updatePassword(newPassword);
       
       if (result.error) {
         setError(result.error);
@@ -120,6 +128,9 @@ export const PasswordChangeDialog: React.FC<PasswordChangeDialogProps> = ({ chil
             <Lock className="h-5 w-5" />
             Change Password
           </DialogTitle>
+          <DialogDescription>
+            Update your account password. Ensure a strong, unique password.
+          </DialogDescription>
         </DialogHeader>
         
         {success && (

@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription
 } from '@/components/ui/dialog';
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -430,6 +430,9 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
             <DialogContent className="bg-background border-border">
               <DialogHeader>
                 <DialogTitle className="text-foreground">Bulk Operations</DialogTitle>
+                <DialogDescription>
+                  Perform actions on all currently selected queries at once.
+                </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 p-4">
                 <div className="text-sm text-muted-foreground">

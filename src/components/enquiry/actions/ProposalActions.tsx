@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -322,6 +322,9 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({
               <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Proposal Preview</DialogTitle>
+                  <DialogDescription>
+                    Verify key details and pricing before sharing with the agent.
+                  </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div className="text-sm">
@@ -409,6 +412,9 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Agent Contact Details</DialogTitle>
+            <DialogDescription>
+              Update contact information used for proposal delivery and follow-up.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

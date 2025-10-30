@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -477,6 +477,9 @@ Generated: ${new Date().toLocaleString()}
               <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Advanced Proposal Preview</DialogTitle>
+                  <DialogDescription>
+                    Review the proposal with selected options before sharing.
+                  </DialogDescription>
                 </DialogHeader>
                 <ProposalPreview
                   query={query}
@@ -521,6 +524,9 @@ Generated: ${new Date().toLocaleString()}
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Agent Contact Details</DialogTitle>
+            <DialogDescription>
+              Update contact information used for proposal delivery and follow-up.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

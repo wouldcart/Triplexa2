@@ -16,57 +16,97 @@ import {
   Phone
 } from "lucide-react";
 import PageLayout from "../../components/layout/PageLayout";
-import { User } from "@/types/User";
+import { supabase, adminSupabase, isAdminClientConfigured } from "@/lib/supabaseClient";
+import type { Tables } from "@/integrations/supabase/types";
 import { toast } from "../../hooks/use-toast";
 import { useApp } from "../../contexts/AppContext";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../components/ui/dialog";
-import { Label } from "../../components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 
 // Import users from authData
-import { users } from "../../data/authData";
+// Removed mock data; now using Supabase profiles
+
+type ProfileRow = Tables<'profiles'>;
+type AdminProfile = {
+  id: ProfileRow['id'];
+  name: ProfileRow['name'];
+  email: ProfileRow['email'];
+  role: 'super_admin' | 'manager' | 'hr_manager';
+  department: string; // default to empty string when null
+  phone?: ProfileRow['phone'];
+  status?: 'active' | 'inactive' | 'suspended';
+  position?: ProfileRow['position'];
+  created_at?: ProfileRow['created_at'];
+  updated_at?: ProfileRow['updated_at'];
+};
 
 const AdminManagement: React.FC = () => {
   const { currentUser } = useApp();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRole, setFilterRole] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [adminUsers, setAdminUsers] = useState<User[]>([]);
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  
-  // New user form state
-  const [newUser, setNewUser] = useState({
-    name: "",
-    email: "",
-    role: "manager",
-    department: "",
-    phone: "",
-    status: "active",
-    password: "",
-    confirmPassword: ""
-  });
+  const [adminUsers, setAdminUsers] = useState<AdminProfile[]>([]);
 
   // Load admin users on component mount
   useEffect(() => {
-    // Filter users with admin roles (super_admin, manager, hr_manager)
-    const admins = users.filter(user => 
-      user.role === 'super_admin' || 
-      user.role === 'manager' || 
-      user.role === 'hr_manager'
-    );
-    setAdminUsers(admins);
+    const loadAdmins = async () => {
+      try {
+        let { data, error } = await supabase
+          .from('profiles')
+          .select('id,name,email,role,department,phone,status,position,created_at,updated_at')
+          .in('role', ['super_admin', 'manager', 'hr_manager']);
+        // If RLS blocks or other error, try admin client when configured
+        if (error) {
+          if (isAdminClientConfigured) {
+            const adminRes = await adminSupabase
+              .from('profiles')
+              .select('id,name,email,role,department,phone,status,position,created_at,updated_at')
+              .in('role', ['super_admin', 'manager', 'hr_manager']);
+            if (adminRes.error) {
+              throw adminRes.error;
+            }
+            data = adminRes.data as any[];
+          } else {
+            throw error;
+          }
+        }
+
+        // Map rows defensively to our AdminProfile shape
+        const admins: AdminProfile[] = (data || []).map((row: any) => {
+          const r = row as ProfileRow;
+          return {
+            id: r.id,
+            name: r.name,
+            email: r.email,
+            role: (r.role as AdminProfile['role']) ?? 'manager',
+            department: r.department ?? '',
+            phone: r.phone ?? undefined,
+            status: (r.status as AdminProfile['status']) ?? undefined,
+            position: r.position ?? undefined,
+            created_at: r.created_at ?? undefined,
+            updated_at: r.updated_at ?? undefined,
+          };
+        });
+
+        setAdminUsers(admins);
+      } catch (e) {
+        toast({
+          title: 'Load failed',
+          description: 'Unable to load admin users.',
+          variant: 'destructive'
+        });
+      }
+    };
+    loadAdmins();
   }, []);
 
   // Check if current user is super admin
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
   const filteredAdmins = adminUsers.filter(admin => {
+    const term = searchTerm.toLowerCase();
     const matchesSearch = 
-      admin.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      admin.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      admin.department.toLowerCase().includes(searchTerm.toLowerCase());
+      (admin.name ?? '').toLowerCase().includes(term) ||
+      (admin.email ?? '').toLowerCase().includes(term) ||
+      (admin.department ?? '').toLowerCase().includes(term);
     
     const matchesRoleFilter = filterRole === "all" || admin.role === filterRole;
     const matchesStatusFilter = filterStatus === "all" || admin.status === filterStatus;
@@ -74,106 +114,7 @@ const AdminManagement: React.FC = () => {
     return matchesSearch && matchesRoleFilter && matchesStatusFilter;
   });
 
-  const handleCreateUser = () => {
-    // Validate form
-    if (!newUser.name || !newUser.email || !newUser.role || !newUser.department) {
-      toast({
-        title: "Validation Error",
-        description: "Please fill all required fields",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (newUser.password !== newUser.confirmPassword) {
-      toast({
-        title: "Password Error",
-        description: "Passwords do not match",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    // Create new user (in a real app, this would be an API call)
-    const newAdminUser: User = {
-      id: `admin-${Date.now()}`,
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role as 'super_admin' | 'manager' | 'hr_manager',
-      department: newUser.department,
-      phone: newUser.phone,
-      status: newUser.status as 'active' | 'inactive',
-      avatar: '/avatars/default.jpg',
-      position: newUser.role === 'super_admin' ? 'System Administrator' : 
-               newUser.role === 'hr_manager' ? 'HR Manager' : 'Department Manager',
-      permissions: newUser.role === 'super_admin' ? ['*'] : 
-                  newUser.role === 'hr_manager' ? ['staff.*', 'hr.*'] : 
-                  ['department.*', 'staff.view'],
-      workLocation: 'Head Office',
-      employeeId: `EMP${Math.floor(1000 + Math.random() * 9000)}`,
-      joinDate: new Date().toISOString().split('T')[0]
-    };
-
-    // Add to state
-    setAdminUsers([...adminUsers, newAdminUser]);
-    
-    // Close dialog and reset form
-    setIsCreateDialogOpen(false);
-    setNewUser({
-      name: "",
-      email: "",
-      role: "manager",
-      department: "",
-      phone: "",
-      status: "active",
-      password: "",
-      confirmPassword: ""
-    });
-
-    toast({
-      title: "Success",
-      description: "Admin user created successfully",
-      variant: "default"
-    });
-  };
-
-  const handleEditUser = () => {
-    if (!selectedUser) return;
-
-    // Update user in state
-    const updatedAdmins = adminUsers.map(admin => 
-      admin.id === selectedUser.id ? selectedUser : admin
-    );
-    
-    setAdminUsers(updatedAdmins);
-    setIsEditDialogOpen(false);
-    
-    toast({
-      title: "Success",
-      description: "Admin user updated successfully",
-      variant: "default"
-    });
-  };
-
-  const handleStatusChange = (userId: string, newStatus: 'active' | 'inactive') => {
-    // Update user status
-    const updatedAdmins = adminUsers.map(admin => 
-      admin.id === userId ? {...admin, status: newStatus} : admin
-    );
-    
-    setAdminUsers(updatedAdmins);
-    
-    toast({
-      title: "Status Updated",
-      description: `User status changed to ${newStatus}`,
-      variant: "default"
-    });
-  };
-
-  const openEditDialog = (user: User) => {
-    setSelectedUser(user);
-    setIsEditDialogOpen(true);
-  };
+  // Local create/edit/status actions removed; use Role Manager for admin ops
 
   // Get counts for stats
   const superAdminCount = adminUsers.filter(admin => admin.role === 'super_admin').length;
@@ -195,13 +136,13 @@ const AdminManagement: React.FC = () => {
           {/* Navigation Tabs */}
           <div className="flex flex-col sm:flex-row gap-2">
             <Button variant="outline" asChild className="justify-start">
-              <Link to="/management/staff">
-                <Users className="mr-2 h-4 w-4" />
-                Staff Management
+              <Link to="/management/admin/role-manager">
+                <Shield className="mr-2 h-4 w-4" />
+                Role Manager
               </Link>
             </Button>
             <Button variant="default" className="justify-start">
-              <Shield className="mr-2 h-4 w-4" />
+              <ShieldCheck className="mr-2 h-4 w-4" />
               Admin Management
             </Button>
           </div>
@@ -294,13 +235,12 @@ const AdminManagement: React.FC = () => {
                 </div>
                 
                 {isSuperAdmin && (
-                  <Button 
-                    className="w-full sm:w-auto"
-                    onClick={() => setIsCreateDialogOpen(true)}
-                  >
-                    <UserPlus className="mr-2 h-4 w-4" />
-                    <span className="hidden sm:inline">Add Admin User</span>
-                    <span className="sm:hidden">Add Admin</span>
+                  <Button className="w-full sm:w-auto" asChild>
+                    <Link to="/management/admin/role-manager">
+                      <Shield className="mr-2 h-4 w-4" />
+                      <span className="hidden sm:inline">Go to Role Manager</span>
+                      <span className="sm:hidden">Role Manager</span>
+                    </Link>
                   </Button>
                 )}
               </div>
@@ -314,9 +254,9 @@ const AdminManagement: React.FC = () => {
                 <CardHeader className="pb-3">
                   <div className="flex items-start space-x-3">
                     <Avatar className="h-12 w-12 shrink-0">
-                      <AvatarImage src={admin.avatar} alt={admin.name} />
+                      <AvatarImage src={'/placeholder.svg'} alt={admin.name} />
                       <AvatarFallback className="bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 font-medium">
-                        {admin.name.split(' ').map(n => n[0]).join('')}
+                        {(admin.name ?? '').split(' ').map(n => n?.[0] ?? '').join('') || 'U'}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
@@ -354,12 +294,8 @@ const AdminManagement: React.FC = () => {
                       </Badge>
                     </div>
                     <div className="flex justify-between text-xs md:text-sm">
-                      <span className="text-gray-600 dark:text-gray-300">Employee ID:</span>
-                      <span className="font-medium font-mono text-gray-900 dark:text-gray-100">{admin.employeeId}</span>
-                    </div>
-                    <div className="flex justify-between text-xs md:text-sm">
-                      <span className="text-gray-600 dark:text-gray-300">Join Date:</span>
-                      <span className="font-medium text-gray-900 dark:text-gray-100">{admin.joinDate}</span>
+                      <span className="text-gray-600 dark:text-gray-300">Created:</span>
+                      <span className="font-medium text-gray-900 dark:text-gray-100">{admin.created_at ? new Date(admin.created_at).toLocaleDateString() : '—'}</span>
                     </div>
                     
                     {/* Contact Info */}
@@ -376,34 +312,7 @@ const AdminManagement: React.FC = () => {
                       )}
                     </div>
                     
-                    {/* Action Buttons */}
-                    <div className="flex gap-2 pt-2">
-                      {isSuperAdmin && (
-                        <>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="flex-1 text-xs"
-                            onClick={() => openEditDialog(admin)}
-                          >
-                            Edit
-                          </Button>
-                          {admin.id !== currentUser?.id && (
-                            <Button 
-                              variant={admin.status === 'active' ? 'destructive' : 'default'} 
-                              size="sm" 
-                              className="flex-1 text-xs"
-                              onClick={() => handleStatusChange(
-                                admin.id, 
-                                admin.status === 'active' ? 'inactive' : 'active'
-                              )}
-                            >
-                              {admin.status === 'active' ? 'Deactivate' : 'Activate'}
-                            </Button>
-                          )}
-                        </>
-                      )}
-                    </div>
+                    {/* Actions are managed in Role Manager page */}
                   </div>
                 </CardContent>
               </Card>
@@ -418,12 +327,14 @@ const AdminManagement: React.FC = () => {
                 <p className="text-sm md:text-base text-gray-600 dark:text-gray-300 mb-4 max-w-md mx-auto">
                   {searchTerm || filterRole !== 'all' || filterStatus !== 'all' 
                     ? "Try adjusting your search criteria" 
-                    : "Get started by adding your first admin user"}
+                    : "Manage admin roles from the Role Manager page"}
                 </p>
                 {isSuperAdmin && (
-                  <Button onClick={() => setIsCreateDialogOpen(true)}>
-                    <UserPlus className="mr-2 h-4 w-4" />
-                    Add Admin User
+                  <Button asChild>
+                    <Link to="/management/admin/role-manager">
+                      <Shield className="mr-2 h-4 w-4" />
+                      Go to Role Manager
+                    </Link>
                   </Button>
                 )}
               </CardContent>
@@ -431,198 +342,7 @@ const AdminManagement: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* Create Admin Dialog */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Create New Admin User</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  value={newUser.name}
-                  onChange={(e) => setNewUser({...newUser, name: e.target.value})}
-                  className="mt-1"
-                />
-              </div>
-              <div className="col-span-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={newUser.email}
-                  onChange={(e) => setNewUser({...newUser, email: e.target.value})}
-                  className="mt-1"
-                />
-              </div>
-              <div className="col-span-1">
-                <Label htmlFor="role">Role</Label>
-                <Select 
-                  value={newUser.role} 
-                  onValueChange={(value) => setNewUser({...newUser, role: value})}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="super_admin">Super Admin</SelectItem>
-                    <SelectItem value="manager">Manager</SelectItem>
-                    <SelectItem value="hr_manager">HR Manager</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-1">
-                <Label htmlFor="department">Department</Label>
-                <Input
-                  id="department"
-                  value={newUser.department}
-                  onChange={(e) => setNewUser({...newUser, department: e.target.value})}
-                  className="mt-1"
-                />
-              </div>
-              <div className="col-span-1">
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  value={newUser.phone}
-                  onChange={(e) => setNewUser({...newUser, phone: e.target.value})}
-                  className="mt-1"
-                />
-              </div>
-              <div className="col-span-1">
-                <Label htmlFor="status">Status</Label>
-                <Select 
-                  value={newUser.status} 
-                  onValueChange={(value) => setNewUser({...newUser, status: value})}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-1">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={newUser.password}
-                  onChange={(e) => setNewUser({...newUser, password: e.target.value})}
-                  className="mt-1"
-                />
-              </div>
-              <div className="col-span-1">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  value={newUser.confirmPassword}
-                  onChange={(e) => setNewUser({...newUser, confirmPassword: e.target.value})}
-                  className="mt-1"
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateUser}>Create Admin</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Admin Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Edit Admin User</DialogTitle>
-          </DialogHeader>
-          {selectedUser && (
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <Label htmlFor="edit-name">Full Name</Label>
-                  <Input
-                    id="edit-name"
-                    value={selectedUser.name}
-                    onChange={(e) => setSelectedUser({...selectedUser, name: e.target.value})}
-                    className="mt-1"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label htmlFor="edit-email">Email</Label>
-                  <Input
-                    id="edit-email"
-                    type="email"
-                    value={selectedUser.email}
-                    onChange={(e) => setSelectedUser({...selectedUser, email: e.target.value})}
-                    className="mt-1"
-                  />
-                </div>
-                <div className="col-span-1">
-                  <Label htmlFor="edit-role">Role</Label>
-                  <Select 
-                    value={selectedUser.role} 
-                    onValueChange={(value: any) => setSelectedUser({...selectedUser, role: value})}
-                  >
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Select role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="super_admin">Super Admin</SelectItem>
-                      <SelectItem value="manager">Manager</SelectItem>
-                      <SelectItem value="hr_manager">HR Manager</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="col-span-1">
-                  <Label htmlFor="edit-department">Department</Label>
-                  <Input
-                    id="edit-department"
-                    value={selectedUser.department}
-                    onChange={(e) => setSelectedUser({...selectedUser, department: e.target.value})}
-                    className="mt-1"
-                  />
-                </div>
-                <div className="col-span-1">
-                  <Label htmlFor="edit-phone">Phone</Label>
-                  <Input
-                    id="edit-phone"
-                    value={selectedUser.phone || ''}
-                    onChange={(e) => setSelectedUser({...selectedUser, phone: e.target.value})}
-                    className="mt-1"
-                  />
-                </div>
-                <div className="col-span-1">
-                  <Label htmlFor="edit-status">Status</Label>
-                  <Select 
-                    value={selectedUser.status} 
-                    onValueChange={(value: any) => setSelectedUser({...selectedUser, status: value})}
-                  >
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="inactive">Inactive</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleEditUser}>Save Changes</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Actions and creation/edit now managed on Role Manager page */}
     </PageLayout>
   );
 };

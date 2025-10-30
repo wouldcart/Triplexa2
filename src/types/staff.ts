@@ -56,6 +56,7 @@ export interface EnhancedStaffMember {
   phone: string;
   department: string;
   role: string;
+  position?: string;
   status: 'active' | 'inactive' | 'on-leave';
   avatar?: string;
   joinDate: string;

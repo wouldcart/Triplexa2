@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Upload, Link2, X, Image } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
+import { checkBucketExists } from '@/lib/storageChecks';
 import { appSettingsService, SETTING_CATEGORIES, AppSettingsService } from '@/services/appSettingsService_database';
 import { AppSettingsHelpers } from '@/services/appSettingsService_database';
 
@@ -15,16 +16,18 @@ const FaviconUpload: React.FC = () => {
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isUploading, setIsUploading] = useState<boolean>(false);
-  // Force single storage mode: local filesystem via upload server
-  const storageMode: 'filesystem' = 'filesystem';
-  const uploadServerUrl = (import.meta.env.VITE_UPLOAD_SERVER_URL as string) || 'http://localhost:4000';
-  // Optional nested path for Local Filesystem mode
-  const [nestedRole, setNestedRole] = useState<string>('');
-  const [nestedEntityId, setNestedEntityId] = useState<string>('');
-  const [nestedSubfolder, setNestedSubfolder] = useState<string>('');
+  // Storage mode fixed: Supabase
+  const storageMode: 'supabase' = 'supabase';
+  const [brandingBucketExists, setBrandingBucketExists] = useState<boolean>(true);
 
   useEffect(() => {
     const loadCurrentFavicon = async () => {
+      // Preflight: verify branding bucket exists
+      const res = await checkBucketExists('branding');
+      setBrandingBucketExists(res.exists);
+      if (!res.exists) {
+        toast({ title: 'Branding storage missing', description: 'Supabase bucket "branding" is not found. Create a public bucket named "branding" in Supabase Studio or via migrations.', variant: 'destructive' });
+      }
       const current = await AppSettingsService.getSettingValue(SETTING_CATEGORIES.BRANDING, 'company_favicon');
       if (typeof current === 'string') {
         setPreviewUrl(current);
@@ -39,33 +42,42 @@ const FaviconUpload: React.FC = () => {
     if (!file) return;
     setIsUploading(true);
     try {
-      if (storageMode === 'filesystem') {
-        const form = new FormData();
-        form.append('file', file);
-        const endpoint = nestedRole && nestedEntityId
-          ? `/upload/${encodeURIComponent(nestedRole)}/${encodeURIComponent(nestedEntityId)}${nestedSubfolder ? `/${encodeURIComponent(nestedSubfolder)}` : ''}`
-          : `/upload/branding-favicons`;
-        const resp = await fetch(`${uploadServerUrl}${endpoint}`, {
-          method: 'POST',
-          body: form
+      if (storageMode === 'supabase') {
+        if (!brandingBucketExists) {
+          toast({ title: 'Branding bucket missing', description: 'Create the public storage bucket "branding" and re-try.', variant: 'destructive' });
+          return;
+        }
+        const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+        const filename = `favicons/${crypto.randomUUID()}.${ext}`;
+        const { error: uploadError } = await supabase.storage.from('branding').upload(filename, file, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: file.type || 'image/png'
         });
-        if (!resp.ok) throw new Error(`Upload server error: ${resp.status}`);
-        const json = await resp.json();
-        const fileUrl = json?.url;
-        if (!fileUrl) throw new Error('Upload server did not return URL');
+        if (uploadError) throw uploadError;
+
+        const { data } = supabase.storage.from('branding').getPublicUrl(filename);
+        const publicUrl = data?.publicUrl;
+        if (!publicUrl) throw new Error('Failed to obtain public URL for favicon');
+
         await AppSettingsHelpers.upsertSetting({
           category: SETTING_CATEGORIES.BRANDING,
           setting_key: 'company_favicon',
-          setting_value: fileUrl
+          setting_value: publicUrl
         });
-        setPreviewUrl(fileUrl);
-        setImageUrl(fileUrl);
-        toast({ title: 'Favicon uploaded', description: 'Saved to local uploads folder' });
+        setPreviewUrl(publicUrl);
+        setImageUrl(publicUrl);
+        toast({ title: 'Favicon uploaded', description: 'Saved to branding storage and settings' });
       }
     } catch (err: any) {
       console.error('Favicon upload failed:', err);
-      if (storageMode === 'filesystem') {
-        toast({ title: 'Upload failed', description: err?.message || 'Could not upload to local filesystem', variant: 'destructive' });
+      if (storageMode === 'supabase') {
+        const msg = String(err?.message || '').toLowerCase();
+        if (msg.includes('bucket') || msg.includes('not found')) {
+          toast({ title: 'Branding bucket not found', description: 'Create the public storage bucket "branding" and re-try.', variant: 'destructive' });
+        } else {
+          toast({ title: 'Upload failed', description: err?.message || 'Could not upload favicon', variant: 'destructive' });
+        }
       }
     } finally {
       setIsUploading(false);
@@ -112,31 +124,13 @@ const FaviconUpload: React.FC = () => {
         <CardDescription>Upload or link your site favicon (.ico or .png)</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Storage mode fixed: Local Filesystem */}
+        {/* Storage mode fixed: Supabase */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
           <Label className="text-sm">Storage Mode:</Label>
           <div className="flex items-center gap-2">
-            <Button type="button" variant={'default'} size="sm" disabled>Local Filesystem (fixed)</Button>
+            <Button type="button" variant={'default'} size="sm" disabled>Supabase (fixed)</Button>
           </div>
         </div>
-        {/* Optional nested path inputs for Local Filesystem */}
-        {storageMode === 'filesystem' && (
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="space-y-2">
-              <Label className="text-sm">Role</Label>
-              <Input placeholder="e.g., agents" value={nestedRole} onChange={(e) => setNestedRole(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm">Entity ID</Label>
-              <Input placeholder="e.g., agent123" value={nestedEntityId} onChange={(e) => setNestedEntityId(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm">Subfolder</Label>
-              <Input placeholder="e.g., logo" value={nestedSubfolder} onChange={(e) => setNestedSubfolder(e.target.value)} />
-            </div>
-            <p className="md:col-span-3 text-xs text-gray-500 mt-1">When set, files upload to /upload/&lt;role&gt;/&lt;entityId&gt;/&lt;subfolder&gt; instead of default branding folders.</p>
-          </div>
-        )}
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-3">
             <Label className="text-sm">Upload File</Label>
@@ -151,7 +145,7 @@ const FaviconUpload: React.FC = () => {
             </div>
             <input ref={fileInputRef} type="file" accept="image/*,.ico" onChange={handleFileUpload} className="hidden" />
             <Button variant="outline" size="sm" disabled={isUploading} onClick={() => fileInputRef.current?.click()}>
-              {isUploading ? (storageMode === 'local' ? 'Saving...' : 'Uploading...') : 'Select File'}
+              {isUploading ? 'Uploading...' : 'Select File'}
             </Button>
           </div>
 

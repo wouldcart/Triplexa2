@@ -1271,9 +1271,9 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
 
                                     {/* Route Direction */}
                                     <div className="flex items-center gap-1 text-sm text-blue-700 dark:text-blue-300">
-                                      <span className="font-medium">{transport.from || transport.startLocation || 'Unknown'}</span>
+                                      <span className="font-medium">{transport.from ?? 'Unknown'}</span>
                                       <span className="text-blue-500 dark:text-blue-400">→</span>
-                                      <span className="font-medium">{transport.to || transport.endLocation || 'Unknown'}</span>
+                                      <span className="font-medium">{transport.to ?? 'Unknown'}</span>
                                     </div>
                                     
                                     {/* Pickup and Drop Details - Compact */}
@@ -1329,7 +1329,7 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                                   const quantityMatch = vehicle.match(/^(\d+)\s*x?\s*/);
                                   const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1;
                                   const actualVehicleName = vehicleName.replace(/^\d+\s*x?\s*/, '');
-                                  return <div key={`transport-vehicle-${transport.id || `${transport.from || transport.startLocation || 'unknown'}-${transport.to || transport.endLocation || 'unknown'}`}-${idx}-${vehicle.replace(/\s+/g, '-')}`} className="bg-white dark:bg-gray-900/70 rounded-lg border border-blue-200 dark:border-blue-700 p-4 space-y-3">
+                                  return <div key={`transport-vehicle-${transport.id || `${transport.from ?? 'unknown'}-${transport.to ?? 'unknown'}`}-${idx}-${vehicle.replace(/\s+/g, '-')}`} className="bg-white dark:bg-gray-900/70 rounded-lg border border-blue-200 dark:border-blue-700 p-4 space-y-3">
                                                     {/* Vehicle Header with Enhanced Numbers */}
                                                     <div className="flex items-center justify-between">
                                                       <div className="flex items-center gap-3">
@@ -1843,17 +1843,17 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
 
                               {/* Editable Fields - Only show for activities with missing data */}
                               {(!activity.name || !activity.description) && <div className="mt-3 pt-3 border-t border-purple-200 dark:border-purple-800/50 space-y-2">
-                                  {!activity.name && <Input value={activity.name} onChange={e => updateActivity(day.id, activity.id, {
+                                  {!activity.name && <Input value={activity.name ?? ''} onChange={e => updateActivity(day.id, activity.id, {
                           name: e.target.value
                         })} placeholder="Enter activity name" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />}
-                                  {!activity.description && <Textarea value={activity.description} onChange={e => updateActivity(day.id, activity.id, {
+                                  {!activity.description && <Textarea value={activity.description ?? ''} onChange={e => updateActivity(day.id, activity.id, {
                           description: e.target.value
                         })} placeholder="Describe the activity..." rows={2} onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />}
                                    <div className="grid grid-cols-2 gap-2">
-                                     <Input value={activity.duration} onChange={e => updateActivity(day.id, activity.id, {
+                                     <Input value={activity.duration ?? ''} onChange={e => updateActivity(day.id, activity.id, {
                             duration: e.target.value
                           })} placeholder="Duration" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
-                                     <Input type="number" value={activity.cost} onChange={e => updateActivity(day.id, activity.id, {
+                                     <Input type="number" value={activity.cost ?? 0} onChange={e => updateActivity(day.id, activity.id, {
                             cost: parseFloat(e.target.value) || 0
                           })} placeholder="Cost" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
                                    </div>

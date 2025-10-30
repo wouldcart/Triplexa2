@@ -70,7 +70,7 @@ export interface AppSettingsServiceResponse<T = any> {
 const STORAGE_KEY = 'app_settings_fallback';
 
 // Allowed roles for app settings management
-const ALLOWED_ROLES = ['super_admin', 'manager'];
+const ALLOWED_ROLES = ['super_admin', 'manager', 'agent', 'staff', 'hr_manager'];
 
 // Cache for database access status to prevent repeated 406 errors
 let databaseAccessCache: {
@@ -150,7 +150,7 @@ class AppSettingsService {
       // Guard: ensure we have an active session before calling getUser
       const { session, error: sessionError } = await authHelpers.getSession();
       if (sessionError || !session) {
-        console.warn('AppSettingsService (DB): No active session — skipping settings check');
+        console.info('AppSettingsService (DB): No active session — using localStorage fallback');
         return false;
       }
 
@@ -458,16 +458,12 @@ class AppSettingsService {
   static async createSetting(setting: AppSettingInsert): Promise<AppSettingsServiceResponse<AppSetting | null>> {
     try {
       const hasPermission = await this.checkPermissions();
-      if (!hasPermission) {
-        return {
-          data: null,
-          error: 'Insufficient permissions',
-          success: false
-        };
-      }
-      // Use session to derive user ID to avoid 'Auth session missing'
       const { session } = await authHelpers.getSession();
       const userId = session?.user?.id;
+      if (!hasPermission) {
+        // Unauthenticated or unauthorized — fallback to localStorage
+        return this.createSettingInStorage(setting, userId);
+      }
       const tableExists = await this.checkTableExists();
       
       if (tableExists) {
@@ -562,16 +558,12 @@ class AppSettingsService {
   ): Promise<AppSettingsServiceResponse<AppSetting | null>> {
     try {
       const hasPermission = await this.checkPermissions();
-      if (!hasPermission) {
-        return {
-          data: null,
-          error: 'Insufficient permissions',
-          success: false
-        };
-      }
-      // Derive user ID from session to avoid transient auth errors
       const { session } = await authHelpers.getSession();
       const userId = session?.user?.id;
+      if (!hasPermission) {
+        // Unauthenticated or unauthorized — fallback to localStorage
+        return this.updateSettingInStorage(category, settingKey, updates, userId);
+      }
       const tableExists = await this.checkTableExists();
       
       if (tableExists) {
@@ -662,11 +654,8 @@ class AppSettingsService {
     try {
       const hasPermission = await this.checkPermissions();
       if (!hasPermission) {
-        return {
-          data: false,
-          error: 'Insufficient permissions',
-          success: false
-        };
+        // Unauthenticated or unauthorized — fallback to localStorage
+        return this.deleteSettingFromStorage(category, settingKey);
       }
 
       const tableExists = await this.checkTableExists();

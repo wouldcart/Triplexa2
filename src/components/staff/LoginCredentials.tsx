@@ -41,11 +41,12 @@ const LoginCredentials: React.FC<LoginCredentialsProps> = ({
   const handleGenerateUsername = (setValue: (value: string) => void) => {
     let username = '';
     if (watchedEmail) {
-      username = generateUsernameFromEmail(watchedEmail);
+      // Default username exactly equals the entered email address
+      username = watchedEmail.trim();
     } else if (watchedName) {
       username = generateUsernameFromName(watchedName);
     }
-    
+
     // Ensure uniqueness
     let finalUsername = username;
     let counter = 1;
@@ -53,7 +54,7 @@ const LoginCredentials: React.FC<LoginCredentialsProps> = ({
       finalUsername = `${username}${counter}`;
       counter++;
     }
-    
+
     setValue(finalUsername);
   };
 

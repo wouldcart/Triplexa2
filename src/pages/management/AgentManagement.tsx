@@ -4,6 +4,7 @@ import PageLayout from '../../components/layout/PageLayout';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '../../components/ui/table';
@@ -18,7 +19,12 @@ import {
   AlertCircle,
   UserPlus,
   Shield,
-  QrCode
+  QrCode,
+  Eye,
+  FileText,
+  Edit,
+  PauseCircle,
+  Trash
 } from 'lucide-react';
 import { AgentManagementService } from '../../services/agentManagementService';
 import AgentApprovalModal from '@/components/modals/AgentApprovalModal';
@@ -30,9 +36,13 @@ import { getStoredStaff } from '@/services/staffStorageService';
 import { QRCodeCanvas } from 'qrcode.react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
 import { getDeterministicStaffReferralLink, getStaffReferralLink, decodeReferralCodeToStaffId } from '@/services/staffReferralService';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 
 interface Agent {
   id: string;
+  user_id?: string;
   name: string;
   email: string;
   phone: string;
@@ -56,6 +66,8 @@ interface Agent {
   source_details?: string;
   source_type?: string;
   created_by?: string;
+  // Suspension metadata (for tooltip)
+  suspension_reason?: string;
 }
 
 interface AgentStats {
@@ -69,7 +81,7 @@ interface AgentStats {
 
 export default function AgentManagement() {
   const navigate = useNavigate();
-  const { currentUser } = useApp();
+  const { currentUser, hasPermission } = useApp();
   const isStaff = (currentUser?.role || '').toLowerCase() === 'staff';
   const [agents, setAgents] = useState<Agent[]>([]);
   const [filteredAgents, setFilteredAgents] = useState<Agent[]>([]);
@@ -92,6 +104,19 @@ export default function AgentManagement() {
     averageRating: 0
   });
 
+  // Pagination state and derived slice
+  const [pageSize, setPageSize] = useState<number>(10);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const totalPages = Math.max(1, Math.ceil(filteredAgents.length / pageSize));
+  const paginatedAgents = React.useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredAgents.slice(start, start + pageSize);
+  }, [filteredAgents, currentPage, pageSize]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, sourceFilter, referralFilter, referralStaffId]);
+
   // QR Module state
   const [qrMode, setQrMode] = useState<'staff' | 'event'>('staff');
   const [staffIdInput, setStaffIdInput] = useState('');
@@ -99,6 +124,13 @@ export default function AgentManagement() {
   const [qrLink, setQrLink] = useState('');
   const [qrSize, setQrSize] = useState(300);
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Suspend dialog state
+  const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
+  const [suspendReason, setSuspendReason] = useState('');
+  const [suspendTarget, setSuspendTarget] = useState<Agent | null>(null);
+  const [isSuspending, setIsSuspending] = useState(false);
+  const canSuspend = (hasPermission ? hasPermission('agents.manage.all') : false) || (currentUser?.role === 'super_admin') || (currentUser?.role === 'manager');
 
   // Helper: resolve staff name by ID from loaded staff members
   const resolveStaffNameById = (id?: string | null) => {
@@ -274,6 +306,7 @@ export default function AgentManagement() {
       } else {
         const agentData: Agent[] = (data || []).map((agent: ManagedAgent) => ({
           id: agent.id,
+          user_id: (agent as any).user_id,
           name: agent.name,
           email: agent.email,
           phone: agent.phone || '',
@@ -289,7 +322,8 @@ export default function AgentManagement() {
           source_type: agent.source_type,
           source_details: agent.source_details,
           source: agent.created_by ? 'admin' : 'self-registered',
-          created_by: agent.created_by
+          created_by: agent.created_by,
+          suspension_reason: (agent as any)?.suspension_reason
         }));
         // Enrich with local storage creator/assignment info and enforce staff-only visibility
         const getLocalAccessMaps = (): { creatorMap: Map<string, string>; assignedMap: Map<string, Set<string>> } => {
@@ -533,6 +567,44 @@ export default function AgentManagement() {
       }
     } catch (err) {
       console.error('Error updating agent status:', err);
+    }
+  };
+
+  const handleOpenSuspendDialog = (agent: Agent) => {
+    if (!canSuspend) {
+      toast.error({ title: 'Access denied', description: "You don't have permission to suspend agents." });
+      return;
+    }
+    setSuspendTarget(agent);
+    setSuspendReason('');
+    setSuspendDialogOpen(true);
+  };
+
+  const handleConfirmSuspend = async () => {
+    if (!suspendTarget) return;
+    const reason = suspendReason.trim();
+    if (!reason) {
+      toast.error({ title: 'Reason required', description: 'Please enter a reason for suspension.' });
+      return;
+    }
+    try {
+      setIsSuspending(true);
+      const idForUpdate = suspendTarget.user_id || suspendTarget.id;
+      const { error } = await AgentManagementService.suspendAgent(idForUpdate, reason);
+      if (!error) {
+        await loadAgents();
+        toast.success({ title: 'Agent suspended', description: 'The agent has been suspended.' });
+        setSuspendDialogOpen(false);
+        setSuspendTarget(null);
+        setSuspendReason('');
+      } else {
+        toast.error({ title: 'Suspend failed', description: 'Could not suspend the agent.' });
+      }
+    } catch (err) {
+      console.error('Error suspending agent:', err);
+      toast.error({ title: 'Suspend failed', description: 'Unexpected error occurred.' });
+    } finally {
+      setIsSuspending(false);
     }
   };
 
@@ -848,9 +920,10 @@ export default function AgentManagement() {
         <div className="mt-10">
           <Card>
             <CardHeader>
-              <CardTitle>Agent List</CardTitle>
+              <CardTitle>Agents List</CardTitle>
             </CardHeader>
             <CardContent>
+              <TooltipProvider>
               <Table hoverable>
                 <TableHeader sticky>
                   <TableRow>
@@ -860,14 +933,12 @@ export default function AgentManagement() {
                     <TableHead>Role</TableHead>
                     <TableHead>Source</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Performance</TableHead>
                     <TableHead>Bookings</TableHead>
-                    <TableHead>Revenue</TableHead>
                     <TableHead align="right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredAgents.map((agent) => (
+                  {paginatedAgents.map((agent) => (
                     <TableRow key={`row-${agent.id}`}>
                       <TableCell truncate>
                         <div className="font-medium">{agent.name}</div>
@@ -902,47 +973,57 @@ export default function AgentManagement() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Select value={agent.status} onValueChange={(val) => handleStatusChange(agent.id, val as any)}>
-                          <SelectTrigger className="w-32 capitalize">
-                            <SelectValue placeholder="Select status" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="active">Active</SelectItem>
-                            <SelectItem value="inactive">Inactive</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={agent.status === 'active'}
+                            onCheckedChange={(checked) => handleStatusChange(agent.id, (checked ? 'active' : 'inactive') as any)}
+                            disabled={!(agent.status === 'active' || agent.status === 'inactive')}
+                            aria-label="Toggle agent status"
+                          />
+                          <span className="text-sm capitalize">
+                            {agent.status === 'active' ? 'Active' : agent.status === 'inactive' ? 'Inactive' : agent.status}
+                          </span>
+                          {agent.status === 'suspended' && agent.suspension_reason && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex">
+                                  <AlertCircle className="h-4 w-4 text-muted-foreground" aria-label="Suspended reason" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Suspended: {agent.suspension_reason}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
                       </TableCell>
-                      <TableCell>{agent.performance_score}%</TableCell>
                       <TableCell>{agent.total_bookings}</TableCell>
-                      <TableCell>${agent.revenue_generated.toLocaleString()}</TableCell>
                       <TableCell align="right">
                         <div className="flex justify-end gap-2">
-                          <Button size="sm" variant="outline" onClick={() => handleViewAgent(agent.id)}>Profile</Button>
-                          <Button size="sm" variant="outline" onClick={() => navigate(`/reports?type=agent&id=${agent.id}`)}>Report</Button>
-                          <Button size="sm" variant="outline" onClick={() => handleEditAgent(agent.id)}>Edit</Button>
+                          <Button size="icon" variant="outline" onClick={() => handleViewAgent(agent.id)} title="Profile" aria-label="View profile">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button size="icon" variant="outline" onClick={() => navigate(`/reports?type=agent&id=${agent.id}`)} title="Report" aria-label="View report">
+                            <FileText className="h-4 w-4" />
+                          </Button>
+                          <Button size="icon" variant="outline" onClick={() => handleEditAgent(agent.id)} title="Edit" aria-label="Edit agent">
+                            <Edit className="h-4 w-4" />
+                          </Button>
                           {/* Pending status removed from DB-supported states; approval flow disabled */}
-                          {agent.status === 'active' && (
+                          {agent.status === 'active' && canSuspend && (
                             <Button
-                              size="sm"
+                              size="icon"
                               variant="outline"
-                              onClick={async () => {
-                                const reason = window.prompt('Enter suspension reason');
-                                if (!reason) return;
-                                const { error } = await AgentManagementService.suspendAgent(agent.id, reason);
-                                if (!error) {
-                                  await loadAgents();
-                                  toast.success({ title: 'Agent suspended', description: 'The agent has been suspended.' });
-                                } else {
-                                  toast.error({ title: 'Suspend failed', description: 'Could not suspend the agent.' });
-                                }
-                              }}
+                              onClick={() => handleOpenSuspendDialog(agent)}
+                              title="Suspend"
+                              aria-label="Suspend agent"
                             >
-                              Suspend
+                              <PauseCircle className="h-4 w-4" />
                             </Button>
                           )}
                           {(agent.status === 'suspended' || agent.status === 'rejected') && (
                             <Button
-                              size="sm"
+                              size="icon"
                               variant="default"
                               onClick={async () => {
                                 const { error } = await AgentManagementService.reactivateAgent(agent.id);
@@ -953,21 +1034,75 @@ export default function AgentManagement() {
                                   toast.error({ title: 'Reactivate failed', description: 'Could not reactivate the agent.' });
                                 }
                               }}
+                              title="Reactivate"
+                              aria-label="Reactivate agent"
                             >
-                              Reactivate
+                              <CheckCircle className="h-4 w-4" />
                             </Button>
                           )}
-                          <Button size="sm" variant="destructive" onClick={() => handleDeleteAgent(agent.id)}>Delete</Button>
+                          {/* <Button size="icon" variant="destructive" onClick={() => handleDeleteAgent(agent.id)} title="Delete" aria-label="Delete agent">
+                            <Trash className="h-4 w-4" />
+                          </Button> */}
                         </div>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+              </TooltipProvider>
+              <div className="flex items-center justify-between mt-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Rows per page:</span>
+                  <Select value={String(pageSize)} onValueChange={(val) => { setPageSize(Number(val)); setCurrentPage(1); }}>
+                    <SelectTrigger className="w-24">
+                      <SelectValue placeholder={`${pageSize}`} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="25">25</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Page {currentPage} of {totalPages}</span>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages}>Next</Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>
       )}
+      {/* Suspend Confirmation Dialog */}
+      <AlertDialog open={suspendDialogOpen} onOpenChange={setSuspendDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Suspend Agent</AlertDialogTitle>
+            <AlertDialogDescription>
+              Suspending this agent will restrict their access. Please enter a reason.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            {suspendTarget && (
+              <div className="text-sm text-muted-foreground">
+                Agent: <span className="font-medium text-foreground">{suspendTarget.name}</span> ({suspendTarget.email})
+              </div>
+            )}
+            <Textarea
+              placeholder="Enter suspension reason"
+              value={suspendReason}
+              onChange={(e) => setSuspendReason(e.target.value)}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setSuspendDialogOpen(false)} disabled={isSuspending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmSuspend} disabled={isSuspending || !suspendReason.trim()}>
+              {isSuspending ? 'Suspending…' : 'Suspend'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {/* Approval/Reject Modal */}
       {selectedAgent && (
         <AgentApprovalModal

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { FormMessage } from '@/components/ui/form';
 import { RefreshCw, Hash } from 'lucide-react';
-import { generateEmployeeCode, validateEmployeeCode, isEmployeeCodeUnique } from '@/utils/employeeCodeGenerator';
+import { generateEmployeeCodeFromDB, validateEmployeeCode, isEmployeeCodeUnique } from '@/utils/employeeCodeGenerator';
 
 interface EmployeeCodeFieldProps {
   value: string;
@@ -28,10 +28,10 @@ const EmployeeCodeField: React.FC<EmployeeCodeFieldProps> = ({
 }) => {
   const [isGenerating, setIsGenerating] = React.useState(false);
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     setIsGenerating(true);
     try {
-      const newCode = generateEmployeeCode();
+      const newCode = await generateEmployeeCodeFromDB();
       onChange(newCode);
     } catch (error) {
       console.error('Failed to generate employee code:', error);
@@ -42,8 +42,8 @@ const EmployeeCodeField: React.FC<EmployeeCodeFieldProps> = ({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputValue = e.target.value;
-    // Only allow numeric input, max 4 digits
-    if (/^\d{0,4}$/.test(inputValue)) {
+    // Only allow numeric input, up to 10 digits
+    if (/^\d{0,10}$/.test(inputValue)) {
       onChange(inputValue);
     }
   };
@@ -60,9 +60,9 @@ const EmployeeCodeField: React.FC<EmployeeCodeFieldProps> = ({
             <Input
               value={value}
               onChange={handleInputChange}
-              placeholder={placeholder}
+              placeholder={placeholder || 'Enter up to 10 digits'}
               disabled={disabled}
-              maxLength={4}
+              maxLength={10}
               className={`pl-10 h-11 font-mono text-center tracking-wider border-gray-300 focus:border-blue-500 focus:ring-blue-500 ${!isValid && value ? 'border-red-500' : ''} ${!isUnique ? 'border-red-500' : ''}`}
             />
           </div>
@@ -82,7 +82,7 @@ const EmployeeCodeField: React.FC<EmployeeCodeFieldProps> = ({
       
       {error && <FormMessage>{error}</FormMessage>}
       {value && !isValid && (
-        <FormMessage>Employee code must be exactly 4 digits</FormMessage>
+        <FormMessage>Employee code must be 1–10 digits</FormMessage>
       )}
       {value && isValid && !isUnique && (
         <FormMessage>This employee code is already in use</FormMessage>

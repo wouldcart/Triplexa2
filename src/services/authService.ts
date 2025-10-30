@@ -16,6 +16,8 @@ export interface AuthUser {
   city?: string;
   country?: string;
   avatar?: string;
+  // Optional flag stored in user metadata to enforce password change
+  must_change_password?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +35,12 @@ const getPermissionsByRole = (role: string): string[] => {
       return ['read', 'write', 'delete', 'manage_users', 'manage_settings'];
     case 'manager':
       return ['read', 'write', 'manage_team'];
+    case 'hr_manager':
+      // HR managers have HR-focused capabilities
+      return ['staff.*', 'hr.*', 'attendance.*', 'payroll.*', 'queries.view'];
+    case 'staff':
+      // Baseline staff capabilities
+      return ['queries.view', 'bookings.view'];
     case 'agent':
       return ['read', 'write'];
     case 'support':
@@ -48,7 +56,7 @@ const convertToAppUser = (authUser: any): User => {
     email: authUser.email,
     name: authUser.name || authUser.email,
     role: authUser.role || 'agent',
-    department: authUser.department || 'General',
+    department: authUser.department,
     phone: authUser.phone || '',
     status: authUser.status || 'active',
     position: authUser.position || authUser.role || 'Agent',
@@ -72,18 +80,20 @@ export class AuthService {
       if (!authError && authData.user) {
         console.log('✅ Supabase Auth successful for:', authData.user.email);
         
-        // Get user profile from database
-        const { data: profileData, error: profileError } = await supabase
+        // Fetch profile directly; if missing, self-heal by upserting minimal profile
+        const { data: profileRow, error: profileErr } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', authData.user.id)
-          .single();
+          .maybeSingle();
 
-        if (!profileError && profileData) {
-          console.log('✅ Profile found:', profileData.name);
+        const profileData = profileRow || await AuthService.ensureProfileExists(authData.user);
+
+        if (profileData) {
+          console.log('✅ Profile resolved:', profileData.name);
           
           // For agents with Supabase Auth, sync their password to agent_credentials
-          if (profileData.role === 'agent') {
+          if ((profileData as any).role === 'agent') {
             await this.syncSupabasePasswordToAgentCredentials(authData.user.id, email, password);
           }
           
@@ -95,7 +105,7 @@ export class AuthService {
             session: authData.session
           };
         } else {
-          console.log('❌ Profile lookup error:', profileError?.message);
+          console.log('❌ Profile not found for user:', authData.user.id);
         }
       } else {
         console.log('❌ Supabase Auth error:', authError?.message);
@@ -122,6 +132,97 @@ export class AuthService {
         error: error instanceof Error ? error.message : 'Authentication failed',
         session: null
       };
+    }
+  }
+
+  /**
+   * Check if a user exists by email using the Admin Auth client.
+   * Returns { exists, id } where id is the Supabase Auth user id if found.
+   */
+  static async userExistsByEmail(email: string): Promise<{ exists: boolean; id?: string }> {
+    try {
+      if (!email) return { exists: false };
+      const target = String(email).trim().toLowerCase();
+
+      // Prefer admin listUsers when available
+      if (isAdminClientConfigured && adminSupabase) {
+        const adminAuth = (adminSupabase as any).auth.admin;
+        const { data, error } = await adminAuth.listUsers();
+        if (error) {
+          console.warn('Error listing users for email check:', error.message || error);
+        } else {
+          const match = (data?.users || []).find((u: any) => String(u.email || '').toLowerCase() === target);
+          if (match) return { exists: true, id: match.id };
+        }
+      }
+
+      // Fallback: call RPC if available
+      try {
+        const { data: rpcData, error: rpcErr } = await (supabase as any).rpc('check_user_exists_by_email', { p_email: target });
+        if (rpcErr) {
+          // Silently ignore RPC errors and return false
+          // console.warn('RPC email check error:', rpcErr.message || rpcErr);
+          return { exists: false };
+        }
+        if (rpcData && typeof rpcData === 'object') {
+          const exists = !!(rpcData as any).exists;
+          const id = (rpcData as any).id;
+          return { exists, id };
+        }
+      } catch {}
+
+      return { exists: false };
+    } catch (e) {
+      console.warn('userExistsByEmail error:', e);
+      return { exists: false };
+    }
+  }
+
+  /**
+   * Check if a user exists by phone using Admin Auth and user metadata.
+   * Normalizes to digits-only when comparing.
+   */
+  static async userExistsByPhone(phone: string): Promise<{ exists: boolean; id?: string }> {
+    try {
+      if (!phone) return { exists: false };
+      const normalize = (p: string) => String(p || '').replace(/\D/g, '');
+      const target = normalize(phone);
+      if (!target) return { exists: false };
+
+      // Prefer admin listUsers when available
+      if (isAdminClientConfigured && adminSupabase) {
+        const adminAuth = (adminSupabase as any).auth.admin;
+        const { data, error } = await adminAuth.listUsers();
+        if (error) {
+          console.warn('Error listing users for phone check:', error.message || error);
+        } else {
+          const match = (data?.users || []).find((u: any) => {
+            const authPhone = normalize(u.phone || '');
+            const metaPhone = normalize(u.user_metadata?.phone || '');
+            return authPhone === target || metaPhone === target;
+          });
+          if (match) return { exists: true, id: match.id };
+        }
+      }
+
+      // Fallback: call RPC if available
+      try {
+        const { data: rpcData, error: rpcErr } = await (supabase as any).rpc('check_user_exists_by_phone', { p_phone: target });
+        if (rpcErr) {
+          // console.warn('RPC phone check error:', rpcErr.message || rpcErr);
+          return { exists: false };
+        }
+        if (rpcData && typeof rpcData === 'object') {
+          const exists = !!(rpcData as any).exists;
+          const id = (rpcData as any).id;
+          return { exists, id };
+        }
+      } catch {}
+
+      return { exists: false };
+    } catch (e) {
+      console.warn('userExistsByPhone error:', e);
+      return { exists: false };
     }
   }
 
@@ -241,13 +342,15 @@ export class AuthService {
       const { data, error } = await authHelpers.signUp(email, password, {
         name: userData.name,
         role: userData.role || 'agent',
-        department: userData.department || 'General',
+        department: userData.department, 
         phone: userData.phone,
         position: userData.position || userData.role || 'Agent',
         employee_id: userData.employee_id ?? userData.employeeId,
         company_name: userData.company_name,
         city: userData.city,
         country: userData.country,
+        // Forward optional metadata control for password change requirement
+        must_change_password: userData.must_change_password === true,
       });
   
       if (error) {
@@ -262,13 +365,14 @@ export class AuthService {
               user_metadata: {
                 name: userData.name,
                 role: userData.role || 'agent',
-                department: userData.department || 'General',
+                department: userData.department,
                 phone: userData.phone,
                 position: userData.position || userData.role || 'Agent',
                 employee_id: userData.employee_id ?? userData.employeeId,
                 company_name: userData.company_name,
                 city: userData.city,
                 country: userData.country,
+                must_change_password: userData.must_change_password === true,
               }
             });
   
@@ -281,7 +385,7 @@ export class AuthService {
                   name: userData.name || email,
                   email,
                   role: userData.role || 'agent',
-                  department: userData.department || 'General',
+                  department: userData.department,
                   phone: userData.phone,
                   status: 'active',
                   position: userData.position || userData.role || 'Agent',
@@ -289,6 +393,7 @@ export class AuthService {
                   company_name: userData.company_name,
                   city: userData.city,
                   country: userData.country,
+                  must_change_password: userData.must_change_password === true,
                 }]);
   
               const appUser: User = {
@@ -296,9 +401,9 @@ export class AuthService {
                 email,
                 name: userData.name || email,
                 role: userData.role || 'agent',
-                department: userData.department || 'General',
+                department: userData.department,
                 phone: userData.phone || '',
-                status: 'active',
+                status: 'inactive',
                 position: userData.position || userData.role || 'Agent',
                 employeeId: userData.employee_id ?? userData.employeeId,
                 permissions: getPermissionsByRole(userData.role || 'agent'),
@@ -336,7 +441,7 @@ export class AuthService {
                   name: userData.name || email,
                   email: email,
                   role: userData.role || 'agent',
-                  department: userData.department || 'General',
+                  department: userData.department,
                   phone: userData.phone,
                   status: 'active',
                   position: userData.position || userData.role || 'Agent',
@@ -350,26 +455,38 @@ export class AuthService {
               console.warn('Admin profile upsert error (non-blocking):', adminProfileErr);
             }
           } else {
-            // No admin client; avoid client-side upsert to prevent RLS violations.
-            // The on_auth_user_created trigger will create the profile.
+            // No admin client; proactively ensure profile exists via SECURITY DEFINER RPC
+            try {
+              await AuthService.ensureProfileExists(data.user);
+            } catch (ensureEx) {
+              console.warn('ensureProfileExists after signUp failed (non-blocking):', ensureEx);
+            }
           }
         } catch (profileUpsertEx) {
           console.warn('Profile upsert exception (non-blocking):', profileUpsertEx);
         }
-  
-        const appUser: User = {
-          id: data.user.id,
-          email: email,
-          name: userData.name || email,
-          role: userData.role || 'agent',
-          department: userData.department || 'General',
-          phone: userData.phone || '',
-          status: 'active',
-          position: userData.position || userData.role || 'Agent',
-          employeeId: userData.employee_id ?? userData.employeeId,
-          permissions: getPermissionsByRole(userData.role || 'agent'),
-          avatar: '',
-        };
+
+        // Prefer returning the ensured profile if available
+        let ensuredUser: any = null;
+        try {
+          ensuredUser = await AuthService.ensureProfileExists(data.user);
+        } catch {}
+
+        const appUser: User = ensuredUser
+          ? convertToAppUser(ensuredUser)
+          : {
+              id: data.user.id,
+              email: email,
+              name: userData.name || email,
+              role: userData.role || 'agent',
+              department: userData.department,
+              phone: userData.phone || '',
+              status: 'active',
+              position: userData.position || userData.role || 'Agent',
+              employeeId: userData.employee_id ?? userData.employeeId,
+              permissions: getPermissionsByRole(userData.role || 'agent'),
+              avatar: '',
+            };
   
         return {
           user: appUser,
@@ -413,15 +530,53 @@ export class AuthService {
         return { user: null, session: null, error: null };
       }
 
-      // Get user profile from database
-      const { data: profileData, error: profileError } = await supabase
+      // Fetch current user's profile directly; self-heal if missing
+      const { data: profileRow, error: profileErr } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', session.user.id)
-        .single();
+        .eq('id', (session.user as any).id)
+        .maybeSingle();
 
-      if (profileError) {
+      const profileData: any = profileRow || await AuthService.ensureProfileExists(session.user);
+      if (!profileData) {
         return { user: null, session: session, error: 'Profile not found' };
+      }
+
+      // Post-login enrichment: if metadata contains fields missing in profile, persist them
+      try {
+        const meta: any = (session.user as any)?.user_metadata || (session.user as any)?.app_metadata || {};
+        const updates: Partial<AuthUser> = {};
+        const hasValue = (v: any) => v !== undefined && v !== null && String(v).trim() !== '';
+
+        if (!hasValue((profileData as any)?.name) && hasValue(meta.name)) {
+          updates.name = meta.name;
+        }
+        if (!hasValue((profileData as any)?.phone) && hasValue(meta.phone)) {
+          updates.phone = meta.phone;
+        }
+        const metaCompany = (hasValue(meta.company_name) ? meta.company_name : (hasValue(meta.agency_name) ? meta.agency_name : undefined));
+        if (!hasValue((profileData as any)?.company_name) && hasValue(metaCompany)) {
+          updates.company_name = metaCompany as any;
+        }
+        if (!hasValue((profileData as any)?.city) && hasValue(meta.city)) {
+          updates.city = meta.city;
+        }
+        if (!hasValue((profileData as any)?.country) && hasValue(meta.country)) {
+          updates.country = meta.country;
+        }
+        // Ensure email stored in profiles if missing
+        const authEmail = (session.user as any)?.email;
+        if (!hasValue((profileData as any)?.email) && hasValue(authEmail)) {
+          updates.email = authEmail as any;
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await AuthService.updateProfile((session.user as any).id, updates);
+          // Merge updates into profileData for return
+          Object.assign(profileData as any, updates);
+        }
+      } catch (enrichErr) {
+        console.warn('⚠️ Profile enrichment skipped:', enrichErr);
       }
 
       const appUser = convertToAppUser(profileData);
@@ -445,6 +600,28 @@ export class AuthService {
   }
 
   /**
+   * Re-authenticate the current user using their current password before sensitive actions.
+   */
+  static async reauthenticateWithPassword(currentPassword: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const { data: { user }, error: getUserError } = await supabase.auth.getUser();
+      if (getUserError || !user || !user.email) {
+        return { ok: false, error: 'User not authenticated' };
+      }
+      const { error } = await supabase.auth.signInWithPassword({
+        email: user.email as string,
+        password: currentPassword,
+      });
+      if (error) {
+        return { ok: false, error: error.message || 'Invalid current password' };
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'Re-authentication failed' };
+    }
+  }
+
+  /**
    * Enhanced password update that handles both Supabase and DB-backed agents
    */
   static async updatePassword(newPassword: string): Promise<{ error: string | null }> {
@@ -455,12 +632,10 @@ export class AuthService {
         return { error: 'User not authenticated' };
       }
 
-      // Get user profile to check if they're an agent
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('role, email')
-        .eq('id', user.id)
-        .single();
+      // Determine role and email without querying profiles to avoid RLS recursion
+      const meta: any = (user as any)?.user_metadata || (user as any)?.app_metadata || {};
+      const role: string = meta.role || 'agent';
+      const emailForAgent: string | null = user.email || null;
 
       // Update Supabase password
       const { error: supabaseError } = await authHelpers.updatePassword(newPassword);
@@ -469,19 +644,29 @@ export class AuthService {
         return { error: (supabaseError as any).message || 'Password update failed' };
       }
 
+      // Clear metadata flag requiring password change, if present
+      try {
+        await supabase.auth.updateUser({
+          // Only update metadata; password already updated above
+          data: { must_change_password: false }
+        });
+      } catch (metaErr) {
+        console.warn('⚠️ Failed to clear must_change_password metadata (non-blocking):', metaErr);
+      }
+
       // If user is an agent, also update their DB credentials
-      if (profileData?.role === 'agent' && profileData.email) {
+      if (role === 'agent' && emailForAgent) {
         try {
           // Import AgentManagementService here to avoid circular dependency
           const { AgentManagementService } = await import('./agentManagementService');
           
           await AgentManagementService.setAgentCredentials(
-            user.id, 
-            profileData.email, 
-            newPassword, 
+            user.id,
+            emailForAgent,
+            newPassword,
             false
           );
-          console.log('✅ Updated both Supabase and DB credentials for agent:', profileData.email);
+          console.log('✅ Updated both Supabase and DB credentials for agent:', emailForAgent);
         } catch (dbError) {
           console.warn('⚠️ Failed to update DB credentials, but Supabase password updated:', dbError);
           // Don't fail the entire operation if DB sync fails
@@ -501,10 +686,14 @@ export class AuthService {
         .from('profiles')
         .update({
           name: updates.name,
+          email: updates.email,
           phone: updates.phone,
           department: updates.department,
           position: updates.position,
           employee_id: updates.employee_id ?? updates.employeeId,
+          company_name: updates.company_name,
+          city: updates.city,
+          country: updates.country,
           updated_at: new Date().toISOString(),
         })
         .eq('id', userId)
@@ -533,30 +722,34 @@ export class AuthService {
         return { required: false };
       }
 
-      // Get user profile
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('role, email')
-        .eq('id', user.id)
-        .single();
+      // Check user metadata flag first for general users
+      const meta: any = (user as any)?.user_metadata || (user as any)?.app_metadata || {};
+      if (meta.must_change_password === true) {
+        return {
+          required: true,
+          reason: 'Your account requires a password change before proceeding.'
+        };
+      }
+
+      // Determine role and email from auth user metadata to avoid profiles RLS recursion
+      const role: string = typeof meta.role === 'string' ? meta.role : 'agent';
+      const emailForAgent: string | null = (user as any)?.email || null;
 
       // For agents, check if they have temporary credentials
-      if (profileData?.role === 'agent' && profileData.email) {
-        const { data: credStatus, error: credsError } = await (supabase as any)
-          .from('agent_credentials')
-          .select('is_temporary')
-          .eq('username', profileData.email)
-          .single();
+      if (role === 'agent' && emailForAgent) {
+        const { data: credData, error: credErr } = await (supabase as any)
+          .rpc('get_agent_credentials_status', { p_username: emailForAgent });
 
-        if (credsError && credsError.code !== 'PGRST116') {
-          console.warn('⚠️ Error checking agent credentials:', credsError.message);
+        if (credErr) {
+          console.warn('⚠️ Error checking agent credentials via RPC:', credErr.message || credErr);
           return { required: false };
         }
 
-        if ((credStatus as any)?.is_temporary) {
-          return { 
-            required: true, 
-            reason: 'You are using temporary credentials. Please change your password for security.' 
+        // RPC returns a row with fields: credential_exists, is_temporary, agent_id
+        if ((credData as any)?.is_temporary) {
+          return {
+            required: true,
+            reason: 'You are using temporary credentials. Please change your password for security.'
           };
         }
       }
@@ -565,6 +758,68 @@ export class AuthService {
     } catch (error) {
       console.warn('⚠️ Failed to check password change requirement:', error);
       return { required: false };
+    }
+  }
+
+  /**
+   * Ensure a profile row exists for the given auth user id; upsert minimal data if missing
+   */
+  private static async ensureProfileExists(authUser: { id: string; email?: string; user_metadata?: any; app_metadata?: any }): Promise<any | null> {
+    try {
+      // First, try reading existing profile directly
+      if (authUser?.id) {
+        const { data: existing, error: readErr } = await supabase
+          .from('profiles' as any)
+          .select('*')
+          .eq('id', authUser.id)
+          .maybeSingle();
+        if (!readErr && existing) {
+          return existing;
+        }
+      }
+      // Use admin client to upsert minimal profile without RLS recursion
+      if (isAdminClientConfigured && adminSupabase && authUser?.id) {
+        // Determine role via current session RPC when available; default to 'user'
+        let role: string = 'user';
+        try {
+          const { data: roleData, error: roleErr } = await (supabase as any).rpc('get_current_user_role');
+          if (!roleErr && typeof roleData === 'string' && roleData) {
+            role = roleData;
+          }
+        } catch {}
+
+        const name = (authUser?.user_metadata?.name) 
+          || (authUser?.email ? String(authUser.email).split('@')[0] : 'User');
+        const email = authUser?.email || null;
+        const phone = authUser?.user_metadata?.phone || null;
+
+        const payload: any = {
+          id: authUser.id,
+          name,
+          email,
+          role,
+          phone,
+          status: 'active',
+          position: role || 'User',
+          must_change_password: (authUser?.user_metadata?.must_change_password === true),
+          updated_at: new Date().toISOString()
+        };
+
+        const { data: upserted, error: upsertErr } = await adminSupabase
+          .from('profiles')
+          .upsert([payload], { onConflict: 'id' })
+          .select()
+          .single();
+
+        if (!upsertErr && upserted) {
+          return upserted;
+        }
+      }
+
+      return null;
+    } catch (e) {
+      console.warn('⚠️ ensureProfileExists error:', e);
+      return null;
     }
   }
 }

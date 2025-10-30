@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { supabase } from '@/lib/supabaseClient';
+import { checkBucketExists } from '@/lib/storageChecks';
 import { toast } from 'sonner';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,8 +44,7 @@ const ProfilePage: React.FC = () => {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
-  // Storage configuration
-  const uploadServerUrl = (import.meta.env.VITE_UPLOAD_SERVER_URL as string) || 'http://localhost:4000';
+  // Storage configuration: use Supabase Storage only
 
 
   // Profile form
@@ -54,6 +54,7 @@ const ProfilePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('profile');
+  const [agentBucketExists, setAgentBucketExists] = useState<boolean>(true);
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -138,6 +139,8 @@ const ProfilePage: React.FC = () => {
           .select('*')
           .eq('user_id', uid)
           .maybeSingle();
+        // Seed documents from agents.documents (text[] of URLs)
+        let seededDocs: { title?: string; url: string; type: string; uploaded_at: string }[] = [];
         if (agentRow) {
           const a: any = agentRow;
           setForm(prev => {
@@ -164,6 +167,22 @@ const ProfilePage: React.FC = () => {
             setInitialForm(hydrated);
             return { ...prev, ...hydrated };
           });
+
+          // Convert agents.documents (urls) into UI doc objects
+          if (Array.isArray((a as any).documents)) {
+            seededDocs = (a as any).documents
+              .filter((u: any) => typeof u === 'string' && u)
+              .map((url: string) => {
+                const last = decodeURIComponent(url.split('?')[0].split('/').pop() || 'Document');
+                const ext = last.split('.').pop()?.toLowerCase() || '';
+                const type = ext === 'pdf' ? 'application/pdf'
+                  : ext === 'png' ? 'image/png'
+                  : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+                  : ext === 'webp' ? 'image/webp'
+                  : 'application/octet-stream';
+                return { title: last, url, type, uploaded_at: new Date().toISOString() };
+              });
+          }
         }
 
         // Load documents
@@ -172,9 +191,14 @@ const ProfilePage: React.FC = () => {
           .select('preferences')
           .eq('agent_id', uid)
           .maybeSingle();
-        if (settingsRow?.preferences?.documents && Array.isArray(settingsRow.preferences.documents)) {
-          setAgentDocs(settingsRow.preferences.documents);
-        }
+        const prefDocs = settingsRow?.preferences?.documents && Array.isArray(settingsRow.preferences.documents)
+          ? settingsRow.preferences.documents as { title?: string; url: string; type: string; uploaded_at: string }[]
+          : [];
+        // Merge by URL, prefer richer prefDocs entries when overlapping
+        const byUrl = new Map<string, { title?: string; url: string; type: string; uploaded_at: string }>();
+        for (const d of seededDocs) byUrl.set(d.url, d);
+        for (const d of prefDocs) byUrl.set(d.url, d);
+        if (byUrl.size) setAgentDocs(Array.from(byUrl.values()));
 
         // Load tax records (multi-entry)
         const { data: taxRows } = await (supabase as any)
@@ -190,6 +214,17 @@ const ProfilePage: React.FC = () => {
       }
     })();
   }, [currentUser?.id]);
+
+  // Preflight: verify required bucket exists
+  useEffect(() => {
+    (async () => {
+      const res = await checkBucketExists('agent_branding');
+      setAgentBucketExists(res.exists);
+      if (!res.exists) {
+        toast.error('Missing Supabase bucket "agent_branding". Please create it and make it public.');
+      }
+    })();
+  }, []);
 
   // Helpers
   const updateField = (k: keyof typeof form, v: any) => {
@@ -218,8 +253,16 @@ const ProfilePage: React.FC = () => {
 
   const uploadLogo = async (file: File) => {
     try {
+      if (!agentBucketExists) { toast.error('Bucket "agent_branding" is missing. Contact admin to create it.'); return; }
       // Validate image type and size
-      if (!ALLOWED_LOGO_TYPES.includes(file.type)) {
+      let logoType = file.type || '';
+      if (!logoType) {
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        if (ext === 'png') logoType = 'image/png';
+        else if (ext === 'jpg' || ext === 'jpeg') logoType = 'image/jpeg';
+        else if (ext === 'webp') logoType = 'image/webp';
+      }
+      if (!ALLOWED_LOGO_TYPES.includes(logoType)) {
         toast.error('Logo must be PNG, JPG, or WebP');
         return;
       }
@@ -229,14 +272,56 @@ const ProfilePage: React.FC = () => {
       }
       const { data: auth } = await supabase.auth.getUser();
       const uid = auth?.user?.id; if (!uid) throw new Error('Not authenticated');
-      const fd = new FormData(); fd.append('file', file);
-      const resp = await fetch(`${uploadServerUrl}/upload/agent/${uid}/logo`, { method: 'POST', body: fd });
-      if (!resp.ok) throw new Error('Local upload failed');
-      const { url } = await resp.json();
-      await supabase.from('agents').update({ profile_image: url, updated_at: new Date().toISOString() }).eq('user_id', uid);
-      updateField('profile_image', url);
+      const safeName = `${crypto.randomUUID()}-${file.name}`.replace(/\s+/g, '_');
+      const fullPath = `agents/${uid}/logo/${safeName}`;
+      const { error: uploadError } = await supabase.storage.from('agent_branding').upload(fullPath, file, { upsert: true, contentType: logoType || 'image/png' });
+      if (uploadError) throw uploadError;
+      const { data: pub } = supabase.storage.from('agent_branding').getPublicUrl(fullPath);
+      const publicUrl = pub?.publicUrl; if (!publicUrl) throw new Error('Failed to obtain public URL');
+      await supabase.from('agents').update({ profile_image: publicUrl, updated_at: new Date().toISOString() }).eq('user_id', uid);
+      updateField('profile_image', publicUrl);
       toast.success('Logo updated');
     } catch (e: any) { toast.error(e?.message || 'Logo upload failed'); }
+  };
+
+  const removeLogo = async () => {
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id; if (!uid) throw new Error('Not authenticated');
+      const url = form.profile_image as string | null;
+      if (!url) {
+        toast.error('No logo to remove');
+        return;
+      }
+      // Attempt to delete from storage when path is under agent_branding/agents/<uid>/logo/
+      try {
+        const marker = '/storage/v1/object/public/';
+        const idx = url.indexOf(marker);
+        if (idx >= 0) {
+          const after = url.substring(idx + marker.length); // e.g. agent_branding/agents/<uid>/logo/<file>
+          const [bucket, ...rest] = after.split('/');
+          const key = rest.join('/');
+          if (bucket === 'agent_branding' && key.startsWith(`agents/${uid}/logo/`)) {
+            const { error: delErr } = await supabase.storage.from(bucket).remove([key]);
+            if (delErr) {
+              // Soft-fail: continue clearing DB even if storage delete fails due to policy
+              console.warn('Logo storage delete failed:', delErr.message);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Logo delete parse error:', err);
+      }
+      const { error } = await supabase
+        .from('agents')
+        .update({ profile_image: null, updated_at: new Date().toISOString() })
+        .eq('user_id', uid);
+      if (error) throw error;
+      updateField('profile_image', null as any);
+      toast.success('Logo removed');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to remove logo');
+    }
   };
 
   const saveAgentSettingsPreferences = async (docs: { title?: string; url: string; type: string; uploaded_at: string }[]) => {
@@ -246,10 +331,15 @@ const ProfilePage: React.FC = () => {
     const { data: existing } = await (supabase as any).from('agent_settings').select('agent_id').eq('agent_id', uid).maybeSingle();
     if (existing) await (supabase as any).from('agent_settings').update(payload).eq('agent_id', uid);
     else await (supabase as any).from('agent_settings').insert({ agent_id: uid, created_at: new Date().toISOString(), ...payload });
+
+    // Persist URLs also into agents.documents (text[])
+    const urls = (docs || []).map(d => d.url);
+    await supabase.from('agents').update({ documents: urls, updated_at: new Date().toISOString() }).eq('user_id', uid);
   };
 
   const uploadDocuments = async (files: FileList) => {
     try {
+      if (!agentBucketExists) { toast.error('Bucket "agent_branding" is missing. Contact admin to create it.'); return; }
       const { data: auth } = await supabase.auth.getUser();
       const uid = auth?.user?.id; if (!uid) throw new Error('Not authenticated');
       const added: any[] = [];
@@ -271,11 +361,13 @@ const ProfilePage: React.FC = () => {
           toast.error(`${file.name}: exceeds ${MAX_DOC_MB}MB limit`);
           continue;
         }
-        const fd = new FormData(); fd.append('file', file);
-        const resp = await fetch(`${uploadServerUrl}/upload/agent/${uid}/documents`, { method: 'POST', body: fd });
-        if (!resp.ok) throw new Error('Local upload failed');
-        const { url } = await resp.json();
-        added.push({ title: file.name, url, type, uploaded_at: new Date().toISOString() });
+        const safeName = `${crypto.randomUUID()}-${file.name}`.replace(/\s+/g, '_');
+        const fullPath = `agents/${uid}/docs/${safeName}`;
+        const { error: uploadError } = await supabase.storage.from('agent_branding').upload(fullPath, file, { upsert: true, contentType: type || 'application/octet-stream' });
+        if (uploadError) { toast.error(`${file.name}: ${uploadError.message || 'Upload failed'}`); continue; }
+        const { data: pub } = supabase.storage.from('agent_branding').getPublicUrl(fullPath);
+        const publicUrl = pub?.publicUrl; if (!publicUrl) { toast.error(`${file.name}: Failed to obtain public URL`); continue; }
+        added.push({ title: file.name, url: publicUrl, type, uploaded_at: new Date().toISOString() });
       }
       const docs = [...agentDocs, ...added];
       setAgentDocs(docs);
@@ -328,15 +420,28 @@ const ProfilePage: React.FC = () => {
   };
   const uploadTaxCertificate = async (file: File, rec?: TaxRecord) => {
     try {
+      if (!agentBucketExists) { toast.error('Bucket "agent_branding" is missing. Contact admin to create it.'); return; }
       if (!rec?.id) { toast.error('Save the tax record before uploading a certificate'); return; }
       const { data: auth } = await supabase.auth.getUser();
       const uid = auth?.user?.id || agentId || currentUser?.id;
       if (!uid) throw new Error('Not authenticated');
-      const fd = new FormData(); fd.append('file', file);
-      const resp = await fetch(`${uploadServerUrl}/upload/agent/${uid}/tax`, { method: 'POST', body: fd });
-      if (!resp.ok) throw new Error('Local upload failed');
-      const { url } = await resp.json();
-      const payload: any = { agent_id: uid, tax_certificate_url: url, updated_at: new Date().toISOString() };
+      const safeName = `${crypto.randomUUID()}-${file.name}`.replace(/\s+/g, '_');
+      const fullPath = `agents/${uid}/tax/${safeName}`;
+      // Resolve content type if missing (prevents ORB issues)
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      let contentType = file.type || '';
+      if (!contentType) {
+        if (ext === 'pdf') contentType = 'application/pdf';
+        else if (ext === 'png') contentType = 'image/png';
+        else if (ext === 'jpg' || ext === 'jpeg') contentType = 'image/jpeg';
+        else if (ext === 'webp') contentType = 'image/webp';
+        else contentType = 'application/octet-stream';
+      }
+      const { error: uploadError } = await supabase.storage.from('agent_branding').upload(fullPath, file, { upsert: true, contentType });
+      if (uploadError) throw uploadError;
+      const { data: pub } = supabase.storage.from('agent_branding').getPublicUrl(fullPath);
+      const publicUrl = pub?.publicUrl; if (!publicUrl) throw new Error('Failed to obtain public URL');
+      const payload: any = { agent_id: uid, tax_certificate_url: publicUrl, updated_at: new Date().toISOString() };
       const { error } = await (supabase as any).from('agent_tax_info').update(payload).eq('id', rec.id);
       if (error) throw error;
       const { data: taxRows, error: fetchError2 } = await (supabase as any).from('agent_tax_info').select('*').eq('agent_id', uid);
@@ -353,12 +458,18 @@ const ProfilePage: React.FC = () => {
       <div className={`container mx-auto ${isMobile ? 'px-4' : 'px-6'}`}>
         <Card className={`md:static sticky top-14 z-30 shadow-lg border border-muted/30 transition-colors duration-300 ${isEditing ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-900'}`}>
           <CardContent className="p-6 flex items-center gap-6">
-            <div>
-              <Avatar className={isMobile ? 'h-16 w-16' : 'h-24 w-24'}>
-                <AvatarImage src={form.profile_image || ''} />
-                <AvatarFallback>{(form.name || 'A').charAt(0)}</AvatarFallback>
-              </Avatar>
-
+            <div className={`${isMobile ? 'h-16 min-w-[4rem]' : 'h-24 min-w-[6rem]'} flex items-center justify-center`}>
+              {form.profile_image ? (
+                <img
+                  src={form.profile_image}
+                  alt="Company Logo"
+                  className="h-full w-auto object-contain rounded-md border"
+                />
+              ) : (
+                <div className="h-full w-[6rem] flex items-center justify-center rounded-md border bg-muted text-xl font-semibold">
+                  {(form.name || 'A').charAt(0)}
+                </div>
+              )}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-3 flex-wrap">
@@ -592,7 +703,23 @@ const ProfilePage: React.FC = () => {
                 <Label>Company Logo</Label>
                 {isEditing && (
                   <>
-                    <Input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && uploadLogo(e.target.files[0])} />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      id="agent-logo-input"
+                      onChange={(e) => e.target.files?.[0] && uploadLogo(e.target.files[0])}
+                    />
+                    <div className="flex gap-2 mt-2">
+                      <Button size="sm" variant="outline" onClick={() => document.getElementById('agent-logo-input')?.click()}>
+                        Update Logo
+                      </Button>
+                      {form.profile_image && (
+                        <Button size="sm" variant="destructive" onClick={() => { if (confirm('Remove current logo?')) removeLogo(); }}>
+                          Remove Logo
+                        </Button>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground mt-1">Accepted: PNG, JPG, WebP · Max size: {MAX_LOGO_MB}MB</div>
                   </>
                 )}
@@ -617,7 +744,7 @@ const ProfilePage: React.FC = () => {
                     <div className="text-xs text-muted-foreground mt-1">Accepted: PDF, PNG, JPG, WebP · Max size: {MAX_DOC_MB}MB per file</div>
                   </>
                 )}
-                <div className="grid grid-cols-2 gap-2 mt-2">
+                <div className="grid grid-cols-1 gap-2 mt-2">
                   {agentDocs.map((d, i) => (
                     <div key={i} className="border rounded-md p-2 flex items-center justify-between">
                       <div className="truncate text-sm">{d.title || d.type}</div>
@@ -681,7 +808,23 @@ const ProfilePage: React.FC = () => {
                         <Input type="file" accept=".pdf,image/*" onChange={(e) => e.target.files?.[0] && uploadTaxCertificate(e.target.files[0], t)} />
                       )}
                       {t.tax_certificate_url && (
-                        <a className="text-blue-600 text-sm" href={t.tax_certificate_url} target="_blank">View Certificate</a>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const url = t.tax_certificate_url as string;
+                            const clean = url.split('?')[0];
+                            const ext = clean.split('.').pop()?.toLowerCase() || '';
+                            const type = ext === 'pdf' ? 'application/pdf'
+                              : ext === 'png' ? 'image/png'
+                              : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg'
+                              : ext === 'webp' ? 'image/webp'
+                              : 'application/octet-stream';
+                            setPreviewDoc({ url, type, title: 'Tax Certificate' });
+                          }}
+                        >
+                          Preview Certificate
+                        </Button>
                       )}
                     </div>
                   </div>

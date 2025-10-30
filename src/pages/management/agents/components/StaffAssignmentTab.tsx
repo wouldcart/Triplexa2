@@ -37,28 +37,43 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 
-import { Agent, AgentSource, StaffAssignment } from "@/types/agent";
-import { getStaffAssignmentsForAgent, addStaffAssignment, removeStaffAssignment, updateStaffAssignment } from "@/data/agentData";
-import { staffMembers } from "@/data/staffData";
+import { Agent, AgentSource } from "@/types/agent";
+import { AgentManagementService } from "@/services/agentManagementService";
 
 interface StaffAssignmentTabProps {
   agent: Agent;
+  agentId?: string;
   onAssignmentChange?: () => void;
 }
 
-const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssignmentChange }) => {
-  const [assignments, setAssignments] = useState<StaffAssignment[]>(
-    agent.staffAssignments || []
-  );
+// Local UI assignment type uses string-based staffId consistent with Supabase profile IDs
+type UiAssignment = {
+  staffId: string;
+  staffName: string;
+  role: string;
+  email?: string;
+  isPrimary: boolean;
+  assignedAt: string;
+  assignedBy?: string;
+  assignedByName?: string;
+  assignedByRole?: string;
+  notes?: string;
+};
+
+const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, agentId, onAssignmentChange }) => {
+  const [assignments, setAssignments] = useState<UiAssignment[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState<boolean>(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState<boolean>(false);
-  const [currentAssignment, setCurrentAssignment] = useState<StaffAssignment | null>(null);
+  const [currentAssignment, setCurrentAssignment] = useState<UiAssignment | null>(null);
   const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState<boolean>(false);
+  const [availableStaff, setAvailableStaff] = useState<{ id: string; name: string; role: string }[]>([]);
 
   // Form states
-  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [isPrimary, setIsPrimary] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>("");
+
+  const effectiveAgentId = agentId ? String(agentId) : String(agent.id);
 
   const formatDate = (dateStr: string) => {
     try {
@@ -68,31 +83,43 @@ const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssign
     }
   };
 
-  const handleAddAssignment = () => {
+  React.useEffect(() => {
+    const load = async () => {
+      try {
+        const staffRes = await AgentManagementService.getStaffMembers();
+        setAvailableStaff(staffRes.data || []);
+      } catch {}
+      try {
+        const res = await AgentManagementService.getAgentStaffAssignments(effectiveAgentId);
+        setAssignments((res.data || []) as UiAssignment[]);
+      } catch {}
+    };
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, agent.id]);
+
+  const handleAddAssignment = async () => {
     if (!selectedStaffId) {
       toast.error("Please select a staff member");
       return;
     }
 
-    const staffMember = staffMembers.find(s => parseInt(s.id) === selectedStaffId);
+    const staffMember: any = availableStaff.find((s) => String(s.id) === String(selectedStaffId));
     if (!staffMember) {
       toast.error("Selected staff member not found");
       return;
     }
 
-    const success = addStaffAssignment(
-      agent.id,
-      selectedStaffId,
-      staffMember.name,
-      staffMember.role,
-      isPrimary,
-      "Current User", // In a real app, this would be the logged-in user
-      notes || undefined
+    const { error } = await AgentManagementService.addStaffAssignmentToAgent(
+      effectiveAgentId,
+      String(selectedStaffId),
+      { isPrimary, notes, role: staffMember.role }
     );
 
-    if (success) {
+    if (!error) {
       toast.success(`Staff member ${staffMember.name} assigned successfully`);
-      setAssignments(getStaffAssignmentsForAgent(agent.id));
+      const res = await AgentManagementService.getAgentStaffAssignments(effectiveAgentId);
+      setAssignments((res.data || []) as UiAssignment[]);
       setIsAddDialogOpen(false);
       resetForm();
       if (onAssignmentChange) onAssignmentChange();
@@ -101,20 +128,25 @@ const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssign
     }
   };
 
-  const handleUpdateAssignment = () => {
+  const handleUpdateAssignment = async () => {
     if (!currentAssignment) {
       toast.error("No assignment selected for update");
       return;
     }
 
-    const success = updateStaffAssignment(agent.id, currentAssignment.staffId, {
-      isPrimary,
-      notes
-    });
+    const { error } = await AgentManagementService.updateStaffAssignmentForAgent(
+      effectiveAgentId,
+      String(currentAssignment.staffId),
+      {
+        isPrimary,
+        notes,
+      }
+    );
 
-    if (success) {
+    if (!error) {
       toast.success(`Assignment updated successfully`);
-      setAssignments(getStaffAssignmentsForAgent(agent.id));
+      const res = await AgentManagementService.getAgentStaffAssignments(effectiveAgentId);
+      setAssignments((res.data || []) as UiAssignment[]);
       setIsEditDialogOpen(false);
       resetForm();
       if (onAssignmentChange) onAssignmentChange();
@@ -123,17 +155,21 @@ const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssign
     }
   };
 
-  const handleRemoveAssignment = () => {
+  const handleRemoveAssignment = async () => {
     if (!currentAssignment) {
       toast.error("No assignment selected for removal");
       return;
     }
 
-    const success = removeStaffAssignment(agent.id, currentAssignment.staffId);
+    const { error } = await AgentManagementService.removeStaffAssignmentFromAgent(
+      effectiveAgentId,
+      String(currentAssignment.staffId)
+    );
 
-    if (success) {
+    if (!error) {
       toast.success(`Assignment removed successfully`);
-      setAssignments(getStaffAssignmentsForAgent(agent.id));
+      const res = await AgentManagementService.getAgentStaffAssignments(effectiveAgentId);
+      setAssignments((res.data || []) as UiAssignment[]);
       setIsRemoveDialogOpen(false);
       if (onAssignmentChange) onAssignmentChange();
     } else {
@@ -148,14 +184,14 @@ const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssign
     setCurrentAssignment(null);
   };
 
-  const openEditDialog = (assignment: StaffAssignment) => {
+  const openEditDialog = (assignment: UiAssignment) => {
     setCurrentAssignment(assignment);
     setIsPrimary(assignment.isPrimary);
     setNotes(assignment.notes || "");
     setIsEditDialogOpen(true);
   };
 
-  const openRemoveDialog = (assignment: StaffAssignment) => {
+  const openRemoveDialog = (assignment: UiAssignment) => {
     setCurrentAssignment(assignment);
     setIsRemoveDialogOpen(true);
   };
@@ -168,7 +204,7 @@ const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssign
       lead: "bg-blue-100 text-blue-800",
       referral: "bg-green-100 text-green-800",
       website: "bg-yellow-100 text-yellow-800",
-      other: "bg-gray-100 text-gray-800"
+      other: "bg-gray-100 text-gray-800",
     };
 
     return (
@@ -235,15 +271,15 @@ const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssign
                 <div className="space-y-2">
                   <Label htmlFor="staff">Select Staff Member</Label>
                   <Select
-                    value={selectedStaffId?.toString() || ""}
-                    onValueChange={(value) => setSelectedStaffId(parseInt(value))}
+                    value={selectedStaffId || ""}
+                    onValueChange={(value) => setSelectedStaffId(value)}
                   >
                     <SelectTrigger id="staff">
                       <SelectValue placeholder="Select a staff member" />
                     </SelectTrigger>
                     <SelectContent>
-                      {staffMembers.map((staff) => (
-                        <SelectItem key={staff.id} value={staff.id.toString()}>
+                      {availableStaff.map((staff) => (
+                        <SelectItem key={staff.id} value={String(staff.id)}>
                           {staff.name} - {staff.role}
                         </SelectItem>
                       ))}
@@ -257,11 +293,11 @@ const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssign
                     checked={isPrimary}
                     onCheckedChange={setIsPrimary}
                   />
-                  <Label htmlFor="primary">Primary Contact</Label>
+                  <Label htmlFor="primary">Set as Primary Contact</Label>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="notes">Notes (Optional)</Label>
+                  <Label htmlFor="notes">Notes</Label>
                   <Textarea
                     id="notes"
                     value={notes}
@@ -270,13 +306,13 @@ const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssign
                     className="min-h-[80px]"
                   />
                 </div>
+
+                <div className="flex justify-end">
+                  <Button onClick={handleAddAssignment} disabled={!selectedStaffId}>
+                    Assign
+                  </Button>
+                </div>
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleAddAssignment}>Assign</Button>
-              </DialogFooter>
             </DialogContent>
           </Dialog>
         </CardHeader>
@@ -285,60 +321,65 @@ const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssign
             <div className="space-y-4">
               {assignments.map((assignment) => (
                 <div
-                  key={assignment.staffId}
-                  className="flex justify-between items-start border rounded-lg p-3"
+                  key={`${assignment.staffId}-${assignment.assignedAt}`}
+                  className="flex items-center justify-between p-4 border rounded-lg"
                 >
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{assignment.staffName}</span>
-                      {assignment.isPrimary && (
-                        <Badge variant="outline" className="text-xs">
-                          <BadgeCheck className="h-3 w-3 mr-1" />
-                          Primary
-                        </Badge>
+                  <div className="flex items-center gap-4">
+                    <BadgeCheck className="h-5 w-5 text-green-600" />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{assignment.staffName}</span>
+                        {assignment.isPrimary && (
+                          <Badge variant="success">Primary</Badge>
+                        )}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Role: {assignment.role}
+                      </div>
+                      {assignment?.email && (
+                        <div className="text-sm text-muted-foreground">
+                          Email: {assignment.email}
+                        </div>
+                      )}
+                      {assignment.notes && (
+                        <div className="text-sm text-muted-foreground mt-1">
+                          Notes: {assignment.notes}
+                        </div>
+                      )}
+                      <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        <MapPin className="h-3 w-3" />
+                        Assigned on {formatDate(assignment.assignedAt)}
+                      </div>
+                      {assignment.assignedByName && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Assigned by {assignment.assignedByName}{assignment.assignedByRole ? ` (${assignment.assignedByRole})` : ''}
+                        </div>
                       )}
                     </div>
-                    <div className="text-sm text-muted-foreground">
-                      {assignment.role}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Assigned: {formatDate(assignment.assignedAt)}
-                      {assignment.assignedBy && ` by ${assignment.assignedBy}`}
-                    </div>
-                    {assignment.notes && (
-                      <div className="text-xs mt-2 bg-muted p-2 rounded">
-                        {assignment.notes}
-                      </div>
-                    )}
                   </div>
-                  <div className="flex space-x-2">
+                  <div className="flex items-center gap-2">
                     <Button
+                      variant="outline"
                       size="sm"
-                      variant="ghost"
                       onClick={() => openEditDialog(assignment)}
                     >
-                      <Edit className="h-4 w-4" />
+                      <Edit className="h-4 w-4 mr-1" /> Edit
                     </Button>
                     <Button
+                      variant="destructive"
                       size="sm"
-                      variant="ghost"
                       onClick={() => openRemoveDialog(assignment)}
                     >
-                      <Trash className="h-4 w-4" />
+                      <Trash className="h-4 w-4 mr-1" /> Remove
                     </Button>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="text-center py-8">
-              <User className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-2 text-sm font-medium text-muted-foreground">
-                No staff assignments
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Assign staff members to manage this agent.
-              </p>
+            <div className="text-center py-8 text-muted-foreground">
+              <User className="h-12 w-12 mx-auto mb-2 opacity-20" />
+              <p>No staff assigned to this agent yet</p>
             </div>
           )}
         </CardContent>
@@ -348,9 +389,9 @@ const StaffAssignmentTab: React.FC<StaffAssignmentTabProps> = ({ agent, onAssign
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Staff Assignment</DialogTitle>
+            <DialogTitle>Edit Assignment</DialogTitle>
             <DialogDescription>
-              Update the assignment details for {currentAssignment?.staffName}.
+              Update primary contact status or add notes.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">

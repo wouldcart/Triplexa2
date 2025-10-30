@@ -12,6 +12,7 @@ import {
 import AgentDashboardHeader from '@/components/dashboards/agent/AgentDashboardHeader';
 import { useApp } from '@/contexts/AppContext';
 import AgentOverviewCards from '@/components/dashboards/agent/AgentOverviewCards';
+import { AgentManagementService } from '../../services/agentManagementService';
 import MobileBottomNavigation from '@/components/dashboards/agent/MobileBottomNavigation';
 import { FloatingActionButton, ProposalQuickActions, ClientQuickActions, DocumentQuickActions } from '@/components/dashboard/FloatingActionButton';
 import { useRealTimeNotifications } from '@/hooks/useRealTimeNotifications';
@@ -24,7 +25,7 @@ import {
   EnhancedProfileSettings 
 } from '@/components/dashboard/sections';
 import { useNavigate } from 'react-router-dom';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { useAgentProfileGuard } from '@/hooks/useAgentProfileGuard';
 
@@ -32,6 +33,7 @@ const AgentDashboard: React.FC = () => {
   const { currentUser } = useApp();
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState('overview');
+  const [suspensionReason, setSuspensionReason] = useState<string | undefined>(undefined);
   
   // Initialize real-time notifications
   useRealTimeNotifications();
@@ -88,6 +90,21 @@ const AgentDashboard: React.FC = () => {
     }
   }, [shouldRedirect, shouldPopup, navigate]);
 
+  // Fetch suspension reason when user is suspended
+  useEffect(() => {
+    let mounted = true;
+    const loadReason = async () => {
+      if (currentUser?.role === 'agent' && String(currentUser?.status) === 'suspended' && currentUser?.id) {
+        const { data } = await AgentManagementService.getAgentById(String(currentUser.id));
+        if (mounted) setSuspensionReason((data as any)?.suspension_reason);
+      } else {
+        if (mounted) setSuspensionReason(undefined);
+      }
+    };
+    loadReason();
+    return () => { mounted = false; };
+  }, [currentUser?.id, currentUser?.status, currentUser?.role]);
+
   return (
     <div className={`min-h-screen bg-background ${isMobile ? 'pb-20' : ''}`}>
       {/* Agent Dashboard Header */}
@@ -103,7 +120,10 @@ const AgentDashboard: React.FC = () => {
                 <span>Account access restricted</span>
               </CardTitle>
               <CardDescription>
-                Your account has been suspended. Dashboard functionality is temporarily disabled. Please contact support or your agency admin for assistance.
+                <div>Your account has been suspended. Dashboard functionality is temporarily disabled. Please contact support or your agency admin for assistance.</div>
+                {suspensionReason && (
+                  <div className="mt-2"><span className="font-medium">Reason:</span> {suspensionReason}</div>
+                )}
               </CardDescription>
             </CardHeader>
           </Card>
@@ -234,6 +254,9 @@ const AgentDashboard: React.FC = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Complete Your Profile</DialogTitle>
+            <DialogDescription>
+              Update required profile fields to reach the minimum completion target.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">

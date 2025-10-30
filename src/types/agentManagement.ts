@@ -9,6 +9,7 @@ export interface LoginCredentials {
 
 export interface ManagedAgent {
   id: string;
+  user_id?: string;
   name: string;
   email: string;
   phone?: string;
@@ -27,10 +28,24 @@ export interface ManagedAgent {
   source_type?: 'event' | 'lead' | 'referral' | 'website' | 'other';
   source_details?: string;
   created_by?: string;
+  // Suspension metadata
+  suspension_reason?: string;
+  suspended_at?: string;
+  suspended_by?: string;
   assigned_staff: string[];
   login_credentials: LoginCredentials;
   created_at: string;
   updated_at: string;
+  // Extended business and contact fields
+  business_phone?: string;
+  business_address?: string;
+  license_number?: string;
+  iata_number?: string;
+  specializations?: string[];
+  alternate_email?: string;
+  website?: string;
+  partnership?: string;
+  mobile_numbers?: string[];
 }
 
 export interface CreateAgentRequest {
@@ -61,6 +76,16 @@ export interface UpdateAgentRequest {
   source_details?: string;
   assigned_staff?: string[];
   login_credentials?: LoginCredentials;
+  // Extended fields
+  business_phone?: string;
+  business_address?: string;
+  license_number?: string;
+  iata_number?: string;
+  specializations?: string[];
+  alternate_email?: string;
+  website?: string;
+  partnership?: string;
+  mobile_numbers?: string[];
 }
 
 export interface AgentSignupRequest {

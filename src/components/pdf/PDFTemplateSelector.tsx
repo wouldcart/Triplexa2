@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -168,6 +168,9 @@ const PDFTemplateSelector: React.FC<PDFTemplateSelectorProps> = ({
             <Download className="h-5 w-5" />
             Quotation Template (PDF)
           </DialogTitle>
+          <DialogDescription>
+            Select a template to apply when generating the quotation PDF.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

@@ -40,17 +40,28 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return <Navigate to="/login" replace />;
   }
 
-  // Check role requirement
+  // Check role requirement with precise hierarchy
   if (requiredRole) {
     const allowedRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
-    
-    // Super admin and manager have access to everything that requires 'admin' or 'manager'
-    const userHasAdminAccess = currentUser.role === 'super_admin' || currentUser.role === 'manager';
-    const requiresAdminAccess = allowedRoles.includes('admin') || allowedRoles.includes('manager') || allowedRoles.includes('super_admin');
-    
-    if (requiresAdminAccess && userHasAdminAccess) {
-      // Allow access
-    } else if (!allowedRoles.includes(currentUser.role)) {
+
+    const isAdminRoute = allowedRoles.includes('admin');
+    const isManagerRoute = allowedRoles.includes('manager');
+    const isSuperAdminRoute = allowedRoles.includes('super_admin');
+
+    const role = currentUser.role;
+
+    const hasAccess = (
+      // Super admin can access any route listing super_admin or admin or manager
+      (role === 'super_admin' && (isSuperAdminRoute || isAdminRoute || isManagerRoute)) ||
+      // Admin can access routes that list admin
+      (role === 'admin' && isAdminRoute) ||
+      // Manager can access routes that list manager
+      (role === 'manager' && isManagerRoute) ||
+      // Direct match fallback
+      allowedRoles.includes(role)
+    );
+
+    if (!hasAccess) {
       return <Navigate to="/unauthorized" replace />;
     }
   }

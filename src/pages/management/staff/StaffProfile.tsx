@@ -7,8 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, Edit, Mail, Phone, MapPin, Calendar, User, Target, Clock, Star, Cake } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
-import { getStaffById } from "@/services/staffStorageService";
-import { enhancedStaffMembers } from "@/data/departmentData";
+// Local/static fallbacks removed; rely solely on Supabase
 import { EnhancedStaffMember } from "@/types/staff";
 import { initialCountries } from "@/pages/inventory/countries/data/countryData";
 import { format } from "date-fns";
@@ -97,34 +96,106 @@ const StaffProfile: React.FC = () => {
       };
     };
 
+    const mapStaffRowToEnhancedStaff = (s: any): EnhancedStaffMember => {
+      const today = new Date().toISOString().slice(0, 10);
+
+      const defaultWorkingHours: any = {
+        monday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+        tuesday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+        wednesday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+        thursday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+        friday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+        saturday: { isWorking: false },
+        sunday: { isWorking: false },
+      };
+
+      const defaultPerformance = {
+        daily: {
+          date: today,
+          tasksCompleted: 0,
+          responseTime: 0,
+          customerSatisfaction: 0,
+        },
+        monthly: {
+          month: today.slice(0, 7),
+          totalTasks: 0,
+          averageResponseTime: 0,
+          averageCustomerSatisfaction: 0,
+          targetAchievement: 0,
+        },
+        quarterly: {
+          quarter: `Q${Math.floor((new Date().getMonth() / 3) + 1)}-${new Date().getFullYear()}`,
+          performanceRating: 0,
+          goalsAchieved: 0,
+          totalGoals: 0,
+          growthPercentage: 0,
+        },
+        overall: {
+          totalExperience: '0 years',
+          performanceScore: 0,
+          ranking: 0,
+          badges: [],
+        },
+      };
+
+      const status = ['active', 'inactive', 'on-leave'].includes(s?.status) ? s.status : 'active';
+
+      return {
+        id: s.id,
+        name: s.name || (s.email ? String(s.email).split('@')[0] : 'Staff Member'),
+        email: s.email || '',
+        phone: s.phone || '',
+        department: s.department || 'General',
+        role: s.role || 'staff',
+        status,
+        avatar: undefined,
+        joinDate: (s.join_date ? String(s.join_date).slice(0, 10) : today),
+        dateOfBirth: (s.date_of_birth ? String(s.date_of_birth) : undefined),
+        skills: [],
+        certifications: [],
+        performance: defaultPerformance,
+        targets: [],
+        permissions: [],
+        workingHours: defaultWorkingHours,
+        reportingManager: s.reporting_manager || undefined,
+        teamMembers: undefined,
+        employeeId: s.employee_id || '',
+        operationalCountries: Array.isArray(s.operational_countries) ? s.operational_countries : [],
+        salaryStructure: undefined,
+        leaveBalance: undefined,
+        attendanceRecord: undefined,
+      };
+    };
+
     const loadStaffProfile = async () => {
       if (!id) return;
       try {
         // Prefer Supabase profile if available
-        const { data, error } = await supabase
+        const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('id, name, email, phone, department, role, status, employee_id, created_at, avatar')
           .eq('id', id)
           .maybeSingle();
 
-        if (!error && data) {
-          setStaff(mapProfileToEnhancedStaff(data));
-          setLoading(false);
-          return;
-        }
-
-        // Fallback to local and static data
-        const localStaff = getStaffById(id);
-        if (localStaff) {
-          setStaff(localStaff);
+        if (!profileError && profileData) {
+          setStaff(mapProfileToEnhancedStaff(profileData));
         } else {
-          const existingStaff = enhancedStaffMembers.find(member => member.id === id);
-          setStaff(existingStaff || null);
+          // Fallback to Supabase staff table if profile not found
+          const { data: staffData, error: staffError } = await supabase
+            .from('staff' as any)
+            .select('id, name, email, phone, department, role, status, employee_id, join_date, date_of_birth, reporting_manager, operational_countries')
+            .eq('id', id)
+            .maybeSingle();
+
+          if (!staffError && staffData) {
+            setStaff(mapStaffRowToEnhancedStaff(staffData));
+          } else {
+            setStaff(null);
+          }
         }
       } catch (err) {
         console.warn('Error loading staff profile:', err);
-        const localStaff = getStaffById(id);
-        setStaff(localStaff || enhancedStaffMembers.find(m => m.id === id) || null);
+        setStaff(null);
       } finally {
         setLoading(false);
       }

@@ -7,6 +7,8 @@ const getPermissionsByRole = (role: string): string[] => {
   const rolePermissions: { [key: string]: string[] } = {
     'super_admin': ['*'], // All permissions
     'manager': ['queries.*', 'bookings.*', 'inventory.view', 'vendors.*', 'staff.view', 'reports.*'],
+    'hr_manager': ['staff.*', 'hr.*', 'attendance.*', 'payroll.*', 'queries.view'],
+    'staff': ['queries.view', 'bookings.view'],
     'sales_agent': ['queries.view', 'queries.create', 'bookings.view', 'bookings.create'],
     'agent': ['queries.view', 'bookings.view']
   };

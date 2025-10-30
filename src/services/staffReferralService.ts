@@ -9,7 +9,6 @@ type StaffReferralRow = {
 };
 
 const REFERRAL_TABLE = 'staff_referrals';
-const STORAGE_KEY_PREFIX = 'staff_referral:';
 
 function getBaseSignupUrl(): string {
   // Prefer an explicit public site URL if provided; otherwise use current origin
@@ -94,7 +93,6 @@ export async function ensureReferralExistsForStaff(staffId: string): Promise<str
     const error = res?.error;
 
     if (!error && data && data.length > 0 && data[0]?.referral_code) {
-      try { localStorage.setItem(`${STORAGE_KEY_PREFIX}${staffId}`, data[0].referral_code); } catch {}
       return buildReferralLink(data[0].referral_code);
     }
 
@@ -110,18 +108,10 @@ export async function ensureReferralExistsForStaff(staffId: string): Promise<str
     console.warn('Referral ensure error:', e?.message || e);
   }
 
-  // Always keep a local fallback
-  try { localStorage.setItem(`${STORAGE_KEY_PREFIX}${staffId}`, code); } catch {}
   return link;
 }
 
 export async function getStaffReferralLink(staffId: string): Promise<string> {
-  // Local cache first
-  try {
-    const cached = localStorage.getItem(`${STORAGE_KEY_PREFIX}${staffId}`);
-    if (cached) return buildReferralLink(cached);
-  } catch {}
-
   const code = buildReferralCode(staffId);
 
   try {
@@ -137,7 +127,6 @@ export async function getStaffReferralLink(staffId: string): Promise<string> {
     const error = res?.error;
 
     if (!error && data && data.length > 0 && data[0]?.referral_code) {
-      try { localStorage.setItem(`${STORAGE_KEY_PREFIX}${staffId}`, data[0].referral_code); } catch {}
       return buildReferralLink(data[0].referral_code);
     }
 

@@ -27,7 +27,9 @@ const SidebarMenuItem: React.FC<SidebarMenuItemProps> = ({
   const location = useLocation();
   
   // Check if this is the active path or a subpath
-  const isActivePath = isActive || location.pathname.startsWith(`${path}/`);
+  const normalizePath = (p: string) => (p && p.endsWith('/')) ? p.slice(0, -1) : p;
+  const basePath = normalizePath(path);
+  const isActivePath = isActive || location.pathname === basePath || location.pathname.startsWith(`${basePath}/`);
   
   // Wrap link in tooltip when sidebar is collapsed
   if (!sidebarOpen) {

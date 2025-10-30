@@ -3,6 +3,8 @@ import { AuthService } from '../services/authService';
 import { User } from '../types/User';
 import { supabase } from '@/lib/supabaseClient';
 import { userTrackingService } from '../services/userTrackingService';
+import { SessionManager, handleSessionError } from '../utils/sessionManager';
+import { autoReloginFlow } from '../utils/autoReloginFlow';
 
 interface AuthContextType {
   user: User | null;
@@ -37,22 +39,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     let mounted = true;
+    let validationInterval: NodeJS.Timeout;
     
     const initializeAuth = async () => {
-      // Check for existing session on mount
+      // Check for existing session on mount with validation
       try {
-        const { user: sessionUser, session: currentSession, error } = await AuthService.getCurrentSession();
+        const validationResult = await SessionManager.validateSession();
         
         if (!mounted) return;
         
-        if (sessionUser && currentSession && !error) {
-          setUser(sessionUser);
-          setSession(currentSession);
+        if (validationResult.shouldSignOut) {
+          // Session is invalid, clear everything
+          setUser(null);
+          setSession(null);
+          await SessionManager.clearSession();
+        } else if (validationResult.isValid) {
+          // Session is valid, get user profile
+          const { user: sessionUser, session: currentSession, error } = await AuthService.getCurrentSession();
+          
+          if (sessionUser && currentSession && !error) {
+            setUser(sessionUser);
+            setSession(currentSession);
+          } else {
+            setUser(null);
+            setSession(null);
+          }
         } else {
+          // No session or needs refresh
           setUser(null);
           setSession(null);
         }
       } catch (error) {
+        console.error('Auth initialization error:', error);
         if (mounted) {
           setUser(null);
           setSession(null);
@@ -67,6 +85,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (!mounted) return;
         
+        console.log('Auth state change:', event, session?.user?.email);
+        
         if (event === 'SIGNED_IN' && session) {
           // User signed in, get their profile
           const { user: sessionUser, error } = await AuthService.getCurrentSession();
@@ -74,19 +94,49 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             setUser(sessionUser);
             setSession(session);
           }
+        } else if (event === 'INITIAL_SESSION') {
+          // Handle initial session state on subscription setup
+          if (session && session.user) {
+            const { user: sessionUser, error } = await AuthService.getCurrentSession();
+            if (!error && sessionUser) {
+              setUser(sessionUser);
+              setSession(session);
+            } else {
+              setUser(null);
+              setSession(null);
+            }
+          } else {
+            // No session on init; keep state cleared without triggering cleanup
+            setUser(null);
+            setSession(null);
+          }
         } else if (event === 'SIGNED_OUT') {
           // User signed out
           setUser(null);
           setSession(null);
-          localStorage.removeItem('user_permissions');
+          // Avoid redundant cleanup on initial load when there was no prior session
+          if (user) {
+            await SessionManager.clearSession();
+          }
         } else if (event === 'TOKEN_REFRESHED' && session) {
           // Token refreshed, update session
+          console.log('Token refreshed successfully');
           setSession(session);
         }
       });
 
+      // Set up periodic session validation
+      validationInterval = setInterval(() => {
+        if (mounted) {
+          SessionManager.periodicValidation();
+        }
+      }, 5 * 60 * 1000); // Check every 5 minutes
+
       return () => {
         subscription.unsubscribe();
+        if (validationInterval) {
+          clearInterval(validationInterval);
+        }
       };
     };
 
@@ -94,6 +144,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     
     return () => {
       mounted = false;
+      if (validationInterval) {
+        clearInterval(validationInterval);
+      }
     };
   }, []);
 
@@ -115,6 +168,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (response.user) {
         setUser(response.user);
         setSession(response.session);
+        
+        // Store credentials for auto re-login (only in memory for security)
+        autoReloginFlow.storeCredentials(email, password);
+        
         return { user: response.user, error: null };
       }
       
@@ -158,10 +215,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(null);
       setSession(null);
       
-      // Clear any stored permissions
-      localStorage.removeItem('user_permissions');
+      // Use SessionManager for comprehensive cleanup
+      await SessionManager.clearSession();
+      
+      // Clear stored credentials for auto re-login
+      autoReloginFlow.clearCredentials();
     } catch (error) {
       console.error('Sign out error:', error);
+      // Even if there's an error, clear local state
+      await SessionManager.clearSession();
+      autoReloginFlow.clearCredentials();
     } finally {
       setLoading(false);
     }

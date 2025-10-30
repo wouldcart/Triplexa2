@@ -1,0 +1,1 @@
+ALTER TABLE public.agents ADD COLUMN phone VARCHAR(20);

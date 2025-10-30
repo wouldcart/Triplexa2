@@ -7,9 +7,7 @@ import * as z from "zod";
 import PageLayout from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import {
   Form,
@@ -20,18 +18,9 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Save, Mail, RefreshCw, Plus, X, MapPin, User, AlertCircle, Copy, Key } from "lucide-react";
+import { ArrowLeft, Save, Mail, RefreshCw, User, AlertCircle, Copy, Key } from "lucide-react";
 import { toast } from "sonner";
-import CompanyLogoUpload from "@/components/inventory/packages/components/CompanyLogoUpload";
 import { useAccessControl } from "@/hooks/use-access-control";
 import { useApp } from "@/contexts/AppContext";
 import { generateSecurePassword } from "@/utils/credentialGenerator";
@@ -44,8 +33,7 @@ import {
 } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-import { Agent } from "@/types/agent";
-import { getAgentById, agents } from "@/data/agentData";
+import { ManagedAgent } from "@/types/agentManagement";
 import { AgentManagementService } from "@/services/agentManagementService";
 
 // Updated agent form schema matching AddAgent structure
@@ -93,54 +81,14 @@ const EditAgent: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser } = useApp();
   const { isStaff, hasAdminAccess } = useAccessControl();
-  const [agent, setAgent] = useState<Agent | null>(null);
+  const [agent, setAgent] = useState<ManagedAgent | null>(null);
   const [loading, setLoading] = useState(true);
   const [logoUrl, setLogoUrl] = useState<string>('');
-  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
-  const [selectedCities, setSelectedCities] = useState<string[]>([]);
-  const [selectedStaff, setSelectedStaff] = useState<string[]>([]);
   const [isGeneratingCredentials, setIsGeneratingCredentials] = useState(false);
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
   const [generatedCredentials, setGeneratedCredentials] = useState<{ email: string; password: string } | null>(null);
 
-  // Available countries and cities
-  const availableCountries = [
-    "United States", "United Kingdom", "United Arab Emirates", 
-    "India", "Thailand", "Singapore", "Malaysia", "Indonesia",
-    "Philippines", "Vietnam", "Australia", "Canada"
-  ];
-
-  const citiesByCountry: Record<string, string[]> = {
-    "United States": ["New York", "Los Angeles", "Chicago", "Miami", "Las Vegas", "San Francisco"],
-    "United Kingdom": ["London", "Manchester", "Birmingham", "Edinburgh", "Liverpool"],
-    "United Arab Emirates": ["Dubai", "Abu Dhabi", "Sharjah", "Ajman", "Ras Al Khaimah"],
-    "India": ["Mumbai", "Delhi", "Bangalore", "Chennai", "Kolkata", "Hyderabad"],
-    "Thailand": ["Bangkok", "Phuket", "Chiang Mai", "Pattaya", "Koh Samui"],
-    "Singapore": ["Singapore"],
-    "Malaysia": ["Kuala Lumpur", "Penang", "Johor Bahru", "Langkawi"],
-    "Indonesia": ["Jakarta", "Bali", "Yogyakarta", "Surabaya"],
-    "Philippines": ["Manila", "Cebu", "Davao", "Boracay"],
-    "Vietnam": ["Ho Chi Minh City", "Hanoi", "Da Nang", "Hoi An"],
-    "Australia": ["Sydney", "Melbourne", "Brisbane", "Perth"],
-    "Canada": ["Toronto", "Vancouver", "Montreal", "Calgary"]
-  };
-
-  // Available staff members (mock data - in real app would come from API)
-  const availableStaff = [
-    { id: "1", name: "John Smith", department: "Sales" },
-    { id: "2", name: "Jane Doe", department: "Operations" },
-    { id: "3", name: "David Johnson", department: "Customer Support" },
-    { id: "4", name: "Sarah Sales", department: "Sales" },
-    { id: "5", name: "Mike Marketing", department: "Marketing" }
-  ];
-
-  const sourceOptions = [
-    { value: "event", label: "Trade Show/Event", description: "Met at travel fair, exhibition, or industry event" },
-    { value: "lead", label: "Lead Generation", description: "Generated through marketing campaigns or online ads" },
-    { value: "referral", label: "Referral", description: "Referred by existing agent or business partner" },
-    { value: "website", label: "Website Inquiry", description: "Applied through company website or online form" },
-    { value: "other", label: "Other", description: "Cold call, direct approach, or other methods" }
-  ];
+  // Removed location, staff, and source option data per requirement
 
   const form = useForm<AgentFormValues>({
     resolver: zodResolver(agentFormSchema),
@@ -175,50 +123,55 @@ const EditAgent: React.FC = () => {
   const email = form.watch("email");
   const name = form.watch("name");
 
-  // Initialize form with agent data
+  // Initialize form with agent data (service-based by UUID)
   useEffect(() => {
-    if (id) {
-      const agentId = parseInt(id);
-      const agentData = getAgentById(agentId);
-      
-      if (agentData) {
-        setAgent(agentData);
-        setLogoUrl(agentData.profileImage || '');
-        
-        // Set form values from agent data
-        form.reset({
-          name: agentData.name,
-          email: agentData.email,
-          mobile: agentData.contact?.phone || "",
-          company: agentData.type === "company" ? agentData.name : "",
-          profileImage: agentData.profileImage || "",
-          password: "********", // Placeholder for existing password
-          confirmPassword: "********",
-          countries: agentData.country ? [agentData.country] : [],
-          cities: agentData.city ? [agentData.city] : [],
-          staffAssignments: agentData.staffAssignments?.map(s => s.staffId.toString()) || [],
-          agentType: agentData.type as "individual" | "company",
-          isActive: agentData.status === "active",
-          commissionType: agentData.commissionType as "flat" | "percentage",
-          commissionValue: agentData.commissionValue,
-          language: "English",
-          currency: "USD",
-          sourceType: agentData.source?.type || "website",
-          sourceDetails: agentData.source?.details || "",
-          forcePasswordChange: false,
-          sendCredentialsEmail: false,
-          trackLoginActivity: true,
-          remarks: "",
-          termsAgreed: false,
-        });
-
-        setSelectedCountries(agentData.country ? [agentData.country] : []);
-        setSelectedCities(agentData.city ? [agentData.city] : []);
-        setSelectedStaff(agentData.staffAssignments?.map(s => s.staffId.toString()) || []);
+    let isMounted = true;
+    const load = async () => {
+      if (!id) return;
+      setLoading(true);
+      const { data, error } = await AgentManagementService.getAgentById(id);
+      if (!isMounted) return;
+      if (error || !data) {
+        setAgent(null);
+        setLoading(false);
+        return;
       }
-      
+
+      setAgent(data);
+      setLogoUrl(data.profile_image || '');
+
+      // Set form values from managed agent data
+      form.reset({
+        name: data.name || "",
+        email: data.email || "",
+        mobile: (data.business_phone || data.phone || "") as string,
+        company: (data.type === "company" ? (data.company_name || "") : ""),
+        profileImage: data.profile_image || "",
+        password: "********", // Placeholder for existing password
+        confirmPassword: "********",
+        countries: data.country ? [data.country] : [],
+        cities: data.city ? [data.city] : [],
+        staffAssignments: [],
+        agentType: (data.type as "individual" | "company") || "individual",
+        isActive: data.status === "active",
+        commissionType: (data.commission_type as "flat" | "percentage") || "percentage",
+        commissionValue: typeof data.commission_value === 'number' ? String(data.commission_value) : (data.commission_value || ""),
+        language: (data.preferred_language || "English") as string,
+        currency: "USD",
+        sourceType: (data.source_type as any) || "website",
+        sourceDetails: data.source_details || "",
+        forcePasswordChange: false,
+        sendCredentialsEmail: false,
+        trackLoginActivity: true,
+        remarks: "",
+        termsAgreed: false,
+      });
+
+      // Removed selected lists initialization since sections are hidden
       setLoading(false);
-    }
+    };
+    load();
+    return () => { isMounted = false; };
   }, [id, form]);
 
   const generateCredentials = () => {
@@ -236,53 +189,7 @@ const EditAgent: React.FC = () => {
     setIsGeneratingCredentials(false);
   };
 
-  const addCountry = (country: string) => {
-    if (country && !selectedCountries.includes(country)) {
-      const newCountries = [...selectedCountries, country];
-      setSelectedCountries(newCountries);
-      form.setValue("countries", newCountries);
-    }
-  };
-
-  const removeCountry = (country: string) => {
-    const newCountries = selectedCountries.filter(c => c !== country);
-    setSelectedCountries(newCountries);
-    form.setValue("countries", newCountries);
-    
-    // Remove cities from removed country
-    const availableCities = newCountries.flatMap(c => citiesByCountry[c] || []);
-    const newCities = selectedCities.filter(city => availableCities.includes(city));
-    setSelectedCities(newCities);
-    form.setValue("cities", newCities);
-  };
-
-  const addCity = (city: string) => {
-    if (city && !selectedCities.includes(city)) {
-      const newCities = [...selectedCities, city];
-      setSelectedCities(newCities);
-      form.setValue("cities", newCities);
-    }
-  };
-
-  const removeCity = (city: string) => {
-    const newCities = selectedCities.filter(c => c !== city);
-    setSelectedCities(newCities);
-    form.setValue("cities", newCities);
-  };
-
-  const addStaffAssignment = (staffId: string) => {
-    if (staffId && !selectedStaff.includes(staffId)) {
-      const newStaff = [...selectedStaff, staffId];
-      setSelectedStaff(newStaff);
-      form.setValue("staffAssignments", newStaff);
-    }
-  };
-
-  const removeStaffAssignment = (staffId: string) => {
-    const newStaff = selectedStaff.filter(s => s !== staffId);
-    setSelectedStaff(newStaff);
-    form.setValue("staffAssignments", newStaff);
-  };
+  // Removed country/city/staff handlers per requirement
 
   const sendPasswordResetEmail = () => {
     const agentEmail = form.getValues("email");
@@ -296,32 +203,21 @@ const EditAgent: React.FC = () => {
     toast.success(`Password reset email sent to ${agentEmail}`);
   };
 
-  const handleLogoChange = (imageUrl: string) => {
-    setLogoUrl(imageUrl);
-    form.setValue("profileImage", imageUrl);
-  };
+  // Removed logo handlers since logo section is hidden
 
-  const handleLogoRemove = () => {
-    setLogoUrl('');
-    form.setValue("profileImage", "");
-  };
-
-  // Get available cities based on selected countries
-  const getAvailableCities = () => {
-    return selectedCountries.flatMap(country => 
-      (citiesByCountry[country] || []).map(city => ({ country, city }))
-    );
-  };
+  // Removed dependent city lookup helper
 
   const onSubmit = async (values: AgentFormValues) => {
-    if (!agent) return;
-
-    const idStr = String(agent.id);
+    const idStr = (id ? String(id) : (agent ? String(agent.id) : ""));
+    if (!idStr) {
+      toast.error('Invalid agent ID');
+      return;
+    }
     const updatePayload = {
       id: idStr,
       name: values.name,
       email: values.email,
-      phone: values.mobile,
+      business_phone: values.mobile,
       company_name: values.company,
       status: values.isActive ? 'active' : 'inactive',
       profile_image: logoUrl || undefined,
@@ -340,6 +236,32 @@ const EditAgent: React.FC = () => {
       console.error('Update agent error:', error);
       toast.error('Failed to update agent profile.');
       return;
+    }
+
+    // Sync email to Supabase Auth and profiles if changed
+    try {
+      const emailChanged = values.email !== (agent?.email || "");
+      if (emailChanged) {
+        const { error: syncErr } = await AgentManagementService.syncAgentEmailAcrossAuth(idStr, values.email);
+        if (syncErr) {
+          console.warn('Email sync to Auth/profiles failed:', syncErr);
+          toast.warning('Saved, but could not sync email to authentication.');
+        }
+      }
+    } catch (e) {
+      console.warn('Email sync encountered an error:', e);
+    }
+
+    // Persist Track Login Activity preference
+    try {
+      const { error: prefsErr } = await AgentManagementService.patchAgentSettingsPreferences(idStr, {
+        security: { trackLoginActivity: !!values.trackLoginActivity },
+      });
+      if (prefsErr) {
+        console.warn('Persisting trackLoginActivity failed:', prefsErr);
+      }
+    } catch (e) {
+      console.warn('Persisting trackLoginActivity encountered an error:', e);
     }
 
     // Persist generated credentials via secure RPC
@@ -415,7 +337,7 @@ const EditAgent: React.FC = () => {
       toast.warning('Profile saved, but credentials activation encountered an error.');
     }
 
-    navigate(`/management/agents/view/${agent.id}`);
+    navigate(`/management/agents/${idStr}`);
   };
 
   const handleCancel = () => {
@@ -455,8 +377,8 @@ const EditAgent: React.FC = () => {
       breadcrumbItems={[
         { title: "Home", href: "/" },
         { title: "Agent Management", href: "/management/agents" },
-        { title: agent.name, href: `/management/agents/view/${agent.id}` },
-        { title: "Edit", href: `/management/agents/edit/${agent.id}` },
+        { title: agent.name, href: `/management/agents/${agent.id}` },
+        { title: "Edit", href: `/management/agents/${agent.id}/edit` },
       ]}
     >
       <div className="space-y-6">
@@ -478,98 +400,7 @@ const EditAgent: React.FC = () => {
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-            {/* Basic Information - MANDATORY */}
-            <Card className="border-red-200">
-              <CardHeader className="bg-red-50">
-                <CardTitle className="text-red-700 flex items-center">
-                  Basic Information
-                  <Badge variant="destructive" className="ml-2">Required</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Agent Name*</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Full name or company name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email Address*</FormLabel>
-                        <FormControl>
-                          <Input type="email" placeholder="name@example.com" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="mobile"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Mobile Number*</FormLabel>
-                        <FormControl>
-                          <Input placeholder="+1 (555) 000-0000" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="agentType"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Agent Type*</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select agent type" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="individual">Individual</SelectItem>
-                            <SelectItem value="company">Company</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {agentType === "company" && (
-                    <FormField
-                      control={form.control}
-                      name="company"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Company Name*</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Legal company name" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+            {/* Basic Information section removed per requirement */}
 
             {/* Account Access & Security - MANDATORY */}
             <Card className="border-red-200">
@@ -716,351 +547,7 @@ const EditAgent: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* Optional Sections */}
-            <div className="space-y-6">
-              <div className="text-center">
-                <h3 className="text-lg font-medium text-gray-600 mb-2">Optional Information</h3>
-                <p className="text-sm text-gray-500">The following sections can be updated as needed</p>
-              </div>
-
-              {/* Source Information - OPTIONAL */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    Source Information
-                    <Badge variant="secondary" className="ml-2">Optional</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <FormField
-                      control={form.control}
-                      name="sourceType"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Source Type</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select source type" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {sourceOptions.map(option => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  <div>
-                                    <div className="font-medium">{option.label}</div>
-                                    <div className="text-xs text-gray-500">{option.description}</div>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="sourceDetails"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Source Details</FormLabel>
-                          <FormControl>
-                            <Textarea 
-                              placeholder="Provide specific details about how this agent was acquired..."
-                              className="min-h-[80px]"
-                              {...field} 
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            E.g., "Met at ITB Berlin 2024, Booth #123" or "Referred by Agent XYZ"
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Company Logo Upload - OPTIONAL */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    Company Logo
-                    <Badge variant="secondary" className="ml-2">Optional</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CompanyLogoUpload
-                    currentImage={logoUrl}
-                    onImageChange={handleLogoChange}
-                    onImageRemove={handleLogoRemove}
-                  />
-                </CardContent>
-              </Card>
-
-              {/* Location & Assignment - OPTIONAL */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <MapPin className="mr-2 h-4 w-4" />
-                    Location & Assignment
-                    <Badge variant="secondary" className="ml-2">Optional</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Countries */}
-                  <div>
-                    <FormLabel className="text-base font-medium mb-3 block">Countries</FormLabel>
-                    <div className="space-y-3">
-                      <Select onValueChange={addCountry}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select countries to add" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableCountries
-                            .filter(country => !selectedCountries.includes(country))
-                            .map(country => (
-                              <SelectItem key={country} value={country}>
-                                {country}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                      
-                      <div className="flex flex-wrap gap-2">
-                        {selectedCountries.map(country => (
-                          <Badge key={country} variant="secondary" className="flex items-center gap-1">
-                            {country}
-                            <X 
-                              className="h-3 w-3 cursor-pointer" 
-                              onClick={() => removeCountry(country)}
-                            />
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Cities */}
-                  <div>
-                    <FormLabel className="text-base font-medium mb-3 block">Cities</FormLabel>
-                    <div className="space-y-3">
-                      <Select 
-                        onValueChange={addCity}
-                        disabled={selectedCountries.length === 0}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={
-                            selectedCountries.length === 0 
-                              ? "Select countries first" 
-                              : "Select cities to add"
-                          } />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {getAvailableCities()
-                            .filter(({ city }) => !selectedCities.includes(city))
-                            .map(({ country, city }) => (
-                              <SelectItem key={`${country}-${city}`} value={city}>
-                                {city} ({country})
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                      
-                      <div className="flex flex-wrap gap-2">
-                        {selectedCities.map(city => (
-                          <Badge key={city} variant="outline" className="flex items-center gap-1">
-                            {city}
-                            <X 
-                              className="h-3 w-3 cursor-pointer" 
-                              onClick={() => removeCity(city)}
-                            />
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Staff Assignments */}
-                  <div>
-                    <FormLabel className="text-base font-medium mb-3 block">Staff Assignments</FormLabel>
-                    <div className="space-y-3">
-                      <Select onValueChange={addStaffAssignment}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Assign staff members" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableStaff
-                            .filter(staff => !selectedStaff.includes(staff.id))
-                            .map(staff => (
-                              <SelectItem key={staff.id} value={staff.id}>
-                                {staff.name} - {staff.department}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                      
-                      <div className="flex flex-wrap gap-2">
-                        {selectedStaff.map(staffId => {
-                          const staff = availableStaff.find(s => s.id === staffId);
-                          return staff ? (
-                            <Badge key={staffId} variant="default" className="flex items-center gap-1">
-                              {staff.name}
-                              <X 
-                                className="h-3 w-3 cursor-pointer" 
-                                onClick={() => removeStaffAssignment(staffId)}
-                              />
-                            </Badge>
-                          ) : null;
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Commission Structure - OPTIONAL */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    Commission Structure
-                    <Badge variant="secondary" className="ml-2">Optional</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <FormField
-                      control={form.control}
-                      name="commissionType"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Commission Type</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select commission type" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="flat">Flat Fee</SelectItem>
-                              <SelectItem value="percentage">Percentage</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="commissionValue"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Commission Value</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder={
-                                form.getValues("commissionType") === "percentage"
-                                  ? "E.g., 10 (for 10%)"
-                                  : "E.g., 50 (flat fee amount)"
-                              }
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Additional Information - OPTIONAL */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    Additional Information
-                    <Badge variant="secondary" className="ml-2">Optional</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <FormField
-                      control={form.control}
-                      name="language"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Preferred Language</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select language" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="English">English</SelectItem>
-                              <SelectItem value="Spanish">Spanish</SelectItem>
-                              <SelectItem value="French">French</SelectItem>
-                              <SelectItem value="German">German</SelectItem>
-                              <SelectItem value="Arabic">Arabic</SelectItem>
-                              <SelectItem value="Thai">Thai</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="currency"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Preferred Currency</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select currency" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="USD">USD</SelectItem>
-                              <SelectItem value="EUR">EUR</SelectItem>
-                              <SelectItem value="GBP">GBP</SelectItem>
-                              <SelectItem value="AED">AED</SelectItem>
-                              <SelectItem value="THB">THB</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="remarks"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Remarks</FormLabel>
-                        <FormControl>
-                          <Textarea 
-                            placeholder="Additional notes or special instructions..."
-                            className="min-h-[100px]"
-                            {...field} 
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </CardContent>
-              </Card>
-            </div>
+            {/* Optional sections removed per requirement */}
 
             {/* Submit Buttons */}
             <div className="flex justify-end space-x-4">

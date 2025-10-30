@@ -138,11 +138,12 @@ export const sidebarItems = [
       {
         title: "Admin",
         icon: "Shield",
+        path: "/management/admin/",
         adminOnly: true,
         items: [
           {
             title: "Admin Dashboard",
-            path: "/management/admin",
+            path: "/management/admin/",
             icon: "Shield"
           },
           {

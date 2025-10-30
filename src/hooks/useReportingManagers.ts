@@ -1,8 +1,7 @@
 
 import { useState, useEffect } from 'react';
-import { EnhancedStaffMember } from '@/types/staff';
-import { enhancedStaffMembers } from '@/data/departmentData';
-import { getStoredStaff } from '@/services/staffStorageService';
+import { supabase, adminSupabase, isAdminClientConfigured } from '@/lib/supabaseClient';
+import type { Tables } from '@/integrations/supabase/types';
 
 export interface ReportingManager {
   id: string;
@@ -15,47 +14,51 @@ export const useReportingManagers = (excludeId?: string) => {
   const [reportingManagers, setReportingManagers] = useState<ReportingManager[]>([]);
 
   useEffect(() => {
-    const loadReportingManagers = () => {
-      // Get stored staff from localStorage
-      const storedStaff = getStoredStaff();
-      
-      // Combine existing staff with stored staff
-      const allStaff = [...enhancedStaffMembers, ...storedStaff];
-      
-      // Filter to get only managers, admins, and senior roles
-      const managers = allStaff
-        .filter(staff => {
-          // Exclude current staff member if editing
-          if (excludeId && staff.id === excludeId) return false;
-          
-          // Only include active staff
-          if (staff.status !== 'active') return false;
-          
-          // Include staff with manager/admin roles
-          const role = staff.role.toLowerCase();
-          return (
-            role.includes('manager') ||
-            role.includes('admin') ||
-            role.includes('director') ||
-            role.includes('head') ||
-            role.includes('lead') ||
-            role.includes('supervisor')
-          );
-        })
-        .map(staff => ({
-          id: staff.id,
-          name: staff.name,
-          role: staff.role,
-          department: staff.department
-        }))
-        // Remove duplicates based on ID
-        .filter((manager, index, self) => 
-          index === self.findIndex(m => m.id === manager.id)
-        )
-        // Sort by name
-        .sort((a, b) => a.name.localeCompare(b.name));
+    const loadReportingManagers = async () => {
+      try {
+        // Try fetching from Supabase with role filter
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id,name,role,department,status')
+          .in('role', ['staff', 'manager', 'super_admin']);
 
-      setReportingManagers(managers);
+        let rows: any[] = Array.isArray(data) ? data : [];
+
+        // Fallback to admin client if RLS blocks
+        if ((!rows || rows.length === 0) && (error || !data) && isAdminClientConfigured && adminSupabase) {
+          try {
+            const { data: adminData } = await (adminSupabase as any)
+              .from('profiles')
+              .select('id,name,role,department,status')
+              .in('role', ['staff', 'manager', 'super_admin']);
+            rows = Array.isArray(adminData) ? adminData : [];
+          } catch {}
+        }
+
+        const managers = (rows as Tables<'profiles'>[])
+          .filter((row) => {
+            // Exclude the provided ID if present
+            if (excludeId && row.id === excludeId) return false;
+            // Only include active profiles by default
+            const status = (row as any)?.status ?? 'active';
+            return String(status).toLowerCase() === 'active';
+          })
+          .map((row) => ({
+            id: row.id as string,
+            name: (row as any).name || 'Unknown',
+            role: (row as any).role || 'staff',
+            department: (row as any).department || ''
+          }))
+          // Remove duplicates based on ID (defensive)
+          .filter((manager, index, self) => index === self.findIndex(m => m.id === manager.id))
+          // Sort by name
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        setReportingManagers(managers);
+      } catch (err) {
+        console.warn('Failed to load reporting managers from Supabase', err);
+        setReportingManagers([]);
+      }
     };
 
     loadReportingManagers();

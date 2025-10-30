@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Upload, Link2, X, Image } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
+import { checkBucketExists } from '@/lib/storageChecks';
 import { appSettingsService, SETTING_CATEGORIES, AppSettingsService } from '@/services/appSettingsService_database';
 import { AppSettingsHelpers } from '@/services/appSettingsService_database';
 
@@ -18,7 +19,8 @@ const AppLogoUpload: React.FC = () => {
   const [isUploadingDark, setIsUploadingDark] = useState(false);
   const [darkImageUrl, setDarkImageUrl] = useState('');
   const [darkPreviewUrl, setDarkPreviewUrl] = useState('');
-  const [storageMode, setStorageMode] = useState<'local' | 'filesystem' | 'supabase'>('local');
+  const [storageMode, setStorageMode] = useState<'local' | 'filesystem' | 'supabase'>('supabase');
+  const [brandingBucketExists, setBrandingBucketExists] = useState<boolean>(true);
   const uploadServerUrl = (import.meta.env.VITE_UPLOAD_SERVER_URL as string) || 'http://localhost:4000';
   // Optional nested path for Local Filesystem mode
   const [nestedRole, setNestedRole] = useState<string>('');
@@ -29,6 +31,17 @@ const AppLogoUpload: React.FC = () => {
     let mounted = true;
     (async () => {
       try {
+        // Preflight: verify branding bucket exists
+        const res = await checkBucketExists('branding');
+        if (mounted) setBrandingBucketExists(res.exists);
+        if (!res.exists) {
+          toast({
+            title: 'Branding storage missing',
+            description: 'Supabase bucket "branding" is not found. Create a public bucket named "branding" in Supabase Studio or via migrations.',
+            variant: 'destructive'
+          });
+        }
+
         const [lightVal, darkVal] = await Promise.all([
           AppSettingsService.getSettingValue(SETTING_CATEGORIES.BRANDING, 'company_logo'),
           AppSettingsService.getSettingValue(SETTING_CATEGORIES.BRANDING, 'company_logo_dark')
@@ -96,6 +109,14 @@ const AppLogoUpload: React.FC = () => {
         setImageUrl(fileUrl);
         toast({ title: 'Logo uploaded', description: 'Saved to local uploads folder' });
       } else {
+        if (!brandingBucketExists) {
+          toast({
+            title: 'Branding bucket missing',
+            description: 'Create the public storage bucket "branding" and re-try.',
+            variant: 'destructive'
+          });
+          return;
+        }
         const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
         const filename = `logos/${crypto.randomUUID()}.${ext}`;
         const { error: uploadError } = await supabase.storage.from('branding').upload(filename, file, {
@@ -184,6 +205,14 @@ const AppLogoUpload: React.FC = () => {
         setDarkImageUrl(fileUrl);
         toast({ title: 'Dark logo uploaded', description: 'Saved to local uploads folder' });
       } else {
+        if (!brandingBucketExists) {
+          toast({
+            title: 'Branding bucket missing',
+            description: 'Create the public storage bucket "branding" and re-try.',
+            variant: 'destructive'
+          });
+          return;
+        }
         const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
         const filename = `logos/dark/${crypto.randomUUID()}.${ext}`;
         const { error: uploadError } = await supabase.storage.from('branding').upload(filename, file, {
@@ -302,7 +331,7 @@ const AppLogoUpload: React.FC = () => {
           <Label className="text-sm">Storage Mode:</Label>
           <div className="flex items-center gap-2">
             <Button type="button" variant={storageMode === 'local' ? 'default' : 'outline'} size="sm" onClick={() => setStorageMode('local')}>Local (Browser)</Button>
-            <Button type="button" variant={storageMode === 'filesystem' ? 'default' : 'outline'} size="sm" onClick={() => setStorageMode('filesystem')}>Local Filesystem</Button>
+            <Button type="button" variant={'outline'} size="sm" disabled title="Disabled: local server removed">Local Filesystem</Button>
             <Button type="button" variant={storageMode === 'supabase' ? 'default' : 'outline'} size="sm" onClick={() => setStorageMode('supabase')}>Supabase</Button>
           </div>
         </div>

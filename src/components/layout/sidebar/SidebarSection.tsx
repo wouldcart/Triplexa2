@@ -35,16 +35,27 @@ const SidebarSection: React.FC<SidebarSectionProps> = ({ section, sidebarOpen })
   const { translate } = useApp();
   const { isAdmin } = useAccessControl();
 
+  // Normalize paths to avoid trailing slash mismatches in active detection
+  const normalizePath = (p?: string) => {
+    if (!p) return '';
+    return p.length > 1 && p.endsWith('/') ? p.slice(0, -1) : p;
+  };
+  const currentPathNormalized = normalizePath(currentPath);
+
   // If this section is for admins only and the user is not an admin, don't render anything
   if (section.adminOnly && !isAdmin) {
     return null;
   }
 
   // Check if this section or any of its items is active
-  const isActiveSection = section.path === currentPath || 
-                          section.items?.some(item => 
-                            currentPath === item.path || currentPath.startsWith(item.path + '/')
-                          );
+  const sectionPath = normalizePath(section.path);
+  const isActiveSection = (
+    (!!sectionPath && (currentPathNormalized === sectionPath || currentPathNormalized.startsWith(sectionPath + '/')))
+    || section.items?.some(item => {
+      const itemPath = normalizePath(item.path);
+      return currentPathNormalized === itemPath || currentPathNormalized.startsWith(itemPath + '/');
+    })
+  );
 
   // State to track if section is expanded (default to expanded if active)
   const [isExpanded, setIsExpanded] = useState(isActiveSection);
@@ -94,7 +105,8 @@ const SidebarSection: React.FC<SidebarSectionProps> = ({ section, sidebarOpen })
           if (subItem.adminOnly && !isAdmin) return null;
           
           // Check if this route or any of its subroutes is active
-          const isActive = currentPath === subItem.path || currentPath.startsWith(subItem.path + '/');
+          const basePath = normalizePath(subItem.path);
+          const isActive = currentPathNormalized === basePath || currentPathNormalized.startsWith(basePath + '/');
           const Icon = iconMap[getTitle(subItem.title)] || iconMap[getTitle(section.title)] || iconMap['Dashboard']; // Default to section icon or dashboard icon if not found
           
           return (
@@ -112,7 +124,8 @@ const SidebarSection: React.FC<SidebarSectionProps> = ({ section, sidebarOpen })
     );
   } else {
     // Top-level menu item
-    const isActive = currentPath === section.path || currentPath.startsWith(section.path + '/');
+    const sectionBasePath = normalizePath(section.path);
+    const isActive = currentPathNormalized === sectionBasePath || currentPathNormalized.startsWith(sectionBasePath + '/');
     const Icon = iconMap[getTitle(section.title)] || iconMap['Dashboard'];
     
     return (

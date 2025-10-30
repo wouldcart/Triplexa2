@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +33,8 @@ const AgentSignup: React.FC = () => {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [emailExists, setEmailExists] = useState(false);
+  const [phoneExists, setPhoneExists] = useState(false);
   const { settings } = useApplicationSettings();
   const navigate = useNavigate();
   const location = useLocation();
@@ -77,6 +79,16 @@ const AgentSignup: React.FC = () => {
       return false;
     }
 
+    // Duplicate checks
+    if (emailExists) {
+      setError('Email already exists. Please login.');
+      return false;
+    }
+    if (phoneExists) {
+      setError('Phone number already exists. Please login.');
+      return false;
+    }
+
     // Credentials validation
     if (!formData.password) {
       setError('Password is required');
@@ -95,6 +107,48 @@ const AgentSignup: React.FC = () => {
 
     return true;
   };
+
+  // Debounced email existence check
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      try {
+        const email = formData.email.trim();
+        if (!email) {
+          setEmailExists(false);
+          return;
+        }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          setEmailExists(false);
+          return;
+        }
+        const { exists } = await AuthService.userExistsByEmail(email);
+        setEmailExists(!!exists);
+      } catch {
+        setEmailExists(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [formData.email]);
+
+  // Debounced phone existence check (digits-only compare)
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      try {
+        const phone = formData.phone.trim();
+        const digits = phone.replace(/\D/g, '');
+        if (!digits || digits.length < 7) {
+          setPhoneExists(false);
+          return;
+        }
+        const { exists } = await AuthService.userExistsByPhone(phone);
+        setPhoneExists(!!exists);
+      } catch {
+        setPhoneExists(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [formData.phone]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -296,6 +350,19 @@ const AgentSignup: React.FC = () => {
                         className="pl-10"
                         required
                       />
+                      {emailExists && (
+                        <div className="mt-2 text-sm flex items-center gap-2">
+                          <span className="text-red-600">This email is already registered.</span>
+                          <Button
+                            type="button"
+                            variant="link"
+                            className="p-0 h-auto text-blue-600 hover:text-blue-800"
+                            onClick={() => navigate(`/login?email=${encodeURIComponent(formData.email.trim())}`)}
+                          >
+                            Login Instead
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -311,6 +378,19 @@ const AgentSignup: React.FC = () => {
                         className="pl-10"
                         required
                       />
+                      {phoneExists && (
+                        <div className="mt-2 text-sm flex items-center gap-2">
+                          <span className="text-red-600">This phone number is already registered.</span>
+                          <Button
+                            type="button"
+                            variant="link"
+                            className="p-0 h-auto text-blue-600 hover:text-blue-800"
+                            onClick={() => navigate(`/login?email=${encodeURIComponent(formData.email.trim())}`)}
+                          >
+                            Login Instead
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -324,6 +404,23 @@ const AgentSignup: React.FC = () => {
               </div>
 
             
+
+
+                
+
+
+
+
+
+
+
+
+
+
+
+
+
+
               {/* Login Credentials */}
               <div className="space-y-4">
                 <h3 className="text-lg font-medium">Login Credentials</h3>
@@ -334,6 +431,7 @@ const AgentSignup: React.FC = () => {
                       id="password"
                       type="password"
                       placeholder="Enter a strong password"
+                      
                       value={formData.password}
                       onChange={(e) => handleInputChange('password', e.target.value)}
                       required
@@ -372,7 +470,7 @@ const AgentSignup: React.FC = () => {
                 <Button
                   type="submit"
                   className="flex-1"
-                  disabled={loading}
+                  disabled={loading || emailExists || phoneExists}
                 >
                   {loading ? 'Registering...' : 'Register Agent'}
                 </Button>

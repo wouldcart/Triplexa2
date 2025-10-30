@@ -31,12 +31,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import PageLayout from "@/components/layout/PageLayout";
-import { enhancedStaffMembers } from "@/data/departmentData";
 import { EnhancedStaffMember } from "@/types/staff";
-import { getStoredStaff, updateStaffMember } from "@/services/staffStorageService";
 import { initialCountries } from "@/pages/inventory/countries/data/countryData";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, adminSupabase, isAdminClientConfigured } from "@/lib/supabaseClient";
 
 const StaffManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -117,41 +115,33 @@ const StaffManagement: React.FC = () => {
     };
 
     const loadStaffData = async () => {
-      const storedStaff = getStoredStaff();
-      let supabaseStaff: EnhancedStaffMember[] = [];
+      let allStaff: EnhancedStaffMember[] = [];
 
       try {
-        if (supabase) {
-          const { data, error } = await supabase
+        const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+        if (client) {
+          const { data, error } = await client
             .from('profiles')
             .select('id, name, email, phone, department, role, status, employee_id, created_at, avatar')
             .eq('role', 'staff');
 
           if (error) {
-            console.warn('Supabase profiles fetch failed, falling back to local sources:', error);
+            console.warn('Supabase profiles fetch failed:', error);
           } else if (data && Array.isArray(data)) {
-            supabaseStaff = data.map(mapProfileToEnhancedStaff);
+            allStaff = data.map(mapProfileToEnhancedStaff);
           }
         }
       } catch (err) {
         console.warn('Error fetching staff profiles from Supabase:', err);
       }
 
-      // If we have Supabase staff, prefer those and merge local stored entries; otherwise include sample data
-      const allStaff = supabaseStaff.length > 0
-        ? [...supabaseStaff, ...storedStaff]
-        : [...enhancedStaffMembers, ...storedStaff];
-
+      // Use only Supabase data
       setStaffData(allStaff);
     };
 
     loadStaffData();
-    // Listen for localStorage changes to update staff data
-    const handleStorageChange = () => {
-      loadStaffData();
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    // No localStorage source; no storage listeners needed
+    return () => {};
   }, []);
 
   const filteredStaff = staffData.filter(staff => {
@@ -173,8 +163,9 @@ const StaffManagement: React.FC = () => {
       const staffMember = staffData.find(staff => staff.id === staffId);
       
       // Update in Supabase if available
-      if (supabase) {
-        const { error: supabaseError } = await supabase
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+      if (client) {
+        const { error: supabaseError } = await client
           .from('profiles')
           .update({
             status: newStatus,
@@ -183,15 +174,12 @@ const StaffManagement: React.FC = () => {
           .eq('id', staffId);
 
         if (supabaseError) {
-          console.warn('Supabase update failed, using local storage:', supabaseError);
+          console.warn('Supabase update failed:', supabaseError);
         } else {
           console.log(`Staff ${staffMember?.name} status updated in Supabase to: ${newStatus}`);
         }
       }
-      
-      // Update the staff member status in local storage as fallback
-      updateStaffMember(staffId, { status: newStatus });
-      
+
       // Update local state
       setStaffData(prevData => 
         prevData.map(staff => 

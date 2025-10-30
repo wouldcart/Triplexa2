@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -206,6 +206,9 @@ const EnhancedPreviewDialog: React.FC<EnhancedPreviewDialogProps> = ({
               </div>
             </div>
           </DialogTitle>
+          <DialogDescription>
+            Preview proposal details, itinerary, and pricing before sharing with the client.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="overflow-y-auto max-h-[calc(90vh-120px)]">

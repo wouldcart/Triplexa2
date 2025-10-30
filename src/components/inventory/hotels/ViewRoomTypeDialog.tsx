@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -119,6 +120,9 @@ const ViewRoomTypeDialog: React.FC<ViewRoomTypeDialogProps> = ({
               </Button>
             </div>
           </div>
+          <DialogDescription>
+            Detailed room information, amenities, images, and pricing breakdown.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-6">

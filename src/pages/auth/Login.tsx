@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -36,6 +36,7 @@ const Login: React.FC = () => {
   const { settings } = useApplicationSettings();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { signIn, user } = useAuth();
 
@@ -47,7 +48,19 @@ const Login: React.FC = () => {
     }
   }, [user, navigate]);
 
-  // Handle Supabase invite link: set session from hash and redirect
+  // Prefill username and magic link email from query params
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(location.search);
+      const emailParam = params.get('email');
+      if (emailParam) {
+        setUsername(emailParam);
+        setMagicLinkEmail(emailParam);
+      }
+    } catch {}
+  }, [location.search]);
+
+  // Handle Supabase invite/magic link: set session from hash and redirect
   useEffect(() => {
     const hash = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : window.location.hash;
     if (!hash) return;
@@ -58,10 +71,12 @@ const Login: React.FC = () => {
     const refresh_token = params.get('refresh_token');
     const code = params.get('code');
 
-    if (type === 'invite') {
+    // Handle all Supabase auth link types (invite, magiclink, signup, email_confirm, recovery, email_change)
+    const handledTypes = new Set(['invite', 'magiclink', 'signup', 'email_confirm', 'recovery', 'email_change']);
+    if (type && handledTypes.has(type)) {
       (async () => {
         try {
-          console.log('📩 Processing Supabase invite');
+          console.log('📩 Processing Supabase auth link:', type);
 
           // Prefer explicit setSession when BOTH tokens are present
           if (access_token && refresh_token) {
@@ -71,8 +86,8 @@ const Login: React.FC = () => {
               refresh_token
             } as any);
             if (error) {
-              console.error('❌ Error setting Supabase session from invite:', error);
-              setError(error.message || 'Failed to process invite link');
+              console.error('❌ Error setting Supabase session from auth link:', error);
+              setError(error.message || 'Failed to process login link');
               return;
             }
           } else if (code) {
@@ -81,7 +96,7 @@ const Login: React.FC = () => {
             const { error } = await supabase.auth.exchangeCodeForSession(code);
             if (error) {
               console.error('❌ Error exchanging code for session:', error);
-              setError(error.message || 'Failed to process invite link');
+              setError(error.message || 'Failed to process login link');
               return;
             }
           } else {
@@ -91,8 +106,8 @@ const Login: React.FC = () => {
             await new Promise((r) => setTimeout(r, 150));
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) {
-              console.warn('⚠️ No session detected from invite; tokens missing');
-              setError('Invite link invalid or expired. Please open the latest invite email.');
+              console.warn('⚠️ No session detected from auth link; tokens missing');
+              setError('Login link invalid or expired. Please open the latest email.');
               return;
             }
           }
@@ -103,19 +118,19 @@ const Login: React.FC = () => {
           // Fetch enriched app user/session and redirect to role-based dashboard
           const { user: sessionUser, error: sessionError } = await AuthService.getCurrentSession();
           if (sessionError) {
-            console.warn('⚠️ Session retrieval after invite had an issue:', sessionError);
+            console.warn('⚠️ Session retrieval after auth link had an issue:', sessionError);
           }
 
           if (sessionUser) {
-            console.log('✅ Invite processed. Redirecting to dashboard for role:', sessionUser.role);
+            console.log('✅ Auth link processed. Redirecting to dashboard for role:', sessionUser.role);
             navigate('/', { replace: true });
           } else {
             console.log('ℹ️ No app user found after setting session; redirecting to root anyway');
             navigate('/', { replace: true });
           }
         } catch (err) {
-          console.error('🚨 Unexpected error processing invite link:', err);
-          const msg = err instanceof Error ? err.message : 'Failed to process invite link';
+          console.error('🚨 Unexpected error processing auth link:', err);
+          const msg = err instanceof Error ? err.message : 'Failed to process login link';
           setError(msg);
         }
       })();
@@ -250,7 +265,7 @@ const Login: React.FC = () => {
   const enhancedTestAccounts = [
     { 
       role: 'Super Admin', 
-      username: 'akshay@trip.com', 
+      username: 'akshay@wouldcart.com', 
       password: 'Akki#6342', 
       description: 'Full system access',
       permissions: 'All modules, user management, system settings',

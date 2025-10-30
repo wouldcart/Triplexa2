@@ -136,6 +136,7 @@ import AdminManagement from './pages/management/AdminManagement';
 import AppSettingsAdmin from './pages/management/AppSettingsAdmin';
 import AdminUsers from './pages/management/AdminUsers';
 import NominatimTools from '@/pages/tools/NominatimTools';
+import AdminRoleManager from '@/pages/management/admin-role-manager/AdminRoleManager';
 
 // Import missing restaurant components
 import AddEditRestaurant from './pages/inventory/restaurants/AddEditRestaurant';
@@ -451,12 +452,14 @@ function App() {
         <Route path="/management/staff/profile/:id" element={<ProtectedRoute><StaffProfile /></ProtectedRoute>} />
         <Route path="/management/staff/:id" element={<ProtectedRoute><StaffProfile /></ProtectedRoute>} />
         <Route path="/management/staff/:id/edit" element={<ProtectedRoute><EditStaff /></ProtectedRoute>} />
+        <Route path="/management/staff/edit/:id" element={<ProtectedRoute><EditStaff /></ProtectedRoute>} />
         <Route path="/management/hr" element={<ProtectedRoute><HRDashboard /></ProtectedRoute>} />
         
         {/* Admin Management Routes */}
         <Route path="/management/admin" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AdminManagement /></ProtectedRoute>} />
         <Route path="/management/admin/app-settings" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AppSettingsAdmin /></ProtectedRoute>} />
         <Route path="/management/admin/users" element={<ProtectedRoute requiredRole={['super_admin']}><AdminUsers /></ProtectedRoute>} />
+        <Route path="/management/admin/role-manager" element={<ProtectedRoute requiredRole={['super_admin', 'admin']}><AdminRoleManager /></ProtectedRoute>} />
         
         {/* Dashboard Routes */}
         <Route path="/dashboards/agent" element={<ProtectedRoute><AgentDashboard /></ProtectedRoute>} />

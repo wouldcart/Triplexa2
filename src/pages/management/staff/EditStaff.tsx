@@ -20,7 +20,7 @@ import { Save, X, Plus, Trash2, Target, ArrowLeft, Calendar as CalendarIcon } fr
 import { cn } from '@/lib/utils';
 import PageLayout from '@/components/layout/PageLayout';
 import { EnhancedStaffMember, Target as TargetType } from '@/types/staff';
-import { enhancedStaffMembers, departments } from '@/data/departmentData';
+import { departments } from '@/data/departmentData';
 import { toast } from '@/hooks/use-toast';
 import EmployeeCodeField from '@/components/staff/EmployeeCodeField';
 import OperationalCountriesSelector from '@/components/staff/OperationalCountriesSelector';
@@ -30,8 +30,9 @@ import WorkingHoursSection from '@/components/staff/WorkingHoursSection';
 import LoginCredentials from '@/components/staff/LoginCredentials';
 import { validateEmployeeCode, isEmployeeCodeUnique } from '@/utils/employeeCodeGenerator';
 import { validatePasswordStrength, checkUsernameUniqueness } from '@/utils/credentialGenerator';
-import { getStaffById, updateStaffMember } from '@/services/staffStorageService';
+import { updateStaffMember } from '@/services/staffStorageService';
 import { syncStaffWithAuthSystem } from '@/services/credentialService';
+import { supabase } from '@/integrations/supabase/client';
 
 const staffSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -41,9 +42,9 @@ const staffSchema = z.object({
   role: z.string().min(1, 'Role is required'),
   status: z.enum(['active', 'inactive', 'on-leave']),
   employeeId: z.string()
-    .min(4, "Employee code must be 4 digits")
-    .max(4, "Employee code must be 4 digits")
-    .refine(validateEmployeeCode, "Employee code must be numeric"),
+    .min(1, "Employee code must be at least 1 digit")
+    .max(10, "Employee code must be at most 10 digits")
+    .refine(validateEmployeeCode, "Employee code must be digits only"),
   operationalCountries: z.array(z.string()).min(1, "Please select at least one operational country"),
   skills: z.array(z.string()),
   certifications: z.array(z.string()),
@@ -118,48 +119,184 @@ const EditStaff: React.FC = () => {
   });
 
   useEffect(() => {
-    if (id) {
-      // First check localStorage for newly added staff
-      const localStaff = getStaffById(id);
-      let staffMember = localStaff;
-      
-      if (!staffMember) {
-        // Fall back to existing data
-        staffMember = enhancedStaffMembers.find(s => s.id === id);
-      }
+    const mapProfileToEnhancedStaff = (p: any): EnhancedStaffMember => {
+      const today = new Date().toISOString().slice(0, 10);
+      const status = ['active', 'inactive', 'on-leave'].includes(p?.status) ? p.status : 'active';
+      return {
+        id: p.id,
+        name: p.name || (p.email ? String(p.email).split('@')[0] : 'Staff Member'),
+        email: p.email || '',
+        phone: p.phone || '',
+        department: p.department || 'General',
+        role: p.role || 'staff',
+        status,
+        avatar: p.avatar || undefined,
+        joinDate: (p.created_at ? String(p.created_at).slice(0, 10) : today),
+        dateOfBirth: undefined,
+        skills: [],
+        certifications: [],
+        performance: {
+          daily: { date: today, tasksCompleted: 0, responseTime: 0, customerSatisfaction: 0 },
+          monthly: { month: today.slice(0, 7), totalTasks: 0, averageResponseTime: 0, averageCustomerSatisfaction: 0, targetAchievement: 0 },
+          quarterly: { quarter: `Q${Math.floor((new Date().getMonth() / 3) + 1)}-${new Date().getFullYear()}`, performanceRating: 0, goalsAchieved: 0, totalGoals: 0, growthPercentage: 0 },
+          overall: { totalExperience: '0 years', performanceScore: 0, ranking: 0, badges: [] },
+        },
+        targets: [],
+        permissions: [],
+        workingHours: {
+          monday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+          tuesday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+          wednesday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+          thursday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+          friday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+          saturday: { isWorking: false },
+          sunday: { isWorking: false },
+        },
+        reportingManager: undefined,
+        teamMembers: undefined,
+        employeeId: p.employee_id || '',
+        operationalCountries: [],
+        salaryStructure: undefined,
+        leaveBalance: undefined,
+        attendanceRecord: undefined,
+      };
+    };
 
-      if (staffMember) {
-        setStaff(staffMember);
-        // Convert legacy working hours format to new shift format if needed
-        const convertedWorkingHours = convertLegacyWorkingHours(staffMember.workingHours);
-        setWorkingHours(convertedWorkingHours);
-        setTargets(staffMember.targets || []);
-        
-        // Convert dates from string to Date objects
-        const joinDate = staffMember.joinDate ? new Date(staffMember.joinDate) : new Date();
-        const dateOfBirth = staffMember.dateOfBirth ? new Date(staffMember.dateOfBirth) : new Date();
-        
-        // Convert on-leave status to inactive for editing
-        const editableStatus = staffMember.status === 'on-leave' ? 'inactive' : staffMember.status as 'active' | 'inactive' | 'on-leave';
-        
-        form.reset({
-          name: staffMember.name,
-          email: staffMember.email,
-          phone: staffMember.phone,
-          department: staffMember.department,
-          role: staffMember.role,
-          status: editableStatus,
-          employeeId: staffMember.employeeId || '',
-          operationalCountries: staffMember.operationalCountries || [],
-          skills: staffMember.skills,
-          certifications: staffMember.certifications,
-          reportingManager: staffMember.reportingManager || '',
-          joinDate: joinDate,
-          dateOfBirth: dateOfBirth,
-          mustChangePassword: false,
-        });
+    const mapStaffRowToEnhancedStaff = (s: any): EnhancedStaffMember => {
+      const today = new Date().toISOString().slice(0, 10);
+      const status = ['active', 'inactive', 'on-leave'].includes(s?.status) ? s.status : 'active';
+      return {
+        id: s.id,
+        name: s.name || (s.email ? String(s.email).split('@')[0] : 'Staff Member'),
+        email: s.email || '',
+        phone: s.phone || '',
+        department: s.department || 'General',
+        role: s.role || 'staff',
+        status,
+        avatar: s.avatar || undefined,
+        joinDate: (s.join_date ? String(s.join_date).slice(0, 10) : today),
+        dateOfBirth: s.date_of_birth ? String(s.date_of_birth).slice(0, 10) : undefined,
+        skills: [],
+        certifications: [],
+        performance: {
+          daily: { date: today, tasksCompleted: 0, responseTime: 0, customerSatisfaction: 0 },
+          monthly: { month: today.slice(0, 7), totalTasks: 0, averageResponseTime: 0, averageCustomerSatisfaction: 0, targetAchievement: 0 },
+          quarterly: { quarter: `Q${Math.floor((new Date().getMonth() / 3) + 1)}-${new Date().getFullYear()}`, performanceRating: 0, goalsAchieved: 0, totalGoals: 0, growthPercentage: 0 },
+          overall: { totalExperience: '0 years', performanceScore: 0, ranking: 0, badges: [] },
+        },
+        targets: [],
+        permissions: [],
+        workingHours: {
+          monday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+          tuesday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+          wednesday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+          thursday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+          friday: { isWorking: true, startTime: '09:00', endTime: '17:00' },
+          saturday: { isWorking: false },
+          sunday: { isWorking: false },
+        },
+        reportingManager: s.reporting_manager || '',
+        teamMembers: undefined,
+        employeeId: s.employee_id || '',
+        operationalCountries: Array.isArray(s.operational_countries) ? s.operational_countries : [],
+        salaryStructure: undefined,
+        leaveBalance: undefined,
+        attendanceRecord: undefined,
+      };
+    };
+
+    const loadStaff = async () => {
+      if (!id) return;
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, name, email, phone, department, role, status, employee_id, created_at, avatar')
+          .eq('id', id)
+          .maybeSingle();
+        if (error) {
+          console.warn('Supabase profile fetch failed:', error);
+        }
+        if (data) {
+          const staffMember = mapProfileToEnhancedStaff(data);
+          setStaff(staffMember);
+
+          // Convert legacy working hours format to new shift format if needed
+          const convertedWorkingHours = convertLegacyWorkingHours(staffMember.workingHours);
+          setWorkingHours(convertedWorkingHours);
+          setTargets(staffMember.targets || []);
+
+          const joinDate = staffMember.joinDate ? new Date(staffMember.joinDate) : new Date();
+          const dateOfBirth = staffMember.dateOfBirth ? new Date(staffMember.dateOfBirth) : new Date();
+
+          const editableStatus = staffMember.status === 'on-leave' ? 'inactive' : staffMember.status as 'active' | 'inactive' | 'on-leave';
+
+          form.reset({
+            name: staffMember.name,
+            email: staffMember.email,
+            phone: staffMember.phone,
+            department: staffMember.department,
+            role: staffMember.role,
+            status: editableStatus,
+            employeeId: staffMember.employeeId || '',
+            operationalCountries: staffMember.operationalCountries || [],
+            skills: staffMember.skills,
+            certifications: staffMember.certifications,
+            reportingManager: staffMember.reportingManager || '',
+            joinDate: joinDate,
+            dateOfBirth: dateOfBirth,
+            mustChangePassword: false,
+          });
+        } else {
+          // Fallback: try loading from 'staff' table
+          const { data: staffData, error: staffError } = await supabase
+            .from('staff' as any)
+            .select('id, name, email, phone, department, role, status, employee_id, join_date, date_of_birth, reporting_manager, operational_countries, avatar')
+            .eq('id', id)
+            .maybeSingle();
+
+          if (staffError) {
+            console.warn('Supabase staff fetch failed:', staffError);
+          }
+
+          if (staffData) {
+            const staffMember = mapStaffRowToEnhancedStaff(staffData);
+            setStaff(staffMember);
+
+            const convertedWorkingHours = convertLegacyWorkingHours(staffMember.workingHours);
+            setWorkingHours(convertedWorkingHours);
+            setTargets(staffMember.targets || []);
+
+            const joinDate = staffMember.joinDate ? new Date(staffMember.joinDate) : new Date();
+            const dateOfBirth = staffMember.dateOfBirth ? new Date(staffMember.dateOfBirth) : new Date();
+
+            const editableStatus = staffMember.status === 'on-leave' ? 'inactive' : staffMember.status as 'active' | 'inactive' | 'on-leave';
+
+            form.reset({
+              name: staffMember.name,
+              email: staffMember.email,
+              phone: staffMember.phone,
+              department: staffMember.department,
+              role: staffMember.role,
+              status: editableStatus,
+              employeeId: staffMember.employeeId || '',
+              operationalCountries: staffMember.operationalCountries || [],
+              skills: staffMember.skills,
+              certifications: staffMember.certifications,
+              reportingManager: staffMember.reportingManager || '',
+              joinDate: joinDate,
+              dateOfBirth: dateOfBirth,
+              mustChangePassword: false,
+            });
+          } else {
+            setStaff(null);
+          }
+        }
+      } catch (err) {
+        console.warn('Error loading staff from Supabase:', err);
       }
-    }
+    };
+
+    loadStaff();
   }, [id, form]);
 
   // Helper function to convert legacy working hours to new shift format
@@ -190,7 +327,7 @@ const EditStaff: React.FC = () => {
     return convertedHours;
   };
 
-  const onSubmit = (data: StaffFormData) => {
+  const onSubmit = async (data: StaffFormData) => {
     if (!staff) return;
 
     const updatedStaff: EnhancedStaffMember = {
@@ -217,7 +354,7 @@ const EditStaff: React.FC = () => {
 
     // If login credentials are provided, sync with auth system
     if (data.username && data.password && showCredentials) {
-      syncStaffWithAuthSystem(updatedStaff, data.username, data.password, data.mustChangePassword);
+      await syncStaffWithAuthSystem(updatedStaff, data.username, data.password, data.mustChangePassword);
       console.log('Updated staff member with new login credentials:', { 
         staff: updatedStaff.name, 
         username: data.username,

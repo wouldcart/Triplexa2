@@ -62,7 +62,7 @@ export class AgentManagementService {
     try {
       let agentQuery = (supabase as any)
         .from('agents' as any)
-        .select('id,status,created_at,updated_at,created_by,source_type,source_details,agency_name,city,country')
+        .select('id,user_id,status,created_at,updated_at,created_by,source_type,source_details,agency_name,name,email,business_phone,profile_image,country,city,suspension_reason,suspended_at,suspended_by')
         .order('created_at', { ascending: false });
 
       if (filters?.status) {
@@ -75,6 +75,9 @@ export class AgentManagementService {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         currentUserId = user?.id;
+        // TEMPORARILY DISABLED: profiles query causing RLS infinite recursion
+        // TODO: Fix RLS policies on profiles table to enable role-based filtering
+        /*
         if (currentUserId) {
           const { data: me } = await supabase
             .from('profiles')
@@ -83,6 +86,7 @@ export class AgentManagementService {
             .maybeSingle();
           currentRole = (me as any)?.role;
         }
+        */
         // Note: strict DB-side filtering by creator is disabled because agents.created_by is not available
       } catch {}
 
@@ -98,12 +102,12 @@ export class AgentManagementService {
           agents = agents.filter(a => a.status === filters.status);
         }
         if (filters?.search) {
-          const s = filters.search.toLowerCase();
-          agents = agents.filter(a =>
-            (a.name || '').toLowerCase().includes(s) ||
-            (a.email || '').toLowerCase().includes(s) ||
-            (a.company_name || '').toLowerCase().includes(s)
-          );
+          const s = (filters.search || '').toLowerCase();
+           agents = agents.filter(a =>
+             (a.name || '').toLowerCase().includes(s) ||
+             (a.email || '').toLowerCase().includes(s) ||
+             (a.company_name || '').toLowerCase().includes(s)
+           );
         }
         if (filters?.assigned_staff) {
           agents = agents.filter(a => (a.assigned_staff || []).includes(filters.assigned_staff!));
@@ -116,34 +120,41 @@ export class AgentManagementService {
       }
 
       const ids = agentsCore.map(a => a.id);
-      const { data: profiles, error: profilesError } = await (supabase as any)
-        .from('profiles' as any)
-        .select('id,name,email,phone,company_name,created_at,updated_at,role,city,country')
-        .in('id', ids);
+      // TEMPORARILY DISABLED: profiles query causing RLS infinite recursion
+      // const { data: profiles, error: profilesError } = await (supabase as any)
+      //   .from('profiles' as any)
+      //   .select('id,name,email,phone,company_name,created_at,updated_at,role')
+      //   .in('id', ids);
 
-      if (profilesError) {
-        return { data: null, error: profilesError };
-      }
+      // if (profilesError) {
+      //   return { data: null, error: profilesError };
+      // }
+      
+      // Use empty profiles array to avoid recursion
+      const profiles: any[] = [];
 
       const profileMap = new Map<string, any>();
       (profiles || []).forEach(p => profileMap.set(p.id, p));
 
       let merged: ManagedAgent[] = agentsCore.map((a: any) => {
         const p = profileMap.get(a.id) || {};
-        const name = p.name || '';
-        const email = p.email || '';
-        const phone = p.phone || '';
-        const company_name = p.company_name || a.agency_name || '';
-        const created_at = a.created_at || p.created_at || new Date().toISOString();
-        const updated_at = a.updated_at || p.updated_at || created_at;
+        // Prefer values from agents table; fall back to profiles if enabled later
+        const name = (a as any)?.name || (p as any)?.name || '';
+        const email = (a as any)?.email || (p as any)?.email || '';
+        const phone = (a as any)?.business_phone || (p as any)?.phone || '';
+        const company_name = (p as any)?.company_name || (a as any)?.agency_name || '';
+        const created_at = (a as any)?.created_at || (p as any)?.created_at || new Date().toISOString();
+        const updated_at = (a as any)?.updated_at || (p as any)?.updated_at || created_at;
         return {
           id: a.id,
+          user_id: (a as any)?.user_id,
           name,
           email,
           phone,
           company_name,
-          country: a.country ?? (p as any)?.country ?? undefined,
-          city: a.city ?? (p as any)?.city ?? undefined,
+          profile_image: (a as any)?.profile_image ?? (p as any)?.profile_image ?? undefined,
+          country: (a as any)?.country ?? (p as any)?.country ?? undefined,
+          city: (a as any)?.city ?? (p as any)?.city ?? undefined,
           status: (a.status as AgentStatus) || ('pending' as AgentStatus),
           role: 'agent',
           source_type: a.source_type,
@@ -151,6 +162,9 @@ export class AgentManagementService {
           created_by: a.created_by,
           assigned_staff: [],
           login_credentials: {},
+          suspension_reason: (a as any)?.suspension_reason ?? undefined,
+          suspended_at: (a as any)?.suspended_at ?? undefined,
+          suspended_by: (a as any)?.suspended_by ?? undefined,
           created_at,
           updated_at
         } as ManagedAgent;
@@ -174,54 +188,212 @@ export class AgentManagementService {
   // Get a single agent by ID (agents + profiles)
   static async getAgentById(id: string): Promise<{ data: ManagedAgent | null; error: any }> {
     try {
-      const { data: agentCore, error: agentError } = await (supabase as any)
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+      const { data: agentCore, error: agentError } = await (client as any)
         .from('agents' as any)
-        // Select known-safe columns plus attribution
-        .select('id,status,created_at,updated_at,created_by,source_type,source_details,agency_name,city,country')
+        // Read all relevant agent-owned columns
+        .select('id,user_id,status,created_at,updated_at,created_by,source_type,source_details,agency_name,name,email,country,city,preferred_language,business_type,commission_type,commission_value,profile_image,business_phone,business_address,license_number,iata_number,specializations,website,alternate_email,mobile_numbers,documents,suspension_reason,suspended_at,suspended_by')
         .eq('id', id)
         .maybeSingle();
 
       if (agentError && this.isMissingTableError(agentError)) {
-        const agents = this.readAgentsFromStorage();
-        const found = agents.find(a => a.id === id) || null;
-        return { data: found, error: null };
-      }
+        // Final fallback: try Supabase Auth admin lookup to hydrate minimal agent
+        if (isAdminClientConfigured && adminSupabase) {
+          try {
+            const { data: adminUserData, error: adminUserError } = await (adminSupabase as any).auth.admin.getUserById(id);
+            if (!adminUserError && adminUserData?.user) {
+              const u = (adminUserData as any).user;
+              const mergedFromAuth: ManagedAgent = {
+                id: u.id,
+                user_id: u.id,
+                name: (u.user_metadata?.name as string) || '',
+                email: (u.email as string) || '',
+                phone: undefined,
+                company_name: '',
+                profile_image: undefined,
+                country: undefined,
+                city: undefined,
+                status: ('inactive' as AgentStatus),
+                role: 'agent',
+                source_type: 'other',
+                source_details: 'Derived from auth user',
+                created_by: undefined,
+                assigned_staff: [],
+                login_credentials: {},
+                created_at: (u.created_at as string) || new Date().toISOString(),
+                updated_at: (u.updated_at as string) || (u.created_at as string) || new Date().toISOString()
+              };
+              return { data: mergedFromAuth, error: null };
+            }
+          } catch {}
+        }
 
-      if (!agentCore) {
-        // Zero rows found: avoid throwing and try local fallback
+        // Final fallback: try Supabase Auth admin lookup to hydrate minimal agent
+        if (isAdminClientConfigured && adminSupabase) {
+          try {
+            const { data: adminUserData, error: adminUserError } = await (adminSupabase as any).auth.admin.getUserById(id);
+            if (!adminUserError && adminUserData?.user) {
+              const u = (adminUserData as any).user;
+              const mergedFromAuth: ManagedAgent = {
+                id: u.id,
+                name: (u.user_metadata?.name as string) || '',
+                email: (u.email as string) || '',
+                phone: undefined,
+                company_name: '',
+                profile_image: undefined,
+                country: undefined,
+                city: undefined,
+                status: ('inactive' as AgentStatus),
+                role: 'agent',
+                source_type: 'other',
+                source_details: 'Derived from auth user',
+                created_by: undefined,
+                assigned_staff: [],
+                login_credentials: {},
+                created_at: (u.created_at as string) || new Date().toISOString(),
+                updated_at: (u.updated_at as string) || (u.created_at as string) || new Date().toISOString()
+              };
+              return { data: mergedFromAuth, error: null };
+            }
+          } catch {}
+        }
+
         const agents = this.readAgentsFromStorage();
         const found = agents.find(a => a.id === id) || null;
         return { data: found, error: found ? null : 'Not found' };
       }
 
-      const { data: profile, error: profileError } = await (supabase as any)
-        .from('profiles' as any)
-        // Include city and country using untyped select for broader compatibility
-        .select('id,name,email,phone,company_name,created_at,updated_at,role,city,country')
-        .eq('id', id)
-        .maybeSingle();
+      if (!agentCore) {
+        // Try lookup by user_id first, then hydrate from profiles when missing
+        try {
+          const { data: byUser } = await (client as any)
+            .from('agents' as any)
+            .select('id,status,created_at,updated_at,created_by,source_type,source_details,agency_name,name,email,country,city,preferred_language,business_type,commission_type,commission_value,profile_image,business_phone,business_address,license_number,iata_number,specializations,website,alternate_email,mobile_numbers,documents,suspension_reason,suspended_at,suspended_by,user_id')
+            .eq('user_id', id)
+            .maybeSingle();
+          if (byUser) {
+            const merged: ManagedAgent = {
+              id: (byUser as any)?.id || id,
+              user_id: (byUser as any)?.user_id || id,
+              name: (byUser as any)?.name || (byUser as any)?.agency_name || '',
+              email: (byUser as any)?.email || '',
+              phone: (byUser as any)?.business_phone || undefined,
+              company_name: (byUser as any)?.agency_name || '',
+              profile_image: (byUser as any)?.profile_image ?? undefined,
+              country: (byUser as any)?.country ?? undefined,
+              city: (byUser as any)?.city ?? undefined,
+              status: ((byUser as any)?.status as AgentStatus) || ('pending' as AgentStatus),
+              role: 'agent',
+              type: (byUser as any)?.business_type || undefined,
+              commission_type: (byUser as any)?.commission_type || undefined,
+              commission_value: (byUser as any)?.commission_value || undefined,
+              source_type: (byUser as any)?.source_type,
+              source_details: (byUser as any)?.source_details,
+              created_by: (byUser as any)?.created_by,
+              assigned_staff: [],
+              login_credentials: {},
+              created_at: (byUser as any)?.created_at || new Date().toISOString(),
+              updated_at: (byUser as any)?.updated_at || new Date().toISOString(),
+              business_phone: (byUser as any)?.business_phone || undefined,
+              business_address: (byUser as any)?.business_address || undefined,
+              license_number: (byUser as any)?.license_number || undefined,
+              iata_number: (byUser as any)?.iata_number || undefined,
+              specializations: (byUser as any)?.specializations || undefined,
+              preferred_language: (byUser as any)?.preferred_language ?? undefined,
+              alternate_email: (byUser as any)?.alternate_email || undefined,
+              website: (byUser as any)?.website || undefined,
+              partnership: (byUser as any)?.partnership || undefined,
+              mobile_numbers: (byUser as any)?.mobile_numbers || undefined,
+              suspension_reason: (byUser as any)?.suspension_reason ?? undefined,
+              suspended_at: (byUser as any)?.suspended_at ?? undefined,
+              suspended_by: (byUser as any)?.suspended_by ?? undefined,
+            };
+            return { data: merged, error: null };
+          }
+        } catch {}
+        // Fallback: try to hydrate from profiles when agents row is missing
+        try {
+          const { data: profile } = await (client as any)
+            .from('profiles' as any)
+            .select('id,name,email,phone,company_name,profile_image,country,city,created_at,updated_at')
+            .eq('id', id)
+            .maybeSingle();
 
-      if (profileError && this.isMissingTableError(profileError)) {
-        // If profiles table missing, try local storage fallback
+          if (profile) {
+            const merged: ManagedAgent = {
+              id,
+              user_id: id,
+              name: (profile as any)?.name || '',
+              email: (profile as any)?.email || '',
+              phone: (profile as any)?.phone || undefined,
+              company_name: (profile as any)?.company_name || '',
+              profile_image: (profile as any)?.profile_image ?? undefined,
+              country: (profile as any)?.country ?? undefined,
+              city: (profile as any)?.city ?? undefined,
+              status: ('inactive' as AgentStatus),
+              role: 'agent',
+              source_type: 'other',
+              source_details: 'Derived from profile',
+              created_by: undefined,
+              assigned_staff: [],
+              login_credentials: {},
+              created_at: (profile as any)?.created_at || new Date().toISOString(),
+              updated_at: (profile as any)?.updated_at || new Date().toISOString()
+            };
+            return { data: merged, error: null };
+          }
+        } catch {}
+
+        // Fallback: try to hydrate from profiles when agents row is missing
+        try {
+          const { data: profile } = await (client as any)
+            .from('profiles' as any)
+            .select('id,name,email,phone,company_name,profile_image,country,city,created_at,updated_at')
+            .eq('id', id)
+            .maybeSingle();
+
+          if (profile) {
+            const merged: ManagedAgent = {
+              id,
+              name: (profile as any)?.name || '',
+              email: (profile as any)?.email || '',
+              phone: (profile as any)?.phone || undefined,
+              company_name: (profile as any)?.company_name || '',
+              profile_image: (profile as any)?.profile_image ?? undefined,
+              country: (profile as any)?.country ?? undefined,
+              city: (profile as any)?.city ?? undefined,
+              status: ('inactive' as AgentStatus),
+              role: 'agent',
+              source_type: 'other',
+              source_details: 'Derived from profile',
+              created_by: undefined,
+              assigned_staff: [],
+              login_credentials: {},
+              created_at: (profile as any)?.created_at || new Date().toISOString(),
+              updated_at: (profile as any)?.updated_at || new Date().toISOString()
+            };
+            return { data: merged, error: null };
+          }
+        } catch {}
+
         const agents = this.readAgentsFromStorage();
-        const local = agents.find(a => a.id === id);
-        if (local) {
-          return { data: local as any, error: null };
-        }
+        const found = agents.find(a => a.id === id) || null;
+        return { data: found, error: found ? null : 'Not found' };
       }
 
       const merged: ManagedAgent = {
         id,
-        name: profile?.name || '',
-        email: profile?.email || '',
-        phone: profile?.phone || '',
-        company_name: (profile?.company_name || (agentCore as any)?.agency_name || ''),
-        profile_image: (profile as any)?.profile_image || undefined,
-        country: (agentCore as any)?.country ?? (profile as any)?.country ?? undefined,
-        city: (agentCore as any)?.city ?? (profile as any)?.city ?? undefined,
+        user_id: (agentCore as any)?.user_id || id,
+        name: (agentCore as any)?.name || (agentCore as any)?.agency_name || '',
+        email: (agentCore as any)?.email || '',
+        phone: (agentCore as any)?.business_phone || undefined,
+        company_name: (agentCore as any)?.agency_name || '',
+        profile_image: (agentCore as any)?.profile_image ?? undefined,
+        country: (agentCore as any)?.country ?? undefined,
+        city: (agentCore as any)?.city ?? undefined,
         status: (agentCore.status as AgentStatus) || ('pending' as AgentStatus),
         role: 'agent',
-        type: (agentCore as any)?.agent_type || undefined,
+        type: (agentCore as any)?.business_type || undefined,
         commission_type: (agentCore as any)?.commission_type || undefined,
         commission_value: (agentCore as any)?.commission_value || undefined,
         source_type: (agentCore as any)?.source_type,
@@ -229,8 +401,23 @@ export class AgentManagementService {
         created_by: (agentCore as any)?.created_by,
         assigned_staff: [],
         login_credentials: {},
-        created_at: agentCore.created_at || profile?.created_at || new Date().toISOString(),
-        updated_at: agentCore.updated_at || profile?.updated_at || new Date().toISOString()
+        created_at: (agentCore as any)?.created_at || new Date().toISOString(),
+        updated_at: (agentCore as any)?.updated_at || new Date().toISOString(),
+        // Extended fields
+        business_phone: (agentCore as any)?.business_phone || undefined,
+        business_address: (agentCore as any)?.business_address || undefined,
+        license_number: (agentCore as any)?.license_number || undefined,
+        iata_number: (agentCore as any)?.iata_number || undefined,
+        specializations: (agentCore as any)?.specializations || undefined,
+        preferred_language: (agentCore as any)?.preferred_language ?? undefined,
+        alternate_email: (agentCore as any)?.alternate_email || undefined,
+        website: (agentCore as any)?.website || undefined,
+        partnership: (agentCore as any)?.partnership || undefined,
+        // note: mobile_numbers in agentCore is array or null
+        mobile_numbers: (agentCore as any)?.mobile_numbers || undefined,
+        suspension_reason: (agentCore as any)?.suspension_reason ?? undefined,
+        suspended_at: (agentCore as any)?.suspended_at ?? undefined,
+        suspended_by: (agentCore as any)?.suspended_by ?? undefined,
       };
 
       return { data: merged, error: null };
@@ -399,88 +586,155 @@ export class AgentManagementService {
         commission_type,
         commission_value,
         source_type,
-        source_details
+        source_details,
+        // extended
+        business_phone,
+        business_address,
+        license_number,
+        iata_number,
+        specializations,
+        alternate_email,
+        website,
+        partnership,
+        mobile_numbers,
       } = agentData;
 
-      // Build profile update payload from defined fields only
-      const profileUpdate: any = {};
-      if (name !== undefined) profileUpdate.name = name;
-      if (email !== undefined) profileUpdate.email = email;
-      if (phone !== undefined) profileUpdate.phone = phone;
-      if (company_name !== undefined) profileUpdate.company_name = company_name;
-      if (profile_image !== undefined) profileUpdate.profile_image = profile_image;
-      if (preferred_language !== undefined) profileUpdate.preferred_language = preferred_language;
-      if (country !== undefined) profileUpdate.country = country;
-      if (city !== undefined) profileUpdate.city = city;
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
 
-      if (Object.keys(profileUpdate).length > 0) {
-        const { error: profileErr } = await supabase
-          .from('profiles')
-          .update(profileUpdate)
-          .eq('id', id);
-        if (profileErr) {
-          if (this.isMissingTableError(profileErr) || this.isAuthOrPermissionError(profileErr)) {
-            // Fallback: update local cache
-            const agents = this.readAgentsFromStorage();
-            const idx = agents.findIndex(a => a.id === id);
-            if (idx >= 0) {
-              const updated = { ...agents[idx], ...profileUpdate, updated_at: new Date().toISOString() } as ManagedAgent;
-              agents[idx] = updated;
-              this.writeAgentsToStorage(agents);
-            }
-          } else {
-            return { data: null, error: profileErr };
-          }
-        }
-      }
+      // Profiles update removed; all fields now persisted in 'agents' table.
 
       // Build agents update payload
       const agentUpdate: any = {};
       if (status !== undefined) agentUpdate.status = status;
-      if (type !== undefined) agentUpdate.agent_type = type;
+      if (type !== undefined) agentUpdate.business_type = type;
       if (commission_type !== undefined) agentUpdate.commission_type = commission_type;
-      if (commission_value !== undefined) agentUpdate.commission_value = commission_value as any;
+      if (commission_value !== undefined) agentUpdate.commission_value = typeof commission_value === 'string' ? parseFloat(commission_value) : commission_value as any;
       if (source_type !== undefined) agentUpdate.source_type = source_type;
       if (source_details !== undefined) agentUpdate.source_details = source_details;
       // Keep agents table in sync: map company_name → agency_name
       if (company_name !== undefined) agentUpdate.agency_name = company_name;
       if (country !== undefined) agentUpdate.country = country;
       if (city !== undefined) agentUpdate.city = city;
+      // Core identity fields
+      if (name !== undefined) agentUpdate.name = name;
+      if (email !== undefined) agentUpdate.email = email;
+      if (profile_image !== undefined) agentUpdate.profile_image = profile_image;
+      if (preferred_language !== undefined) agentUpdate.preferred_language = preferred_language;
+      // Extended fields in agents table
+      if (business_phone !== undefined) agentUpdate.business_phone = business_phone;
+      if (business_address !== undefined) agentUpdate.business_address = business_address;
+      if (license_number !== undefined) agentUpdate.license_number = license_number;
+      if (iata_number !== undefined) agentUpdate.iata_number = iata_number;
+      if (specializations !== undefined) agentUpdate.specializations = specializations as any;
+      if (alternate_email !== undefined) agentUpdate.alternate_email = alternate_email;
+      if (website !== undefined) agentUpdate.website = website;
+      if (mobile_numbers !== undefined) agentUpdate.mobile_numbers = mobile_numbers;
 
       if (Object.keys(agentUpdate).length > 0) {
-        const { error: agentErr } = await supabase
+        const { error: agentErr } = await client
           .from('agents')
-          .update(agentUpdate)
-          .eq('id', id);
-        if (agentErr) {
-          if (this.isMissingTableError(agentErr) || this.isAuthOrPermissionError(agentErr)) {
-            // Fallback: update local cache
-            const agents = this.readAgentsFromStorage();
-            const idx = agents.findIndex(a => a.id === id);
-            if (idx >= 0) {
-              const localUpdate: Partial<ManagedAgent> = {
-                ...(status !== undefined ? { status: status as any } : {}),
-                ...(type !== undefined ? { type } : {}),
-                ...(commission_type !== undefined ? { commission_type } : {}),
-                ...(commission_value !== undefined ? { commission_value } : {}),
-                ...(source_type !== undefined ? { source_type } : {}),
-                ...(source_details !== undefined ? { source_details } : {}),
-                ...(country !== undefined ? { country } : {}),
-                ...(city !== undefined ? { city } : {}),
-              };
-              const updated = { ...agents[idx], ...localUpdate, updated_at: new Date().toISOString() } as ManagedAgent;
-              agents[idx] = updated;
-              this.writeAgentsToStorage(agents);
-            }
-          } else {
-            return { data: null, error: agentErr };
-          }
+          .upsert({ id, user_id: id, ...agentUpdate }, { onConflict: 'id' });
+        if (agentErr && !this.isMissingTableError(agentErr) && !this.isAuthOrPermissionError(agentErr)) {
+          return { data: null, error: agentErr };
+        }
+      }
+
+      // Persist non-agents columns in agent_settings.preferences
+      const prefsPatch: any = {};
+      if (partnership !== undefined) prefsPatch.partnership = partnership;
+
+      if (Object.keys(prefsPatch).length > 0) {
+        const { error: prefsErr } = await this.patchAgentSettingsPreferences(id, prefsPatch);
+        if (prefsErr) {
+          // Non-fatal: continue but report error
+          console.warn('patchAgentSettingsPreferences error:', prefsErr);
         }
       }
 
       return this.getAgentById(id);
     } catch (error) {
       return { data: null, error };
+    }
+  }
+
+  // Patch agent_settings.preferences JSON with a shallow merge
+  static async patchAgentSettingsPreferences(agentId: string, patch: any): Promise<{ error: any }> {
+    try {
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+      const { data: existing, error: selErr } = await client
+        .from('agent_settings')
+        .select('id,preferences')
+        .eq('agent_id', agentId)
+        .maybeSingle();
+      if (selErr && !this.isMissingTableError(selErr) && !this.isAuthOrPermissionError(selErr)) {
+        return { error: selErr };
+      }
+      const currentPrefs = (existing as any)?.preferences || {};
+      const merged = { ...currentPrefs, ...patch };
+
+      if ((existing as any)?.id) {
+        const { error } = await client
+          .from('agent_settings')
+          .update({ preferences: merged, updated_at: new Date().toISOString() })
+          .eq('id', (existing as any).id);
+        return { error };
+      } else {
+        const { error } = await client
+          .from('agent_settings')
+          .insert({ agent_id: agentId, preferences: merged, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+        return { error };
+      }
+    } catch (err) {
+      return { error: err };
+    }
+  }
+
+  // Sync agent email across Supabase Auth (admin) and profiles table.
+  static async syncAgentEmailAcrossAuth(agentId: string, newEmail: string): Promise<{ error: any }> {
+    try {
+      // 1) Update Supabase Auth user email (requires admin client)
+      try {
+        if (isAdminClientConfigured && adminSupabase) {
+          await (adminSupabase as any).auth.admin.updateUserById(agentId, { email: newEmail });
+        } else {
+          console.warn('Admin client not configured; skipping Auth email sync');
+        }
+      } catch (authErr) {
+        // Non-fatal: continue but report
+        console.warn('Auth email update failed:', authErr);
+      }
+
+      // 2) Update profiles.email for consistency
+      try {
+        const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+        const { error: profileErr } = await client
+          .from('profiles')
+          .update({ email: newEmail, updated_at: new Date().toISOString() })
+          .eq('id', agentId);
+        if (profileErr && !this.isMissingTableError(profileErr) && !this.isAuthOrPermissionError(profileErr)) {
+          console.warn('profiles email sync failed:', profileErr);
+        }
+      } catch (profCatch) {
+        console.warn('profiles email sync error:', profCatch);
+      }
+
+      // 3) Best-effort: ensure agents.email is also in sync (callers usually do this already)
+      try {
+        const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+        const { error: agentErr } = await client
+          .from('agents')
+          .update({ email: newEmail, updated_at: new Date().toISOString() })
+          .eq('id', agentId);
+        if (agentErr && !this.isMissingTableError(agentErr) && !this.isAuthOrPermissionError(agentErr)) {
+          console.warn('agents email sync failed:', agentErr);
+        }
+      } catch (agentCatch) {
+        console.warn('agents email sync error:', agentCatch);
+      }
+
+      return { error: null };
+    } catch (error) {
+      return { error };
     }
   }
 
@@ -891,19 +1145,33 @@ export class AgentManagementService {
   // Suspend an active agent
   static async suspendAgent(id: string, reason: string): Promise<{ data: ManagedAgent | null; error: any }> {
     try {
+      // Identify current user performing the action (best-effort)
+      let currentUserId: string | undefined;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        currentUserId = user?.id;
+      } catch {}
+
       const client = isAdminClientConfigured ? adminSupabase : supabase;
       const { data, error } = await client
         .from('agents')
-        .update({ status: 'suspended' })
-        .eq('id', id)
-        .select('id,status,created_at,updated_at')
+        .update({ status: 'suspended', suspension_reason: reason, suspended_at: new Date().toISOString(), suspended_by: currentUserId })
+        .eq('user_id', id)
+        .select('id,status,created_at,updated_at,suspension_reason,suspended_at,suspended_by')
         .single();
 
       if (error && this.isMissingTableError(error)) {
         const agents = this.readAgentsFromStorage();
         const idx = agents.findIndex(a => a.id === id);
         if (idx >= 0) {
-          const updated = { ...agents[idx], status: 'suspended', updated_at: new Date().toISOString() } as ManagedAgent;
+          const updated = { 
+            ...agents[idx], 
+            status: 'suspended', 
+            suspension_reason: reason,
+            suspended_at: new Date().toISOString(),
+            suspended_by: currentUserId,
+            updated_at: new Date().toISOString() 
+          } as ManagedAgent;
           agents[idx] = updated;
           this.writeAgentsToStorage(agents);
           return { data: updated, error: null };
@@ -922,16 +1190,23 @@ export class AgentManagementService {
       const client = isAdminClientConfigured ? adminSupabase : supabase;
       const { data, error } = await client
         .from('agents')
-        .update({ status: 'active' })
+        .update({ status: 'active', suspension_reason: null, suspended_at: null, suspended_by: null })
         .eq('id', id)
-        .select('id,status,created_at,updated_at')
+        .select('id,status,created_at,updated_at,suspension_reason,suspended_at,suspended_by')
         .single();
 
       if (error && this.isMissingTableError(error)) {
         const agents = this.readAgentsFromStorage();
         const idx = agents.findIndex(a => a.id === id);
         if (idx >= 0) {
-          const updated = { ...agents[idx], status: 'active', updated_at: new Date().toISOString() } as ManagedAgent;
+          const updated = { 
+            ...agents[idx], 
+            status: 'active', 
+            suspension_reason: undefined,
+            suspended_at: undefined,
+            suspended_by: undefined,
+            updated_at: new Date().toISOString() 
+          } as ManagedAgent;
           agents[idx] = updated;
           this.writeAgentsToStorage(agents);
           return { data: updated, error: null };
@@ -1189,6 +1464,443 @@ export class AgentManagementService {
       return { error };
     } catch (error) {
       return { error };
+    }
+  }
+
+  // =============================
+  // Staff assignment persistence
+  // =============================
+
+  // Legacy local fallback store accessors (kept only for one-time migration)
+  private static readAssignmentsFallback(): Record<string, any[]> {
+    try {
+      const raw = localStorage.getItem('agent_staff_assignments_fallback');
+      const map = raw ? JSON.parse(raw) : {};
+      return (map && typeof map === 'object') ? map : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private static writeAssignmentsFallback(map: Record<string, any[]>): void {
+    try {
+      localStorage.setItem('agent_staff_assignments_fallback', JSON.stringify(map));
+    } catch {}
+  }
+
+  // Get staff assignments for a specific agent (Supabase source of truth)
+  static async getAgentStaffAssignments(agentId: string): Promise<{ data: any[] | null; error: any }> {
+    try {
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+
+      // Read detailed assignments from agent_staff_assignments
+      const { data: assignmentRows, error: assignErr } = await client
+        .from('agent_staff_assignments' as any)
+        .select('agent_id, staff_id, is_primary, notes, assigned_at, assigned_by')
+        .eq('agent_id', agentId)
+        .order('is_primary', { ascending: false })
+        .order('assigned_at', { ascending: true });
+
+      if (assignErr) {
+        return { data: null, error: assignErr };
+      }
+
+      const rows = (assignmentRows as any[]) || [];
+      if (rows.length === 0) {
+        // If legacy local fallback exists for this agent, migrate it into Supabase automatically
+        try {
+          const fbMap = this.readAssignmentsFallback();
+          const fbRows = Array.isArray(fbMap[agentId]) ? fbMap[agentId] : [];
+          if (fbRows.length > 0) {
+            await this.migrateAssignmentsFallbackToSupabase(agentId);
+            const { data: reRows } = await client
+              .from('agent_staff_assignments' as any)
+              .select('agent_id, staff_id, is_primary, notes, assigned_at, assigned_by')
+              .eq('agent_id', agentId)
+              .order('is_primary', { ascending: false })
+              .order('assigned_at', { ascending: true });
+            if (Array.isArray(reRows) && reRows.length > 0) {
+              const staffIds2 = (reRows as any[]).map(r => String((r as any).staff_id));
+              const { data: profiles2 } = await client
+                .from('profiles' as any)
+                .select('id,name,role,email')
+                .in('id', staffIds2);
+              const profileMap2 = new Map<string, any>();
+              (profiles2 || []).forEach(p => profileMap2.set(String((p as any).id), p));
+              const migrated = (reRows as any[]).map((r: any) => {
+                const p = profileMap2.get(String(r.staff_id)) || {};
+                return {
+                  staffId: String(r.staff_id),
+                  staffName: (p as any)?.name || 'Unknown',
+                  role: (p as any)?.role || 'staff',
+                  isPrimary: !!r.is_primary,
+                  assignedAt: r.assigned_at,
+                  assignedBy: r.assigned_by ? String(r.assigned_by) : undefined,
+                  notes: r.notes ?? undefined
+                };
+              });
+              return { data: migrated, error: null };
+            }
+          }
+        } catch {}
+
+        // As a soft fallback, return bare assignments derived from agents.assigned_staff (DB column)
+        try {
+          const { data: agentRow } = await client
+            .from('agents' as any)
+            .select('assigned_staff')
+            .eq('id', agentId)
+            .maybeSingle();
+          const staffIds: string[] = Array.isArray((agentRow as any)?.assigned_staff)
+            ? ((agentRow as any)?.assigned_staff || []).map((x: any) => String(x))
+            : [];
+
+          if (staffIds.length === 0) {
+            return { data: [], error: null };
+          }
+
+          const { data: profiles } = await client
+            .from('profiles' as any)
+            .select('id,name,role,email')
+            .in('id', staffIds);
+          const profileMap = new Map<string, any>();
+          (profiles || []).forEach(p => profileMap.set(String((p as any).id), p));
+          const now = new Date().toISOString();
+
+          const derived = staffIds.map((sid: string, idx: number) => {
+            const p = profileMap.get(String(sid)) || {};
+            return {
+              staffId: String(sid),
+              staffName: (p as any)?.name || 'Unknown',
+              role: (p as any)?.role || 'staff',
+              isPrimary: idx === 0,
+              assignedAt: now,
+              assignedBy: undefined,
+              notes: undefined
+            };
+          });
+
+          return { data: derived, error: null };
+        } catch (innerErr) {
+          return { data: [], error: null };
+        }
+      }
+
+      // Enrich with profiles (assigned staff) and assigners (assigned_by)
+      const staffIds = rows.map(r => String((r as any).staff_id));
+      const assignerIds = Array.from(new Set(rows
+        .map(r => (r as any).assigned_by)
+        .filter((id: any) => !!id)
+        .map((id: any) => String(id))));
+
+      const { data: staffProfiles } = await client
+        .from('profiles' as any)
+        .select('id,name,role,email')
+        .in('id', staffIds);
+      const staffProfileMap = new Map<string, any>();
+      (staffProfiles || []).forEach(p => staffProfileMap.set(String((p as any).id), p));
+
+      let assignerProfileMap = new Map<string, any>();
+      if (assignerIds.length > 0) {
+        const { data: assignerProfiles } = await client
+          .from('profiles' as any)
+          .select('id,name,role,email')
+          .in('id', assignerIds);
+        assignerProfileMap = new Map<string, any>();
+        (assignerProfiles || []).forEach(p => assignerProfileMap.set(String((p as any).id), p));
+      }
+
+      const result = rows.map((r: any) => {
+        const staffProfile = staffProfileMap.get(String(r.staff_id)) || {};
+        const assignerId = r.assigned_by ? String(r.assigned_by) : undefined;
+        const assignerProfile = assignerId ? (assignerProfileMap.get(assignerId) || {}) : {};
+        return {
+          staffId: String(r.staff_id),
+          staffName: (staffProfile as any)?.name || 'Unknown',
+          role: (staffProfile as any)?.role || 'staff',
+          email: (staffProfile as any)?.email || undefined,
+          isPrimary: !!r.is_primary,
+          assignedAt: r.assigned_at,
+          assignedBy: assignerId,
+          assignedByName: (assignerProfile as any)?.name || undefined,
+          assignedByRole: (assignerProfile as any)?.role || undefined,
+          notes: r.notes ?? undefined
+        };
+      });
+
+      return { data: result, error: null };
+    } catch (error) {
+      return { data: null, error };
+    }
+  }
+
+  // Add a staff assignment to an agent (writes to agent_staff_assignments; triggers sync agents.assigned_staff)
+  static async addStaffAssignmentToAgent(agentId: string, staffId: string, options?: { isPrimary?: boolean; notes?: string; role?: string }): Promise<{ error: any }> {
+    try {
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+
+      // Determine assigned_by when available
+      let assignedBy: string | null = null;
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        assignedBy = authData?.user?.id ? String(authData.user.id) : null;
+      } catch {}
+
+      // Upsert into agent_staff_assignments to avoid duplicates
+      const payload: any = {
+        agent_id: agentId,
+        staff_id: staffId,
+        is_primary: !!options?.isPrimary,
+        notes: options?.notes ?? null,
+        assigned_by: assignedBy
+      };
+
+      const { error: upErr } = await client
+        .from('agent_staff_assignments' as any)
+        .upsert(payload, { onConflict: 'agent_id,staff_id' } as any);
+      if (upErr) {
+        return { error: upErr };
+      }
+
+      // Triggers handle syncing agents.assigned_staff
+      return { error: null };
+    } catch (error) {
+      return { error };
+    }
+  }
+
+  // Update assignment details (primary flag, notes) in DB
+  static async updateStaffAssignmentForAgent(agentId: string, staffId: string, updates: { isPrimary?: boolean; notes?: string }): Promise<{ error: any }> {
+    try {
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+
+      // Build patch only with provided fields
+      const patch: any = {};
+      if (typeof updates?.isPrimary === 'boolean') patch.is_primary = updates.isPrimary;
+      if (typeof updates?.notes === 'string') patch.notes = updates.notes;
+
+      if (Object.keys(patch).length === 0) {
+        return { error: null };
+      }
+
+      const { error: upErr } = await client
+        .from('agent_staff_assignments' as any)
+        .update(patch)
+        .eq('agent_id', agentId)
+        .eq('staff_id', staffId);
+      if (upErr) {
+        return { error: upErr };
+      }
+      return { error: null };
+    } catch (error) {
+      return { error };
+    }
+  }
+
+  // Remove a staff assignment (deletes row; trigger syncs agents.assigned_staff)
+  static async removeStaffAssignmentFromAgent(agentId: string, staffId: string): Promise<{ error: any }> {
+    try {
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+
+      const { error: delErr } = await client
+        .from('agent_staff_assignments' as any)
+        .delete()
+        .eq('agent_id', agentId)
+        .eq('staff_id', staffId);
+      if (delErr) {
+        return { error: delErr };
+      }
+      return { error: null };
+    } catch (error) {
+      return { error };
+    }
+  }
+
+  // One-time migration: push localStorage fallback assignments into Supabase
+  static async migrateAssignmentsFallbackToSupabase(targetAgentId?: string): Promise<{ migratedAgents: number; migratedRows: number; error: any }> {
+    try {
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+      const fbMap = this.readAssignmentsFallback();
+      const entries = Object.entries(fbMap).filter(([agentId]) => !targetAgentId || String(agentId) === String(targetAgentId));
+
+      let migratedAgents = 0;
+      let migratedRows = 0;
+
+      for (const [agentId, list] of entries) {
+        const rows = Array.isArray(list) ? list : [];
+        if (rows.length === 0) continue;
+
+        for (const r of rows) {
+          const payload: any = {
+            agent_id: agentId,
+            staff_id: String(r.staffId),
+            is_primary: !!r.isPrimary,
+            notes: r.notes ?? null,
+            assigned_at: r.assignedAt ?? null,
+            assigned_by: r.assignedBy ? String(r.assignedBy) : null
+          };
+          const { error: upErr } = await client
+            .from('agent_staff_assignments' as any)
+            .upsert(payload, { onConflict: 'agent_id,staff_id' } as any);
+          if (upErr) {
+            return { migratedAgents, migratedRows, error: upErr };
+          }
+          migratedRows += 1;
+        }
+
+        migratedAgents += 1;
+        // Clear migrated agent from fallback
+        const map = this.readAssignmentsFallback();
+        delete map[agentId];
+        this.writeAssignmentsFallback(map);
+      }
+
+      return { migratedAgents, migratedRows, error: null };
+    } catch (error) {
+      return { migratedAgents: 0, migratedRows: 0, error };
+    }
+  }
+
+  private static readTaxInfoFromStorage(): Record<string, any[]> {
+    try {
+      const raw = localStorage.getItem('agent_tax_info_fallback');
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private static writeTaxInfoToStorage(map: Record<string, any[]>): void {
+    try {
+      localStorage.setItem('agent_tax_info_fallback', JSON.stringify(map));
+    } catch {
+      // ignore storage write errors
+    }
+  }
+
+  static async getAgentTaxInfo(agentId: string): Promise<{ data: any[] | null; error: any }> {
+    try {
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+      const { data, error } = await (client as any)
+        .from('agent_tax_info' as any)
+        .select('*')
+        .eq('agent_id', agentId)
+        .order('updated_at', { ascending: false });
+      if (error) {
+        if (this.isMissingTableError(error) || this.isAuthOrPermissionError(error)) {
+          const fb = this.readTaxInfoFromStorage();
+          const list = Array.isArray(fb[agentId]) ? fb[agentId] : [];
+          return { data: list, error: null };
+        }
+        return { data: null, error };
+      }
+      return { data: (data as any[]) || [], error: null };
+    } catch (error: any) {
+      if (this.isMissingTableError(error) || this.isAuthOrPermissionError(error)) {
+        const fb = this.readTaxInfoFromStorage();
+        const list = Array.isArray(fb[agentId]) ? fb[agentId] : [];
+        return { data: list, error: null };
+      }
+      return { data: null, error };
+    }
+  }
+
+  static async upsertAgentTaxInfo(agentId: string, record: any): Promise<{ data: any | null; error: any }> {
+    try {
+      const payload = { ...record, agent_id: agentId, updated_at: new Date().toISOString() };
+      const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+      if (payload.id) {
+        const { data, error } = await (client as any)
+          .from('agent_tax_info')
+          .update(payload)
+          .eq('id', payload.id)
+          .select('*')
+          .maybeSingle();
+        if (error && (this.isMissingTableError(error) || this.isAuthOrPermissionError(error))) {
+          const fb = this.readTaxInfoFromStorage();
+          const key = String(agentId);
+          const list = Array.isArray(fb[key]) ? fb[key] : [];
+          const idx = list.findIndex((r: any) => String(r.id) === String(payload.id));
+          const updated = {
+            ...(idx >= 0 ? list[idx] : {}),
+            ...payload,
+            updated_at: new Date().toISOString(),
+          };
+          if (idx >= 0) list[idx] = updated; else list.push(updated);
+          list.sort((a: any, b: any) => (a.updated_at > b.updated_at ? -1 : 1));
+          fb[key] = list;
+          this.writeTaxInfoToStorage(fb);
+          return { data: updated, error: null };
+        }
+        return { data: data || null, error };
+      } else {
+        const { data, error } = await (client as any)
+          .from('agent_tax_info')
+          .insert({ ...payload, created_at: new Date().toISOString() })
+          .select('*')
+          .maybeSingle();
+        if (error && (this.isMissingTableError(error) || this.isAuthOrPermissionError(error))) {
+          const fb = this.readTaxInfoFromStorage();
+          const key = String(agentId);
+          const list = Array.isArray(fb[key]) ? fb[key] : [];
+          const id = (globalThis?.crypto && typeof globalThis.crypto.randomUUID === 'function')
+            ? globalThis.crypto.randomUUID()
+            : Math.random().toString(36).slice(2);
+          const created = {
+            id,
+            ...payload,
+            agent_id: agentId,
+            tax_verified: payload?.tax_verified ?? false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          list.push(created);
+          list.sort((a: any, b: any) => (a.updated_at > b.updated_at ? -1 : 1));
+          fb[key] = list;
+          this.writeTaxInfoToStorage(fb);
+          return { data: created, error: null };
+        }
+        return { data: data || null, error };
+      }
+    } catch (error: any) {
+      if (this.isMissingTableError(error) || this.isAuthOrPermissionError(error)) {
+        const fb = this.readTaxInfoFromStorage();
+        const key = String(agentId);
+        const list = Array.isArray(fb[key]) ? fb[key] : [];
+        if (record?.id) {
+          const idx = list.findIndex((r: any) => String(r.id) === String(record.id));
+          const updated = {
+            ...(idx >= 0 ? list[idx] : {}),
+            ...record,
+            agent_id: agentId,
+            updated_at: new Date().toISOString(),
+          };
+          if (idx >= 0) list[idx] = updated; else list.push(updated);
+          list.sort((a: any, b: any) => (a.updated_at > b.updated_at ? -1 : 1));
+          fb[key] = list;
+          this.writeTaxInfoToStorage(fb);
+          return { data: updated, error: null };
+        } else {
+          const id = (globalThis?.crypto && typeof globalThis.crypto.randomUUID === 'function')
+            ? globalThis.crypto.randomUUID()
+            : Math.random().toString(36).slice(2);
+          const created = {
+            id,
+            ...record,
+            agent_id: agentId,
+            tax_verified: record?.tax_verified ?? false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          list.push(created);
+          list.sort((a: any, b: any) => (a.updated_at > b.updated_at ? -1 : 1));
+          fb[key] = list;
+          this.writeTaxInfoToStorage(fb);
+          return { data: created, error: null };
+        }
+      }
+      return { data: null, error };
     }
   }
 }
