@@ -12,7 +12,7 @@ import PackageBasicInfo from '@/components/inventory/packages/PackageBasicInfo';
 import ItineraryBuilder from '@/components/inventory/packages/ItineraryBuilder';
 import CostPricing from '@/components/inventory/packages/CostPricing';
 import TermsConditions from '@/components/inventory/packages/TermsConditions';
-import { getNextId, addPackage } from './services/storageService';
+import { tourPackageService } from '@/integrations/supabase/services/tourPackageService';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 
@@ -93,7 +93,7 @@ const CreatePackage: React.FC = () => {
   };
   
   // Handle form submission
-  const handleSubmit = (published: boolean = false) => {
+  const handleSubmit = async (published: boolean = false) => {
     if (!packageData.name) {
       toast({
         title: "Missing information",
@@ -124,24 +124,24 @@ const CreatePackage: React.FC = () => {
       return;
     }
     
-    // Set the status based on published parameter
-    const finalPackageData: TourPackage = {
-      ...packageData as TourPackage,
-      id: getNextId(),
-      status: published ? 'published' : 'draft',
-      createdAt: new Date().toISOString()
-    };
-    
-    // Save to localStorage
-    console.log("Saving package:", finalPackageData);
-    addPackage(finalPackageData);
-    
-    toast({
-      title: published ? "Package published" : "Package saved as draft",
-      description: `${packageData.name} has been ${published ? 'published' : 'saved as draft'} successfully.`
-    });
-    
-    navigate('/inventory/packages');
+    try {
+      const created = await tourPackageService.createFromUiPackage({
+        ...packageData,
+        status: published ? 'published' : 'draft',
+        createdAt: new Date().toISOString(),
+      });
+      toast({
+        title: published ? 'Package published' : 'Package saved as draft',
+        description: `${created.name} has been ${published ? 'published' : 'saved as draft'} successfully.`,
+      });
+      navigate('/inventory/packages');
+    } catch (error: any) {
+      toast({
+        title: 'Save failed',
+        description: error?.message ?? 'An error occurred while saving the package.',
+        variant: 'destructive',
+      });
+    }
   };
   
   // Handle form input changes

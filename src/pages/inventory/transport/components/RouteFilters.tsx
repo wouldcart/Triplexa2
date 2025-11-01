@@ -145,6 +145,8 @@ const RouteFilters: React.FC<RouteFiltersProps> = ({
         <div className="relative md:col-span-2">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
+            id="transport-route-search"
+            name="routeSearch"
             placeholder="Search routes, locations, codes..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}

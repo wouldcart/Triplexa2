@@ -38,7 +38,7 @@ export const useComprehensiveTransportRoutes = (options: UseTransportRoutesOptio
     setError(null);
     
     try {
-      const result = await ComprehensiveTransportService.getCompleteRoutes(filters);
+      const result = await ComprehensiveTransportService.getCompleteRoutes({ filters });
       
       if (result.success && result.data) {
         setRoutes(result.data.data);
@@ -85,7 +85,7 @@ export const useComprehensiveTransportRoutes = (options: UseTransportRoutesOptio
 
     try {
       // Validate data first
-      const validation = ComprehensiveTransportService.validateRouteData(formData);
+      const validation = await ComprehensiveTransportService.validateRouteData(formData);
       if (!validation.isValid) {
         setError(validation.errors.join(', '));
         setLoading(false);

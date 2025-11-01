@@ -274,7 +274,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ className }) =
                 setIsSavingIdentity(true);
                 try {
                   const res = await AppSettingsHelpers.upsertSetting({
-                    category: SETTING_CATEGORIES.SEO,
+                    category: SETTING_CATEGORIES.GENERAL,
                     setting_key: 'site_title',
                     setting_value: identity.site_title.trim()
                   });

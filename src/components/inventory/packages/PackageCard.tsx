@@ -3,14 +3,12 @@ import React, { useState } from 'react';
 import { TourPackage } from '@/types/package';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Calendar, MapPin, Users, CheckCircle, XCircle, Trash, Eye, Edit, Clock, Globe } from 'lucide-react';
+import { Calendar, MapPin, Users, CheckCircle, XCircle, Trash, Eye, Edit, Clock, Globe, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { updatePackage } from '@/pages/inventory/packages/services/storageService';
-import { useToast } from '@/hooks/use-toast';
 
 interface PackageCardProps {
   packageData: TourPackage;
@@ -24,9 +22,10 @@ const PackageCard: React.FC<PackageCardProps> = ({
   onStatusChange
 }) => {
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isPublished, setIsPublished] = useState(packageData.status === 'published');
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   
   const handleViewDetails = () => {
     navigate(`/inventory/packages/view/${packageData.id}`);
@@ -34,7 +33,7 @@ const PackageCard: React.FC<PackageCardProps> = ({
   
   const handleEditPackage = (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigate(`/inventory/packages/edit/${packageData.id}`);
+    navigate(`/inventory/packages/${packageData.id}/edit`);
   };
   
   const handleDeleteClick = (e: React.MouseEvent) => {
@@ -53,28 +52,31 @@ const PackageCard: React.FC<PackageCardProps> = ({
     setShowDeleteDialog(false);
   };
 
-  const handleStatusChange = (e: React.MouseEvent) => {
+  const handleStatusChange = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    
-    const newStatus: 'draft' | 'published' = isPublished ? 'draft' : 'published';
-    
-    setIsPublished(!isPublished);
-    
-    const updatedPackage: TourPackage = {
-      ...packageData,
-      status: newStatus
-    };
-    
-    updatePackage(packageData.id, updatedPackage);
-    
-    if (onStatusChange) {
-      onStatusChange(packageData.id, newStatus);
+    if (isUpdating) return;
+    setUpdateError(null);
+
+    const wasPublished = isPublished;
+    const newStatus: 'draft' | 'published' = wasPublished ? 'draft' : 'published';
+
+    // Optimistic update
+    setIsPublished(!wasPublished);
+    setIsUpdating(true);
+
+    try {
+      if (onStatusChange) {
+        // Support both sync and async callbacks without truthiness checks on void
+        await Promise.resolve(onStatusChange(packageData.id, newStatus));
+      }
+      // Success toasts are handled by parent (Packages.tsx)
+    } catch (error: any) {
+      // Revert optimistic update on error
+      setIsPublished(wasPublished);
+      setUpdateError(error?.message ?? 'Failed to update status.');
+    } finally {
+      setIsUpdating(false);
     }
-    
-    toast({
-      title: `Package ${newStatus === 'published' ? 'Published' : 'Set to Draft'}`,
-      description: `${packageData.name} has been ${newStatus === 'published' ? 'published' : 'set to draft'}.`
-    });
   };
   
   const createdAtDate = packageData.createdAt ? new Date(packageData.createdAt) : null;
@@ -231,11 +233,18 @@ const PackageCard: React.FC<PackageCardProps> = ({
                 onCheckedChange={() => {}}
                 onClick={handleStatusChange}
                 className="data-[state=checked]:bg-green-500"
+                disabled={isUpdating}
               />
               <Label htmlFor={`status-switch-${packageData.id}`} className="text-xs cursor-pointer">
                 {isPublished ? 'Live' : 'Draft'}
               </Label>
+              {isUpdating && (
+                <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+              )}
             </div>
+            {updateError && (
+              <span className="text-xs text-red-600">{updateError}</span>
+            )}
             
             <Button
               size="sm"

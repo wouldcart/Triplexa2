@@ -12,7 +12,7 @@ import PackageBasicInfo from '@/components/inventory/packages/PackageBasicInfo';
 import ItineraryBuilder from '@/components/inventory/packages/ItineraryBuilder';
 import CostPricing from '@/components/inventory/packages/CostPricing';
 import TermsConditions from '@/components/inventory/packages/TermsConditions';
-import { getPackageById, updatePackage } from './services/storageService';
+import { tourPackageService } from '@/integrations/supabase/services/tourPackageService';
 
 const EditPackage: React.FC = () => {
   const navigate = useNavigate();
@@ -34,34 +34,27 @@ const EditPackage: React.FC = () => {
       return;
     }
     
-    // Get package data from storage
-    try {
-      const pkg = getPackageById(id);
-      if (pkg) {
+    const fetchPkg = async () => {
+      try {
+        const pkg = await tourPackageService.getTourPackageById(id);
         setPackageData(pkg);
-      } else {
+      } catch (error: any) {
+        console.error('Error loading package:', error);
         toast({
-          title: "Error",
-          description: "Package not found.",
-          variant: "destructive"
+          title: 'Error',
+          description: error?.message ?? 'Failed to load package data. Please try again.',
+          variant: 'destructive',
         });
         navigate('/inventory/packages');
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error("Error loading package:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load package data. Please try again.",
-        variant: "destructive"
-      });
-      navigate('/inventory/packages');
-    } finally {
-      setIsLoading(false);
-    }
+    };
+    fetchPkg();
   }, [id, navigate, toast]);
   
   // Handle form submission
-  const handleSubmit = (published: boolean = false) => {
+  const handleSubmit = async (published: boolean = false) => {
     if (!packageData.name) {
       toast({
         title: "Missing information",
@@ -92,23 +85,25 @@ const EditPackage: React.FC = () => {
       return;
     }
     
-    // Update the status if published is true
-    if (published) {
-      packageData.status = 'published';
+    try {
+      if (!id) throw new Error('Missing package ID');
+      const updated = await tourPackageService.updateFromUiPackage(id, {
+        ...packageData,
+        status: published ? 'published' : packageData.status ?? 'draft',
+        updatedAt: new Date().toISOString(),
+      });
+      toast({
+        title: published ? 'Package published' : 'Package updated',
+        description: `${updated.name} has been ${published ? 'published' : 'updated'} successfully.`,
+      });
+      navigate('/inventory/packages');
+    } catch (error: any) {
+      toast({
+        title: 'Update failed',
+        description: error?.message ?? 'An error occurred while updating the package.',
+        variant: 'destructive',
+      });
     }
-    
-    // Save to localStorage
-    console.log("Updating package:", packageData);
-    if (id) {
-      updatePackage(id, packageData as TourPackage);
-    }
-    
-    toast({
-      title: published ? "Package published" : "Package updated",
-      description: `${packageData.name} has been ${published ? 'published' : 'updated'} successfully.`
-    });
-    
-    navigate('/inventory/packages');
   };
   
   // Handle form input changes

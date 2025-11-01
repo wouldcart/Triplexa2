@@ -8,7 +8,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useApplicationSettings } from '@/contexts/ApplicationSettingsContext';
-import { Building2, Mail, Phone, MapPin, User } from 'lucide-react';
+import { Building2, Mail, Phone, MapPin, User, Eye, EyeOff, Check, X, Sparkles } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { AgentManagementService } from '@/services/agentManagementService';
 import { AuthService } from '@/services/authService';
 import { AgentSignupRequest } from '@/types/agentManagement';
@@ -31,6 +32,11 @@ const AgentSignup: React.FC = () => {
     password: '',
     confirm_password: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState<{ score: number; label: string }>({ score: 0, label: 'Too short' });
+  const [passwordFocused, setPasswordFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [emailExists, setEmailExists] = useState(false);
@@ -89,23 +95,75 @@ const AgentSignup: React.FC = () => {
       return false;
     }
 
-    // Credentials validation
-    if (!formData.password) {
+    // Credentials validation with stronger requirements
+    const pwd = formData.password || '';
+    const hasLength = pwd.length >= 8;
+    const hasUpper = /[A-Z]/.test(pwd);
+    const hasNumber = /\d/.test(pwd);
+    const hasSymbol = /[^A-Za-z0-9]/.test(pwd);
+
+    if (!pwd) {
       setError('Password is required');
       return false;
     }
-
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters long');
+    if (!hasLength || !hasUpper || !hasNumber || !hasSymbol) {
+      setError('Password must be at least 8 chars and include uppercase, number, and symbol');
       return false;
     }
-
     if (formData.password !== formData.confirm_password) {
       setError('Passwords do not match');
       return false;
     }
 
+    if (!agreed) {
+      setError('You must agree to the Terms & Privacy to continue');
+      return false;
+    }
+
     return true;
+  };
+
+  // Compute password strength whenever the user types
+  useEffect(() => {
+    const pwd = formData.password || '';
+    const score = (
+      (pwd.length >= 8 ? 1 : 0) +
+      (/[A-Z]/.test(pwd) ? 1 : 0) +
+      (/\d/.test(pwd) ? 1 : 0) +
+      (/[^A-Za-z0-9]/.test(pwd) ? 1 : 0)
+    );
+    const labelMap: Record<number, string> = {
+      0: 'Too short',
+      1: 'Weak',
+      2: 'Fair',
+      3: 'Good',
+      4: 'Strong',
+    };
+    setPasswordStrength({ score, label: labelMap[score] });
+  }, [formData.password]);
+
+  // Generate a strong password and fill both fields
+  const handleGeneratePassword = () => {
+    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const lower = 'abcdefghijklmnopqrstuvwxyz';
+    const numbers = '0123456789';
+    const symbols = '!@#$%^&*()_+-=[]{}|;:,.<>?';
+    const all = upper + lower + numbers + symbols;
+    const pick = (chars: string) => chars[Math.floor(Math.random() * chars.length)];
+    const length = 14;
+    const base = [pick(upper), pick(lower), pick(numbers), pick(symbols)].join('');
+    let rest = '';
+    for (let i = 0; i < length - base.length; i++) rest += pick(all);
+    const raw = (base + rest).split('');
+    // Shuffle
+    for (let i = raw.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [raw[i], raw[j]] = [raw[j], raw[i]];
+    }
+    const generated = raw.join('');
+    setFormData((prev) => ({ ...prev, password: generated, confirm_password: generated }));
+    setPasswordFocused(true);
+    setShowPassword(false);
   };
 
   // Debounced email existence check
@@ -427,29 +485,117 @@ const AgentSignup: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="password">Create Password *</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="Enter a strong password"
-                      
-                      value={formData.password}
-                      onChange={(e) => handleInputChange('password', e.target.value)}
-                      required
-                    />
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          id="password"
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder="Enter a strong password"
+                          autoComplete="new-password"
+                          value={formData.password}
+                          onChange={(e) => handleInputChange('password', e.target.value)}
+                          onFocus={() => setPasswordFocused(true)}
+                          onBlur={() => setPasswordFocused(!!formData.password)}
+                          className="pr-10"
+                          required
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                          onClick={() => setShowPassword(!showPassword)}
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-4 w-4 text-gray-400" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-gray-400" />
+                          )}
+                        </Button>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" onClick={handleGeneratePassword} className="shrink-0">
+                        <Sparkles className="h-4 w-4 mr-1" /> Generate
+                      </Button>
+                    </div>
+                    {/* Password strength meter & compact hints, shown only when typing/creating */}
+                    {(passwordFocused || !!formData.password) && (
+                      <div className="mt-2">
+                        <div className="h-2 w-full rounded bg-gray-200 overflow-hidden">
+                          <div
+                            className={
+                              `h-full transition-all ${
+                                passwordStrength.score <= 1 ? 'bg-red-500' :
+                                passwordStrength.score === 2 ? 'bg-yellow-500' :
+                                passwordStrength.score === 3 ? 'bg-green-500' : 'bg-emerald-600'
+                              }`
+                            }
+                            style={{ width: `${(passwordStrength.score / 4) * 100}%` }}
+                          />
+                        </div>
+                        <div className="text-xs mt-2 text-gray-600 dark:text-gray-400 flex flex-wrap items-center gap-2">
+                          <span>Strength: {passwordStrength.label}</span>
+                          {(() => {
+                            const pwd = formData.password || '';
+                            const reqs = [
+                              { label: '8+ chars', ok: pwd.length >= 8 },
+                              { label: 'capital', ok: /[A-Z]/.test(pwd) },
+                              { label: 'number', ok: /\d/.test(pwd) },
+                              { label: 'symbol', ok: /[^A-Za-z0-9]/.test(pwd) },
+                            ];
+                            return reqs.map((r) => (
+                              <span key={r.label} className={`flex items-center gap-1 ${r.ok ? 'text-green-600' : 'text-gray-500'}`}>
+                                {r.ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                                {r.label}
+                              </span>
+                            ));
+                          })()}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="confirm_password">Confirm Password *</Label>
-                    <Input
-                      id="confirm_password"
-                      type="password"
-                      placeholder="Re-enter your password"
-                      value={formData.confirm_password}
-                      onChange={(e) => handleInputChange('confirm_password', e.target.value)}
-                      required
-                    />
+                    <div className="relative">
+                      <Input
+                        id="confirm_password"
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        placeholder="Re-enter your password"
+                        autoComplete="new-password"
+                        value={formData.confirm_password}
+                        onChange={(e) => handleInputChange('confirm_password', e.target.value)}
+                        className="pr-10"
+                        required
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4 text-gray-400" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-gray-400" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Terms & Privacy consent */}
+              <div className="flex items-start gap-3">
+                <Checkbox id="consent" checked={agreed} onCheckedChange={(v) => setAgreed(!!v)} />
+                <label htmlFor="consent" className="text-sm text-gray-700 dark:text-gray-300">
+                  I agree to the{' '}
+                  <a href="/terms" className="text-blue-600 hover:text-blue-800 underline" target="_blank" rel="noopener noreferrer">Terms &amp; Conditions</a>
+                  {' '}and{' '}
+                  <a href="/privacy" className="text-blue-600 hover:text-blue-800 underline" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+                </label>
               </div>
 
               {error && (
@@ -470,9 +616,9 @@ const AgentSignup: React.FC = () => {
                 <Button
                   type="submit"
                   className="flex-1"
-                  disabled={loading || emailExists || phoneExists}
+                  disabled={loading || emailExists || phoneExists || !agreed}
                 >
-                  {loading ? 'Registering...' : 'Register Agent'}
+                  {loading ? 'Registering...' : 'Get Started'}
                 </Button>
               </div>
             </form>

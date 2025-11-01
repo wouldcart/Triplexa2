@@ -7,8 +7,9 @@ import { supabaseAdmin as adminClient, isAdminClientConfigured } from '@/integra
 // Primary client for app usage
 export const supabase = baseClient;
 
-// Admin/service-role client (isolated storage to avoid auth conflicts)
-export const adminSupabase = adminClient;
+// Admin/service-role client (server-only). In browser, fall back to base client to prevent
+// multiple GoTrueClient instances and avoid runtime null dereferencing.
+export const adminSupabase = adminClient || baseClient;
 
 // Flag to know if admin client is configured
 export { isAdminClientConfigured };

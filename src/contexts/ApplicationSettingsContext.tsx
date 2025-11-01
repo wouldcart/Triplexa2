@@ -1,7 +1,8 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { EnquiryConfiguration, CountryEnquirySettings, DEFAULT_ENQUIRY_COUNTRIES } from '../types/enquiry';
-import { AppSettingsService, SETTING_CATEGORIES } from '@/services/appSettingsService_database';
+import { AppSettingsService, SETTING_CATEGORIES, AppSettingsHelpers } from '@/services/appSettingsService_database';
 
 interface CompanyDetails {
   name: string;
@@ -97,18 +98,25 @@ const ApplicationSettingsContext = createContext<ApplicationSettingsContextType 
 
 export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<ApplicationSettings>(defaultSettings);
+  const location = useLocation();
+  const isPublicRoute = /^\/(privacy|terms)(\/|$)/.test(location.pathname);
 
   useEffect(() => {
     // Hydrate settings from unified App Settings service (DB with localStorage fallback)
     (async () => {
+      // Suppress Supabase-based hydration on public routes to avoid console noise
+      if (isPublicRoute) {
+        return;
+      }
       try {
-        const [companyNameRes, taglineRes, logoRes, darkLogoRes, faviconRes, siteTitleRes] = await Promise.all([
+        const [companyNameRes, taglineRes, logoRes, darkLogoRes, faviconRes, siteTitleRes, enquiryConfigRes] = await Promise.all([
           AppSettingsService.getSettingValue(SETTING_CATEGORIES.BRANDING, 'company_name'),
           AppSettingsService.getSettingValue(SETTING_CATEGORIES.BRANDING, 'brand_tagline'),
           AppSettingsService.getSettingValue(SETTING_CATEGORIES.BRANDING, 'company_logo'),
           AppSettingsService.getSettingValue(SETTING_CATEGORIES.BRANDING, 'company_logo_dark'),
           AppSettingsService.getSettingValue(SETTING_CATEGORIES.BRANDING, 'company_favicon'),
-          AppSettingsService.getSettingValue(SETTING_CATEGORIES.GENERAL, 'site_title')
+          AppSettingsService.getSettingValue(SETTING_CATEGORIES.GENERAL, 'site_title'),
+          AppSettingsService.getSettingValue(SETTING_CATEGORIES.GENERAL, 'enquiry_configuration')
         ]);
 
         setSettings(prev => ({
@@ -124,13 +132,14 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
           seoSettings: {
             ...prev.seoSettings,
             title: (siteTitleRes as string) || prev.seoSettings.title
-          }
+          },
+          enquirySettings: (enquiryConfigRes as EnquiryConfiguration) || prev.enquirySettings
         }));
       } catch (error) {
         console.warn('ApplicationSettings: Failed to hydrate from AppSettingsService, using defaults', error);
       }
     })();
-  }, []);
+  }, [isPublicRoute]);
 
   const updateSettings = (newSettings: Partial<ApplicationSettings>) => {
     setSettings(prev => {
@@ -222,6 +231,25 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
         ...prev,
         enquirySettings: { ...prev.enquirySettings, ...enquirySettings }
       };
+
+      // Persist to Supabase-backed app_settings (JSON) and keep localStorage in sync for legacy utils
+      (async () => {
+        try {
+          await AppSettingsHelpers.upsertSetting({
+            category: SETTING_CATEGORIES.GENERAL,
+            setting_key: 'enquiry_configuration',
+            setting_json: updated.enquirySettings as any,
+            data_type: 'json',
+            is_active: true
+          });
+        } catch (e) {
+          console.warn('Failed to persist enquiry configuration via AppSettingsService', e);
+        }
+      })();
+
+      try {
+        localStorage.setItem('applicationSettings', JSON.stringify(updated));
+      } catch {}
       return updated;
     });
   };
@@ -235,6 +263,22 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
           countries: [...prev.enquirySettings.countries, country]
         }
       };
+      (async () => {
+        try {
+          await AppSettingsHelpers.upsertSetting({
+            category: SETTING_CATEGORIES.GENERAL,
+            setting_key: 'enquiry_configuration',
+            setting_json: updated.enquirySettings as any,
+            data_type: 'json',
+            is_active: true
+          });
+        } catch (e) {
+          console.warn('Failed to persist enquiry configuration via AppSettingsService', e);
+        }
+      })();
+      try {
+        localStorage.setItem('applicationSettings', JSON.stringify(updated));
+      } catch {}
       return updated;
     });
   };
@@ -252,6 +296,22 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
           )
         }
       };
+      (async () => {
+        try {
+          await AppSettingsHelpers.upsertSetting({
+            category: SETTING_CATEGORIES.GENERAL,
+            setting_key: 'enquiry_configuration',
+            setting_json: updated.enquirySettings as any,
+            data_type: 'json',
+            is_active: true
+          });
+        } catch (e) {
+          console.warn('Failed to persist enquiry configuration via AppSettingsService', e);
+        }
+      })();
+      try {
+        localStorage.setItem('applicationSettings', JSON.stringify(updated));
+      } catch {}
       return updated;
     });
   };
@@ -267,6 +327,22 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
           )
         }
       };
+      (async () => {
+        try {
+          await AppSettingsHelpers.upsertSetting({
+            category: SETTING_CATEGORIES.GENERAL,
+            setting_key: 'enquiry_configuration',
+            setting_json: updated.enquirySettings as any,
+            data_type: 'json',
+            is_active: true
+          });
+        } catch (e) {
+          console.warn('Failed to persist enquiry configuration via AppSettingsService', e);
+        }
+      })();
+      try {
+        localStorage.setItem('applicationSettings', JSON.stringify(updated));
+      } catch {}
       return updated;
     });
   };
@@ -284,6 +360,22 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
           }))
         }
       };
+      (async () => {
+        try {
+          await AppSettingsHelpers.upsertSetting({
+            category: SETTING_CATEGORIES.GENERAL,
+            setting_key: 'enquiry_configuration',
+            setting_json: updated.enquirySettings as any,
+            data_type: 'json',
+            is_active: true
+          });
+        } catch (e) {
+          console.warn('Failed to persist enquiry configuration via AppSettingsService', e);
+        }
+      })();
+      try {
+        localStorage.setItem('applicationSettings', JSON.stringify(updated));
+      } catch {}
       return updated;
     });
   };

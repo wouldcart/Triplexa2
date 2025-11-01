@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { TourPackage } from '@/types/package';
-import { getPackageById } from './services/storageService';
+import { tourPackageService } from '@/integrations/supabase/services/tourPackageService';
 import { useToast } from '@/hooks/use-toast';
 
 const ViewPackage: React.FC = () => {
@@ -21,21 +21,21 @@ const ViewPackage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
   
   useEffect(() => {
-    // Load package data from storage service
-    if (id) {
-      const packageDetails = getPackageById(id);
-      if (packageDetails) {
-        setPackageData(packageDetails);
-      } else {
-        // Package not found, navigate back to packages list
+    const loadPackage = async () => {
+      if (!id) return;
+      try {
+        const pkg = await tourPackageService.getTourPackageById(id);
+        setPackageData(pkg);
+      } catch (error: any) {
         toast({
-          title: "Package not found",
-          description: "The requested package could not be found.",
-          variant: "destructive"
+          title: 'Package not found',
+          description: error?.message ?? 'The requested package could not be found.',
+          variant: 'destructive'
         });
         navigate('/inventory/packages');
       }
-    }
+    };
+    loadPackage();
   }, [id, navigate, toast]);
   
   if (!packageData) {
@@ -94,7 +94,7 @@ const ViewPackage: React.FC = () => {
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  onClick={() => navigate(`/inventory/packages/edit/${id}`)}
+                  onClick={() => navigate(`/inventory/packages/${id}/edit`)}
                   className="ml-2 flex items-center gap-1"
                 >
                   <Edit className="h-4 w-4" />
@@ -143,7 +143,14 @@ const ViewPackage: React.FC = () => {
               </div>
               <div>
                 <p className="text-sm text-gray-500">Destinations</p>
-                <p className="font-medium">{packageData.destinations.map(d => d.country).join(', ')}</p>
+                <p className="font-medium">
+                  {Array.isArray(packageData.destinations) && packageData.destinations.length > 0
+                    ? packageData.destinations
+                        .map(d => d?.country)
+                        .filter(Boolean)
+                        .join(', ')
+                    : 'No destinations'}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -201,23 +208,31 @@ const ViewPackage: React.FC = () => {
               <CardContent className="space-y-4">
                 <div>
                   <h4 className="font-medium text-gray-900 dark:text-white">Destinations</h4>
-                  <div className="mt-2 space-y-3">
-                    {packageData.destinations.map((destination, index) => (
-                      <div key={index} className="bg-gray-50 dark:bg-gray-800 p-3 rounded-md">
-                        <div className="flex items-center mb-1">
-                          <MapPin className="h-4 w-4 mr-1 text-gray-500" />
-                          <span className="font-medium">{destination.country}</span>
+                  {Array.isArray(packageData.destinations) && packageData.destinations.length > 0 ? (
+                    <div className="mt-2 space-y-3">
+                      {packageData.destinations.map((destination, index) => (
+                        <div key={index} className="bg-gray-50 dark:bg-gray-800 p-3 rounded-md">
+                          <div className="flex items-center mb-1">
+                            <MapPin className="h-4 w-4 mr-1 text-gray-500" />
+                            <span className="font-medium">{destination?.country || 'Unknown country'}</span>
+                          </div>
+                          <div className="ml-5 flex flex-wrap gap-2">
+                            {Array.isArray(destination?.cities) && destination.cities.length > 0 ? (
+                              destination.cities.map((city, idx) => (
+                                <Badge key={idx} variant="secondary">
+                                  {city}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-sm text-gray-500">No cities listed</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="ml-5 flex flex-wrap gap-2">
-                          {destination.cities.map((city, idx) => (
-                            <Badge key={idx} variant="secondary">
-                              {city}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-gray-500">No destinations specified.</p>
+                  )}
                 </div>
                 
                 {packageData.themes && packageData.themes.length > 0 && (
@@ -309,7 +324,7 @@ const ViewPackage: React.FC = () => {
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
                       <div>
                         <h4 className="text-md font-semibold">
-                          Day {day.day}: {day.city}
+                          Day {day.day}: {day.title || day.city || ''}
                         </h4>
                         <div className="text-sm text-gray-500">
                           {day.accommodation?.hotelName || day.accommodation?.customHotelName 
@@ -318,15 +333,15 @@ const ViewPackage: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Badge variant={day.meals.breakfast ? "default" : "outline"} className="text-xs">B</Badge>
-                        <Badge variant={day.meals.lunch ? "default" : "outline"} className="text-xs">L</Badge>
-                        <Badge variant={day.meals.dinner ? "default" : "outline"} className="text-xs">D</Badge>
+                        <Badge variant={day.meals?.breakfast ? "default" : "outline"} className="text-xs">B</Badge>
+                        <Badge variant={day.meals?.lunch ? "default" : "outline"} className="text-xs">L</Badge>
+                        <Badge variant={day.meals?.dinner ? "default" : "outline"} className="text-xs">D</Badge>
                       </div>
                     </div>
                     
                     <p className="text-gray-700 dark:text-gray-300 mb-3">{day.description}</p>
                     
-                    {day.activities.length > 0 && (
+                    {Array.isArray(day.activities) && day.activities.length > 0 && (
                       <div className="space-y-2 mt-3">
                         <h5 className="text-sm font-medium">Activities:</h5>
                         <div className="space-y-2">

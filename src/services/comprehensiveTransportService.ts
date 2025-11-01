@@ -217,7 +217,6 @@ export class ComprehensiveTransportService {
         end_coordinates: resolvedFormData.end_coordinates,
         distance: resolvedFormData.distance,
         duration: resolvedFormData.duration,
-        description: resolvedFormData.description,
         notes: resolvedFormData.notes,
         status: resolvedFormData.status || 'active',
         enable_sightseeing: resolvedFormData.enable_sightseeing || false,
@@ -361,6 +360,21 @@ export class ComprehensiveTransportService {
         filters = {}
       } = options;
 
+      // Auth guard: avoid unauthenticated calls to protected tables
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      if (authError || !session) {
+        return {
+          success: true,
+          data: {
+            data: [],
+            total: 0,
+            page,
+            limit,
+            totalPages: 0
+          }
+        };
+      }
+
       // Calculate offset for pagination
       const offset = (page - 1) * limit;
 
@@ -390,7 +404,7 @@ export class ComprehensiveTransportService {
         query = query.eq('end_location', filters.end_location);
       }
       if (filters.search) {
-        query = query.or(`route_name.ilike.%${filters.search}%,route_code.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+        query = query.or(`route_name.ilike.%${filters.search}%,route_code.ilike.%${filters.search}%,notes.ilike.%${filters.search}%`);
       }
 
       // Apply sorting
@@ -463,7 +477,6 @@ export class ComprehensiveTransportService {
       if (resolvedFormData.end_coordinates !== undefined) routeUpdateData.end_coordinates = resolvedFormData.end_coordinates;
       if (resolvedFormData.distance !== undefined) routeUpdateData.distance = resolvedFormData.distance;
       if (resolvedFormData.duration !== undefined) routeUpdateData.duration = resolvedFormData.duration;
-      if (resolvedFormData.description !== undefined) routeUpdateData.description = resolvedFormData.description;
       if (resolvedFormData.notes !== undefined) routeUpdateData.notes = resolvedFormData.notes;
       if (resolvedFormData.status !== undefined) routeUpdateData.status = resolvedFormData.status;
       if (resolvedFormData.enable_sightseeing !== undefined) routeUpdateData.enable_sightseeing = resolvedFormData.enable_sightseeing;
@@ -585,6 +598,15 @@ export class ComprehensiveTransportService {
     error?: string;
   }> {
     try {
+      // Auth guard: avoid unauthenticated calls to protected tables
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      if (authError || !session) {
+        return {
+          success: true,
+          data: []
+        };
+      }
+
       const { data: types, error: typesError } = await supabase
         .from('transport_types')
         .select('*')
@@ -1095,6 +1117,21 @@ export class ComprehensiveTransportService {
     error?: string;
   }> {
     try {
+      // Auth guard: avoid unauthenticated calls to protected tables
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      if (authError || !session) {
+        return {
+          success: true,
+          data: {
+            totalRoutes: 0,
+            routesByTransferType: {},
+            routesByCountry: {},
+            routesWithSightseeing: 0,
+            routesWithIntermediateStops: 0
+          }
+        };
+      }
+
       // Get total routes
       const { count: totalRoutes, error: countError } = await supabase
         .from('transport_routes')

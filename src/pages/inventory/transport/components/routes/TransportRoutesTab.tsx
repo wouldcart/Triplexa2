@@ -134,7 +134,7 @@ export default function TransportRoutesTab() {
     refresh,
     transportTypes,
     statistics
-  } = useComprehensiveTransportRoutes();
+  } = useComprehensiveTransportRoutes({ filters });
 
   // Get locations from useTransportData
   const { locations, countries, transport } = useTransportData();
@@ -170,10 +170,11 @@ export default function TransportRoutesTab() {
     selectedRoute
   });
 
-  // Update filters based on current tab
+  // Update filters based on tab, search, country, and type
   useEffect(() => {
     const newFilters: typeof filters = {};
-    
+
+    // Status by tab
     switch (currentTab) {
       case 'active':
         newFilters.status = 'active';
@@ -186,9 +187,25 @@ export default function TransportRoutesTab() {
         // No status filter for 'all'
         break;
     }
-    
+
+    // Country filter (skip "All Countries")
+    if (countryFilter && countryFilter !== 'All Countries') {
+      newFilters.country = countryFilter;
+    }
+
+    // Type filter (skip "All Types")
+    if (typeFilter && typeFilter !== 'All Types') {
+      newFilters.transfer_type = typeFilter;
+    }
+
+    // Search query
+    if (searchQuery && searchQuery.trim().length > 0) {
+      // The service supports a generic search key
+      (newFilters as any).search = searchQuery.trim();
+    }
+
     setFilters(newFilters);
-  }, [currentTab]);
+  }, [currentTab, countryFilter, typeFilter, searchQuery]);
 
   // Handle toggle status: update via Supabase and refresh
   const handleToggleStatus = async (routeId: string, newStatus: boolean) => {
@@ -266,14 +283,61 @@ export default function TransportRoutesTab() {
     setCurrentPage(1); // Reset to first page
   };
 
-  // Filter routes for display
+  // Helper to check if a route involves a given city
+  const routeInvolvesCity = useCallback((route: TransportRoute, city: string) => {
+    if (!city || city === 'All Cities') return true;
+    const startLoc = (locations || []).find(l => l.code === route.startLocation);
+    const endLoc = (locations || []).find(l => l.code === route.endLocation);
+    return (
+      (startLoc?.city && startLoc.city === city) ||
+      (endLoc?.city && endLoc.city === city) ||
+      (route.startLocationFullName && route.startLocationFullName.toLowerCase().includes(city.toLowerCase())) ||
+      (route.endLocationFullName && route.endLocationFullName.toLowerCase().includes(city.toLowerCase()))
+    );
+  }, [locations]);
+
+  // Filter routes for display: status tab, country, city, type, search
   const displayRoutes = useMemo(() => {
     let result = transportRoutes;
-    if (currentTab === "special") {
+
+    // Special tab
+    if (currentTab === 'special') {
       result = result.filter(route => route.transferType === 'Multi-Stop' || route.transferType === 'en route');
     }
+
+    // Country
+    if (countryFilter && countryFilter !== 'All Countries') {
+      result = result.filter(route => (route.country || '').toLowerCase() === countryFilter.toLowerCase());
+    }
+
+    // City
+    if (cityFilter && cityFilter !== 'All Cities') {
+      result = result.filter(route => routeInvolvesCity(route, cityFilter));
+    }
+
+    // Type
+    if (typeFilter && typeFilter !== 'All Types') {
+      result = result.filter(route => (route.transferType || '').toLowerCase() === typeFilter.toLowerCase());
+    }
+
+    // Search
+    if (searchQuery && searchQuery.trim().length > 0) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter(route => {
+        return (
+          (route.name && route.name.toLowerCase().includes(q)) ||
+          (route.code && route.code.toLowerCase().includes(q)) ||
+          (route.description && route.description.toLowerCase().includes(q)) ||
+          (route.startLocation && route.startLocation.toLowerCase().includes(q)) ||
+          (route.endLocation && route.endLocation.toLowerCase().includes(q)) ||
+          (route.startLocationFullName && route.startLocationFullName.toLowerCase().includes(q)) ||
+          (route.endLocationFullName && route.endLocationFullName.toLowerCase().includes(q))
+        );
+      });
+    }
+
     return result;
-  }, [transportRoutes, currentTab]);
+  }, [transportRoutes, currentTab, countryFilter, cityFilter, typeFilter, searchQuery, routeInvolvesCity]);
 
   // Calculate total pages based on filtered routes
   const totalDisplayPages = Math.max(1, Math.ceil(displayRoutes.length / itemsPerPage));

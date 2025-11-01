@@ -9,8 +9,8 @@ import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import PackageCard from '@/components/inventory/packages/PackageCard';
-import { loadPackages, deletePackage, savePackages, updatePackage } from './packages/services/storageService';
 import { TourPackage } from '@/types/package';
+import { tourPackageService } from '@/integrations/supabase/services/tourPackageService';
 
 const Packages: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -20,11 +20,22 @@ const Packages: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Load package data on component mount
+  // Load package data on component mount from Supabase
   useEffect(() => {
-    const data = loadPackages();
-    setPackages(data);
-  }, []);
+    const fetchPackages = async () => {
+      try {
+        const data = await tourPackageService.listTourPackages();
+        setPackages(data);
+      } catch (error: any) {
+        toast({
+          title: 'Failed to load packages',
+          description: error?.message ?? 'An error occurred while fetching packages.',
+          variant: 'destructive',
+        });
+      }
+    };
+    fetchPackages();
+  }, [toast]);
 
   // Filter packages based on search query and active tab
   const filteredPackages = packages.filter(pkg => {
@@ -45,26 +56,35 @@ const Packages: React.FC = () => {
     navigate('/inventory/packages/create');
   };
 
-  const handleDeletePackage = (id: string) => {
-    // Delete from local state
-    const updatedPackages = packages.filter(pkg => pkg.id !== id);
-    setPackages(updatedPackages);
-    
-    // Delete from storage
-    deletePackage(id);
-    
-    toast({
-      title: "Package deleted",
-      description: "The package has been deleted successfully."
-    });
+  const handleDeletePackage = async (id: string) => {
+    try {
+      await tourPackageService.deleteTourPackage(id);
+      setPackages(prev => prev.filter(pkg => pkg.id !== id));
+      toast({
+        title: 'Package deleted',
+        description: 'The package has been deleted successfully.'
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Delete failed',
+        description: error?.message ?? 'Could not delete the package.',
+        variant: 'destructive',
+      });
+    }
   };
   
-  const handleStatusChange = (id: string, newStatus: 'draft' | 'published') => {
-    // Update local state
-    const updatedPackages = packages.map(pkg => 
-      pkg.id === id ? { ...pkg, status: newStatus } : pkg
-    );
-    setPackages(updatedPackages);
+  const handleStatusChange = async (id: string, newStatus: 'draft' | 'published') => {
+    try {
+      const updated = await tourPackageService.setStatus(id, newStatus);
+      setPackages(prev => prev.map(pkg => (pkg.id === id ? updated : pkg)));
+      toast({ title: 'Status updated', description: `Package marked as ${newStatus}.` });
+    } catch (error: any) {
+      toast({
+        title: 'Status update failed',
+        description: error?.message ?? 'Could not update the package status.',
+        variant: 'destructive',
+      });
+    }
   };
 
   return (

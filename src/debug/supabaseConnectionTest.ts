@@ -78,8 +78,4 @@ export const testSupabaseConnection = async () => {
     console.error('❌ Auth session exception:', err);
   }
 };
-
-// Auto-run test when imported
-if (typeof window !== 'undefined') {
-  testSupabaseConnection();
-}
+// Note: No auto-run here. Consumers should invoke conditionally as needed.

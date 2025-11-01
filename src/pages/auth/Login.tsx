@@ -387,13 +387,14 @@ const Login: React.FC = () => {
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username">Username or Email</Label>
+                <Label htmlFor="username">Email</Label>
                 <div className="relative">
                   <UserIcon className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   <Input
                     id="username"
                     type="text"
-                    placeholder="Enter username or email"
+                    placeholder="Enter your registered email address."
+                    autoComplete="email"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="pl-10"
@@ -409,7 +410,8 @@ const Login: React.FC = () => {
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="Enter password"
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10 pr-10"
@@ -468,18 +470,20 @@ const Login: React.FC = () => {
 
               <div className="text-center">
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  New travel agent?{' '}
+                  First time here?{' '}
                   <Button
                     type="button"
                     variant="link"
                     className="p-0 h-auto font-medium text-blue-600 hover:text-blue-800"
                     onClick={() => navigate('/signup/agent')}
                   >
-                    Register here
+                    Register your travel agency here.
                   </Button>
                 </p>
               </div>
             </form>
+           
+            
             <Dialog open={resetOpen} onOpenChange={setResetOpen}>
               <DialogContent>
                 <DialogHeader>
@@ -494,6 +498,7 @@ const Login: React.FC = () => {
                     <Input
                       id="resetEmail"
                       type="email"
+                      autoComplete="email"
                       value={resetEmail}
                       onChange={(e) => setResetEmail(e.target.value)}
                       placeholder="you@example.com"
@@ -538,6 +543,7 @@ const Login: React.FC = () => {
                         <Input
                           id="magicLinkEmail"
                           type="email"
+                          autoComplete="email"
                           value={magicLinkEmail}
                           onChange={(e) => setMagicLinkEmail(e.target.value)}
                           placeholder="agent@example.com"
@@ -613,7 +619,26 @@ const Login: React.FC = () => {
         </Card>
 
         {/* Quick Access Note */}
-      
+       <p className="text-sm text-gray-600 dark:text-gray-400">
+              By signing in, you agree to our{' '}
+              <Button
+                type="button"
+                variant="link"
+                className="p-0 h-auto font-medium text-blue-600 hover:text-blue-800"
+                onClick={() => navigate('/terms')}
+              >
+                Terms & Conditions
+              </Button>{' '}
+              and{' '}
+              <Button
+                type="button"
+                variant="link"
+                className="p-0 h-auto font-medium text-blue-600 hover:text-blue-800"
+                onClick={() => navigate('/privacy')}
+              >
+                Privacy Policy
+              </Button>.
+            </p>
       </div>
     </div>
   );

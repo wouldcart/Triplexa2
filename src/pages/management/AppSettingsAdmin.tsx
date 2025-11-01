@@ -10,6 +10,7 @@ import { appSettingsService, SETTING_CATEGORIES, AppSetting, AppSettingsService 
 import { GeneralSettings } from '@/components/settings/categories/GeneralSettings';
 import { SEOSettings } from '@/components/settings/categories/SEOSettings';
 import { BrandingSettings } from '@/components/settings/categories/BrandingSettings';
+import { ContentSettings } from '@/components/settings/categories/ContentSettings';
 import AppSettingsHeader from '@/components/settings/AppSettingsHeader';
 import AppSettingsSidebar from '@/components/settings/AppSettingsSidebar';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -241,8 +242,16 @@ const AppSettingsAdmin: React.FC = () => {
           </CardHeader>
           <CardContent>
             <Tabs value={activeTab} onValueChange={(value: string) => setActiveTab(value)} className="space-y-6">
-              <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6">
-                {Object.values(SETTING_CATEGORIES).slice(0, 6).map((category) => {
+              <TabsList className="grid w-full grid-cols-4 lg:grid-cols-7">
+                {[
+                  SETTING_CATEGORIES.GENERAL,
+                  SETTING_CATEGORIES.SEO,
+                  SETTING_CATEGORIES.BRANDING,
+                  SETTING_CATEGORIES.PERMISSIONS,
+                  SETTING_CATEGORIES.AUTHENTICATION,
+                  SETTING_CATEGORIES.NOTIFICATIONS,
+                  SETTING_CATEGORIES.CONTENT,
+                ].map((category) => {
                   const Icon = categoryIcons[category] || Settings;
                   const count = settings[category]?.length || 0;
                   
@@ -358,6 +367,11 @@ const AppSettingsAdmin: React.FC = () => {
                     </div>
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              {/* Content Settings */}
+              <TabsContent value={SETTING_CATEGORIES.CONTENT}>
+                <ContentSettings />
               </TabsContent>
             </Tabs>
           </CardContent>

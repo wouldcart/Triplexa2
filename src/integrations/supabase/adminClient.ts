@@ -6,8 +6,13 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
+// Avoid creating an admin GoTrue client in the browser to prevent
+// "Multiple GoTrueClient instances detected" warnings and undefined behavior.
+// The service role key should only be used server-side.
+const IS_BROWSER = typeof window !== 'undefined';
+
 // Export a flag to check if admin client is properly configured
-export const isAdminClientConfigured = !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+export const isAdminClientConfigured = !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) && !IS_BROWSER;
 
 // Custom storage implementation that completely isolates admin client
 const adminStorage = {

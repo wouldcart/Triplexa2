@@ -29,11 +29,11 @@ const SelectedDestination: React.FC<SelectedDestinationProps> = ({
         </Button>
       </div>
       
-      {destination.cities.length > 0 && (
+      {Array.isArray(destination?.cities) && destination.cities.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-1">
-          {destination.cities.map((city, cityIndex) => (
+          {destination.cities.map((city) => (
             <Badge 
-              key={cityIndex} 
+              key={city} 
               variant="outline"
               className="flex items-center gap-1 bg-white dark:bg-gray-700"
             >
@@ -47,7 +47,7 @@ const SelectedDestination: React.FC<SelectedDestinationProps> = ({
             </Badge>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

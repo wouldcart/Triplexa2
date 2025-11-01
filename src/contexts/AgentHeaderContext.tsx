@@ -95,6 +95,67 @@ export const AgentHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ c
     loadAgentHeader(false);
   }, [loadAgentHeader]);
 
+  // Realtime subscription: auto-update header when agents row changes for current user
+  useEffect(() => {
+    let isMounted = true;
+    let channel: any = null;
+
+    const setupRealtime = async () => {
+      try {
+        // Resolve current user id
+        const { data: auth } = await supabase.auth.getUser();
+        const userId = auth?.user?.id || user?.id;
+        if (!userId) return;
+
+        // Subscribe to changes on public.agents filtered by user_id
+        channel = supabase
+          .channel(`agent-header:${userId}`)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'agents', filter: `user_id=eq.${userId}` },
+            (payload: any) => {
+              try {
+                const row = (payload?.new || payload?.old || {}) as any;
+                const value: AgentHeader = {
+                  agency_name: row?.agency_name,
+                  profile_image: row?.profile_image,
+                };
+                if (isMounted) {
+                  setAgentHeader(value);
+                }
+                // Update cache
+                const cacheKey = `agentHeader:${userId}`;
+                try {
+                  localStorage.setItem(cacheKey, JSON.stringify({ value, timestamp: Date.now() }));
+                } catch (_) {}
+              } catch (e) {
+                // ignore payload errors
+              }
+            }
+          )
+          .subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') {
+              // Optional: force refresh to hydrate immediately
+              await loadAgentHeader(true);
+            }
+          });
+      } catch (err) {
+        // ignore subscription errors; context still works with manual refresh
+      }
+    };
+
+    setupRealtime();
+
+    return () => {
+      isMounted = false;
+      try {
+        if (channel) {
+          supabase.removeChannel(channel);
+        }
+      } catch (_) {}
+    };
+  }, [user?.id, loadAgentHeader]);
+
   return (
     <AgentHeaderContext.Provider value={{ agentHeader, loading, error, refresh, clearError }}>
       {children}

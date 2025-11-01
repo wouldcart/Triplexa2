@@ -271,6 +271,8 @@ const Header: React.FC = () => {
           <Search className="absolute left-2 top-1/2 h-3 w-3 sm:h-4 sm:w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="search"
+            id="global-search"
+            name="globalSearch"
             placeholder={isMobile ? `${translate('search')}...` : `${translate('search')}... (Ctrl+K)`}
             className="pl-7 sm:pl-8 h-8 sm:h-9 w-full rounded-md border border-input bg-transparent px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => setOpen(true)}

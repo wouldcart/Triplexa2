@@ -25,6 +25,10 @@ import Register from '@/pages/auth/Register';
 import AgentSignup from '@/pages/auth/AgentSignup';
 import AgentPasswordChange from '@/pages/auth/AgentPasswordChange';
 import Unauthorized from '@/pages/auth/Unauthorized';
+import Terms from '@/pages/Terms';
+import Privacy from '@/pages/Privacy';
+
+
 
 // Sales Module
 import SalesLayout from '@/layouts/SalesLayout';
@@ -53,7 +57,7 @@ import { testSupabaseConnection } from "@/debug/supabaseConnectionTest";
 import FollowUps from './pages/followups/FollowUps';
 
 // Run Supabase connection test on app start
-testSupabaseConnection();
+// Removed global invocation to avoid Supabase calls on public pages
 import AssignQueries from './pages/queries/AssignQueries';
 import BookingManagement from './pages/bookings/BookingManagement';
 import ItineraryBuilder from './pages/itinerary/ItineraryBuilder';
@@ -354,6 +358,7 @@ const RootRedirect = () => {
 };
 
 function App() {
+  const location = useLocation();
   // Register service worker for push notifications
   useEffect(() => {
     const enableSw = (import.meta as any).env?.VITE_ENABLE_SW === 'true';
@@ -383,6 +388,15 @@ function App() {
     };
   }, []);
 
+  // Conditionally run Supabase connection test only on non-public routes
+  useEffect(() => {
+    const path = location.pathname;
+    const isPublic = /^\/(privacy|terms)(\/|$)/.test(path);
+    if (!isPublic) {
+      testSupabaseConnection();
+    }
+  }, [location.pathname]);
+
   return (
     <HelmetProvider>
       <SEOProvider>
@@ -397,6 +411,8 @@ function App() {
           <Route path="/signup/agent" element={<AgentSignup />} />
           <Route path="/change-password" element={<ProtectedRoute><AgentPasswordChange /></ProtectedRoute>} />
           <Route path="/unauthorized" element={<Unauthorized />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
         
         {/* Protected Routes */}
         <Route path="/dashboard" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />

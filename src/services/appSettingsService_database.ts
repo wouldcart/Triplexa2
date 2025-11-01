@@ -380,18 +380,9 @@ class AppSettingsService {
           .eq('category', category)
           .eq('setting_key', settingKey)
           .eq('is_active', true)
-          .single();
+          .maybeSingle();
 
         if (error) {
-          if (error.code === 'PGRST116') {
-            // No rows found
-            return {
-              data: null,
-              error: null,
-              success: true
-            };
-          }
-          
           const errorCode = error.code || '';
           const errorMessage = error.message?.toLowerCase() || '';
           
@@ -409,6 +400,15 @@ class AppSettingsService {
           }
           
           return this.getSettingFromStorage(category, settingKey);
+        }
+
+        // No error: if no row found, return null without error
+        if (!data) {
+          return {
+            data: null,
+            error: null,
+            success: true
+          };
         }
 
         // Mark database as accessible since operation succeeded

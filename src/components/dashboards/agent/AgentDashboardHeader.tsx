@@ -179,23 +179,34 @@ const AgentDashboardHeader: React.FC = () => {
       <div className="container mx-auto flex h-14 items-center justify-between px-4 md:px-6">
         {/* Left: Logo and Company */}
         <div className="flex items-center gap-3">
-          <img
-            src={logoUrl || agentLogo || '/placeholder.svg'}
-            alt="Company Logo"
-            className="h-8 w-8 object-contain rounded-full bg-white p-1 border cursor-pointer"
-            onClick={() => navigate('/dashboards/agent')}
-            onError={async () => {
-              if (!agentLogo) return;
-              const parsed = parseStoragePublicUrl(agentLogo);
-              if (!parsed) return;
-              const { data, error: signErr } = await supabase.storage
-                .from(parsed.bucket)
-                .createSignedUrl(parsed.path, 60 * 60);
-              if (data?.signedUrl) {
-                setLogoUrl(data.signedUrl);
-              }
-            }}
-          />
+          {logoUrl || agentLogo ? (
+            <img
+              src={logoUrl || agentLogo || ''}
+              alt="Company Logo"
+              className="h-8 w-8 object-contain rounded-full bg-white p-1 border cursor-pointer"
+              onClick={() => navigate('/dashboards/agent')}
+              onError={async () => {
+                if (!agentLogo) return;
+                const parsed = parseStoragePublicUrl(agentLogo);
+                if (!parsed) return;
+                const { data } = await supabase.storage
+                  .from(parsed.bucket)
+                  .createSignedUrl(parsed.path, 60 * 60);
+                if (data?.signedUrl) {
+                  setLogoUrl(data.signedUrl);
+                }
+              }}
+            />
+          ) : (
+            <div
+              className="h-8 w-8 bg-blue-500 rounded-md flex items-center justify-center cursor-pointer"
+              onClick={() => navigate('/dashboards/agent')}
+            >
+              <span className="font-bold text-white text-lg">
+                {(companyName && companyName.trim()[0]) || 'T'}
+              </span>
+            </div>
+          )}
           {!isMobile && (
             <div className="min-w-0">
               <div className="font-semibold truncate">{companyName}</div>
