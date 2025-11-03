@@ -15,7 +15,10 @@
     "test:auth:watch": "nodemon tests/auth-endpoints.test.js",
     "seed:transport": "node scripts/seed-transport-inventory.js",
     "seed:visa": "node scripts/seed-visa-inventory.js",
-    "seed:packages": "node scripts/seed-tour-packages.js"
+    "seed:packages": "node scripts/seed-tour-packages.js",
+    "test:staff-docs": "node tests/test-staff-docs-crud.cjs",
+    "test:staff-bank": "node tests/test-staff-bank-crud.cjs",
+    "test:staff-all": "node tests/test-staff-docs-crud.cjs && node tests/test-staff-bank-crud.cjs"
   },
   "dependencies": {
     "@apollo/client": "^3.10.0",

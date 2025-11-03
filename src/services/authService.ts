@@ -31,6 +31,9 @@ export interface AuthResponse {
 // Helper function to get permissions based on role
 const getPermissionsByRole = (role: string): string[] => {
   switch (role) {
+    case 'super_admin':
+      // Full administrative access
+      return ['*', 'manage_users', 'manage_settings', 'queries.*', 'staff.*', 'hr.*', 'attendance.*', 'payroll.*'];
     case 'admin':
       return ['read', 'write', 'delete', 'manage_users', 'manage_settings'];
     case 'manager':

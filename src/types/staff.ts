@@ -60,6 +60,11 @@ export interface EnhancedStaffMember {
   status: 'active' | 'inactive' | 'on-leave';
   avatar?: string;
   joinDate: string;
+  // Optional timestamps from DB
+  createdAt?: string;
+  updatedAt?: string;
+  // Optional profile image stored in staff table
+  profileImage?: string;
   dateOfBirth?: string; // Added date of birth field
   skills: string[];
   certifications: string[];
@@ -344,4 +349,46 @@ export interface RealTimeUpdate {
   timestamp: string;
   department: string;
   staffId?: string;
+}
+
+// Staff verification documents
+export type DocumentStatus = 'pending' | 'approved' | 'rejected';
+
+export interface StaffDocument {
+  id: string;
+  staffId: string;
+  docType: string;
+  fileName: string;
+  fileExt?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  storagePath: string; // path inside staff_docs bucket
+  sha256?: string;
+  status: DocumentStatus;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  // UI helper
+  signedUrl?: string;
+}
+
+// Staff bank account details (masked number on client)
+export type BankVerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
+
+export interface StaffBankAccount {
+  id: string;
+  staffId: string;
+  bankName: string;
+  accountHolderName: string;
+  accountNumberLast4: string;
+  country?: string;
+  ifscOrSwift?: string;
+  branch?: string;
+  verifiedStatus: BankVerificationStatus;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }

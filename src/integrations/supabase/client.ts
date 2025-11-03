@@ -122,7 +122,7 @@ export const authHelpers = {
   resetPassword: async (email: string) => {
     // Redirect back to main domain root so we can handle `?code=` there
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/`
+      redirectTo: `${window.location.origin}/reset-password`
     });
     return { data, error };
   },

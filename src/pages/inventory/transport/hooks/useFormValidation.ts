@@ -6,7 +6,7 @@ const fieldValidationSchema = {
   name: z.string()
     .min(1, 'Route name is required')
     .max(100, 'Route name must be less than 100 characters')
-    .regex(/^[a-zA-Z0-9\s\-_()]+$/, 'Route name contains invalid characters'),
+    .regex(/^[a-zA-Z0-9\s\-_()→]+$/, 'Route name contains invalid characters'),
   
   country: z.string()
     .min(1, 'Country is required')

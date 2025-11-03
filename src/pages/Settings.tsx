@@ -29,6 +29,10 @@ const Settings: React.FC = () => {
   
   // Handle tab change
   const handleTabChange = (value: string) => {
+    if (value === 'app-settings') {
+      navigate('/settings/app');
+      return;
+    }
     navigate(`/settings/${value}`);
   };
   
@@ -46,8 +50,8 @@ const Settings: React.FC = () => {
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
-            <TabsTrigger value="languages">{translate('languages')}</TabsTrigger>
-            <TabsTrigger value="translation-tool" className="flex items-center">
+            <TabsTrigger value="language">{translate('languages')}</TabsTrigger>
+            <TabsTrigger value="translation" className="flex items-center">
               <Languages className="mr-1.5 h-4 w-4" />
               {translate('Translation Tool') || 'Translation Tool'}
             </TabsTrigger>
@@ -61,11 +65,11 @@ const Settings: React.FC = () => {
             <TabsTrigger value="api">API</TabsTrigger>
             {isAdmin && (
               <>
-                <TabsTrigger value="access-control" className="flex items-center">
+                <TabsTrigger value="access" className="flex items-center">
                   <Shield className="mr-1.5 h-4 w-4" />
                   Access Control
                 </TabsTrigger>
-                <TabsTrigger value="agent-management" className="flex items-center">
+                <TabsTrigger value="agents" className="flex items-center">
                   <Users className="mr-1.5 h-4 w-4" />
                   Agent Management
                 </TabsTrigger>

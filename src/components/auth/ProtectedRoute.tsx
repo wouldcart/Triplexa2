@@ -62,6 +62,30 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     );
 
     if (!hasAccess) {
+      // Redirect staff users to their department dashboard instead of Unauthorized
+      if (role === 'staff') {
+        const dept = currentUser.department;
+        const staffRedirect = (() => {
+          switch (dept) {
+            case 'Sales':
+              return '/dashboards/sales';
+            case 'Operations':
+              return '/dashboards/operations';
+            case 'Marketing':
+              return '/dashboards/content';
+            case 'Customer Support':
+            case 'Support':
+              return '/dashboards/support';
+            case 'Finance':
+              return '/dashboards/finance';
+            case 'Field Sales':
+              return '/management/agents';
+            default:
+              return '/dashboard';
+          }
+        })();
+        return <Navigate to={staffRedirect} replace />;
+      }
       return <Navigate to="/unauthorized" replace />;
     }
   }

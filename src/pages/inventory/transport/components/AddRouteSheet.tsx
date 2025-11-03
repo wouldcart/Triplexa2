@@ -19,6 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableLocationSelect } from '@/components/ui/searchable-location-select';
+import { SearchableTransportTypeAdd } from '@/components/ui/searchable-transport-type-add';
 import { TransportRoute, LocationCode, TransportType, SightseeingOption, Stop } from '../types/transportTypes';
 import { Country } from '../../countries/types/country';
 import { Plus, X, Route, MapPin } from 'lucide-react';
@@ -414,24 +416,16 @@ const AddRouteSheet: React.FC<AddRouteSheetProps> = ({
                   <label className="block text-sm font-medium mb-1">
                     Start Location <span className="text-red-500">*</span>
                   </label>
-                  <Select
+                  <SearchableLocationSelect
+                    locations={filteredLocations}
                     value={routeData.startLocation}
                     onValueChange={(value) => {
                       handleLocationChange('startLocation', value);
                       validateField('startLocation', value);
                     }}
-                  >
-                    <SelectTrigger className={errors.startLocation ? "border-red-500" : ""}>
-                      <SelectValue placeholder="Select start location" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {filteredLocations.map((location) => (
-                        <SelectItem key={location.id} value={location.code}>
-                          {location.code} - {location.fullName} ({location.category})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder="Select start location"
+                    className={errors.startLocation ? 'border-red-500' : ''}
+                  />
                   {errors.startLocation && (
                     <p className="text-red-500 text-sm mt-1">{errors.startLocation}</p>
                   )}
@@ -465,24 +459,16 @@ const AddRouteSheet: React.FC<AddRouteSheetProps> = ({
                   <label className="block text-sm font-medium mb-1">
                     End Location <span className="text-red-500">*</span>
                   </label>
-                  <Select
+                  <SearchableLocationSelect
+                    locations={filteredLocations}
                     value={routeData.endLocation}
                     onValueChange={(value) => {
                       handleLocationChange('endLocation', value);
                       validateField('endLocation', value);
                     }}
-                  >
-                    <SelectTrigger className={errors.endLocation ? "border-red-500" : ""}>
-                      <SelectValue placeholder="Select end location" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {filteredLocations.map((location) => (
-                        <SelectItem key={location.id} value={location.code}>
-                          {location.code} - {location.fullName} ({location.category})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder="Select end location"
+                    className={errors.endLocation ? 'border-red-500' : ''}
+                  />
                   {errors.endLocation && (
                     <p className="text-red-500 text-sm mt-1">{errors.endLocation}</p>
                   )}
@@ -521,21 +507,13 @@ const AddRouteSheet: React.FC<AddRouteSheetProps> = ({
                   {routeData.intermediateStops && routeData.intermediateStops.map((stop) => (
                     <div key={stop.id} className="space-y-2 mb-4">
                       <div className="flex items-center space-x-2">
-                        <Select
+                        <SearchableLocationSelect
+                          locations={filteredLocations}
                           value={stop.locationCode}
                           onValueChange={(value) => onStopChange(stop.id, value)}
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue placeholder="Select stop location" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {filteredLocations.map((location) => (
-                              <SelectItem key={location.id} value={location.code}>
-                                {location.code} - {location.fullName} ({location.category})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          placeholder="Select stop location"
+                          className="flex-1"
+                        />
                         
                         <Button
                           variant="ghost"
@@ -618,18 +596,10 @@ const AddRouteSheet: React.FC<AddRouteSheetProps> = ({
           <div className="space-y-4 pb-4 border-b">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-semibold">Transport Information</h3>
-              <Select onValueChange={(value) => onAddTransportType(value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Add a transport type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {transportTypes.map(tt => (
-                    <SelectItem key={tt.id} value={tt.id}>
-                      {tt.name} (Seating: {tt.seatingCapacity}, Luggage: {tt.luggageCapacity})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableTransportTypeAdd
+                transportTypes={transportTypes}
+                onSelectType={(value) => onAddTransportType(value)}
+              />
             </div>
             
             {routeData.transportTypes && routeData.transportTypes.map((type, index) => (
@@ -644,7 +614,7 @@ const AddRouteSheet: React.FC<AddRouteSheetProps> = ({
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
-                      {transportTypes.map((t) => (
+                      {transportTypes.filter((tt) => (tt as any).active !== false).map((t) => (
                         <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
                       ))}
                     </SelectContent>

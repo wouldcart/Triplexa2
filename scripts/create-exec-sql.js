@@ -29,8 +29,8 @@ async function main() {
   const response = await fetch(`${supabaseUrl}/rest/v1/query`, {
     method: 'POST',
     headers: {
-      // Use PostgREST's accepted content type for SQL execution
-      'Content-Type': 'application/vnd.pgrst.object+json',
+      // Use PostgREST query endpoint; some deployments accept raw SQL
+      'Content-Type': 'application/sql',
       'Authorization': `Bearer ${serviceRoleKey}`,
       'apikey': serviceRoleKey,
       'Prefer': 'return=minimal'

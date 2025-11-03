@@ -12,6 +12,8 @@ import { HelmetProvider } from 'react-helmet-async';
 import { SEOProvider } from '@/contexts/SEOContext';
 import { supabase } from '@/lib/supabaseClient';
 import { AuthService } from '@/services/authService';
+import { locationResolutionService } from '@/services/locationResolutionService';
+import { telemetryService } from '@/services/telemetryService';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -24,6 +26,7 @@ import Login from '@/pages/auth/Login';
 import Register from '@/pages/auth/Register';
 import AgentSignup from '@/pages/auth/AgentSignup';
 import AgentPasswordChange from '@/pages/auth/AgentPasswordChange';
+import ResetPassword from '@/pages/auth/ResetPassword';
 import Unauthorized from '@/pages/auth/Unauthorized';
 import Terms from '@/pages/Terms';
 import Privacy from '@/pages/Privacy';
@@ -168,6 +171,7 @@ import TravelerProfilePage from './pages/TravelerProfilePage';
 // New feature components
 import ActivityTrackingDashboard from './components/staff/ActivityTrackingDashboard';
 import UniversalReportGenerator from './components/reports/UniversalReportGenerator';
+import PageLayout from '@/components/layout/PageLayout';
 
 // Component to handle role-based dashboard routing
 const DashboardRouter: React.FC = () => {
@@ -359,6 +363,20 @@ const RootRedirect = () => {
 
 function App() {
   const location = useLocation();
+  // Pre-warm location cache to improve UX on transport pages
+  useEffect(() => {
+    locationResolutionService.prewarmCache().catch(() => {});
+  }, []);
+  // Start telemetry uploader with configurable sinks
+  useEffect(() => {
+    telemetryService.configure({
+      endpointUrl: (import.meta as any).env?.VITE_TELEMETRY_ENDPOINT || null,
+      useSupabase: (import.meta as any).env?.VITE_ENABLE_TELEMETRY_SUPABASE === 'true',
+      intervalMs: 30000,
+    });
+    telemetryService.startUploader();
+    return () => telemetryService.stopUploader();
+  }, []);
   // Register service worker for push notifications
   useEffect(() => {
     const enableSw = (import.meta as any).env?.VITE_ENABLE_SW === 'true';
@@ -409,6 +427,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/signup/agent" element={<AgentSignup />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/change-password" element={<ProtectedRoute><AgentPasswordChange /></ProtectedRoute>} />
           <Route path="/unauthorized" element={<Unauthorized />} />
           <Route path="/terms" element={<Terms />} />
@@ -452,7 +471,7 @@ function App() {
         <Route path="/activity-tracking" element={<ProtectedRoute><ActivityTrackingDashboard /></ProtectedRoute>} />
         
         {/* Reports Routes */}
-        <Route path="/reports" element={<ProtectedRoute><UniversalReportGenerator /></ProtectedRoute>} />
+        <Route path="/reports" element={<ProtectedRoute><PageLayout><UniversalReportGenerator /></PageLayout></ProtectedRoute>} />
         
         {/* Agent Management Routes */}
         <Route path="/management/agents" element={<ProtectedRoute><AgentManagement /></ProtectedRoute>} />
@@ -473,7 +492,8 @@ function App() {
         
         {/* Admin Management Routes */}
         <Route path="/management/admin" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AdminManagement /></ProtectedRoute>} />
-        <Route path="/management/admin/app-settings" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AppSettingsAdmin /></ProtectedRoute>} />
+        {/* Redirect legacy admin app settings route to unified settings path */}
+        <Route path="/management/admin/app-settings" element={<Navigate to="/settings/app" replace />} />
         <Route path="/management/admin/users" element={<ProtectedRoute requiredRole={['super_admin']}><AdminUsers /></ProtectedRoute>} />
         <Route path="/management/admin/role-manager" element={<ProtectedRoute requiredRole={['super_admin', 'admin']}><AdminRoleManager /></ProtectedRoute>} />
         
@@ -574,17 +594,28 @@ function App() {
         <Route path="/settings/language" element={<ProtectedRoute><LanguageManager /></ProtectedRoute>} />
         <Route path="/settings/api" element={<ProtectedRoute><ApiSettings /></ProtectedRoute>} />
         <Route path="/settings/access" element={<ProtectedRoute><AccessControl /></ProtectedRoute>} />
+        {/* Alias route for Access Control settings */}
+        <Route path="/settings/access-control" element={<ProtectedRoute><AccessControl /></ProtectedRoute>} />
         <Route path="/settings/agents" element={<ProtectedRoute><AgentSettings /></ProtectedRoute>} />
+        {/* Alias route for Agent Management settings */}
+        <Route path="/settings/agent-management" element={<ProtectedRoute><AgentSettings /></ProtectedRoute>} />
         <Route path="/settings/translation" element={<ProtectedRoute><TranslationTool /></ProtectedRoute>} />
+        {/* Alias route for Translation Tool settings */}
+        <Route path="/settings/translation-tool" element={<ProtectedRoute><TranslationTool /></ProtectedRoute>} />
         <Route path="/settings/pricing" element={<ProtectedRoute><PricingSettings /></ProtectedRoute>} />
         <Route path="/settings/currency-converter" element={<ProtectedRoute><CurrencyConverter /></ProtectedRoute>} />
         <Route path="/settings/email-templates" element={<ProtectedRoute><EmailTemplates /></ProtectedRoute>} />
+        {/* Unified App Settings route for admins/managers */}
+        <Route path="/settings/app" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AppSettingsAdmin /></ProtectedRoute>} />
         <Route path="/email-templates" element={<ProtectedRoute><EmailTemplates /></ProtectedRoute>} />
 
         {/* Tools */}
         <Route path="/tools/nominatim" element={<ProtectedRoute requiredRole={["super_admin", "manager"]}><NominatimTools /></ProtectedRoute>} />
 
-        
+        {/* Alias routes added to fix broken links */}
+        <Route path="/settings/languages" element={<ProtectedRoute><LanguageManager /></ProtectedRoute>} />
+        <Route path="/management/admin/" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AdminManagement /></ProtectedRoute>} />
+
         {/* 404 Route */}
         <Route path="*" element={<NotFound />} />
             </Routes>

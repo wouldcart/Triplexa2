@@ -176,7 +176,7 @@ export const syncStaffWithAuthSystem = async (
 
         const { data: staffRow, error: staffErr } = await client
           .from('staff' as any)
-          .select('id, role, department, join_date, date_of_birth, reporting_manager, operational_countries, user_id')
+          .select('id, role, department, join_date, date_of_birth, reporting_manager, operational_countries')
           .eq('id', remoteUser.id)
           .maybeSingle();
 
@@ -185,7 +185,6 @@ export const syncStaffWithAuthSystem = async (
             .from('staff' as any)
             .upsert({
               id: remoteUser.id,
-              user_id: remoteUser.id,
               name: staff.name,
               email: staff.email,
               phone: staff.phone,

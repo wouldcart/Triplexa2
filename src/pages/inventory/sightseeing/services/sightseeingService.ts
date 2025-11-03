@@ -44,8 +44,6 @@ type SightseeingRow = {
   is_expired?: boolean | null;
   expiration_notified?: boolean | null;
   currency?: string | null;
-  pricing_currency?: string | null;
-  pricing_currency_symbol?: string | null;
   sic_available?: boolean | null;
   sic_pricing?: any | null;
   requires_mandatory_transfer?: boolean | null;
@@ -98,8 +96,6 @@ function mapRowToSightseeing(row: SightseeingRow): Sightseeing {
     sicPricing: (row.sic_pricing ?? undefined) as Sightseeing['sicPricing'],
     requiresMandatoryTransfer: row.requires_mandatory_transfer ?? undefined,
     transferMandatory: row.transfer_mandatory ?? undefined,
-    pricing_currency: row.pricing_currency ?? undefined,
-    pricing_currency_symbol: row.pricing_currency_symbol ?? undefined,
   };
 }
 
@@ -139,8 +135,7 @@ function mapSightseeingToRow(data: Sightseeing): Partial<SightseeingRow> {
     sic_pricing: data.sicPricing ?? null,
     requires_mandatory_transfer: data.requiresMandatoryTransfer ?? null,
     transfer_mandatory: data.transferMandatory ?? null,
-    pricing_currency: data.pricing_currency ?? null,
-    pricing_currency_symbol: data.pricing_currency_symbol ?? null,
+    // pricing currency fields omitted: table may not include these columns
     // timestamps handled by DB; can optionally send last_updated
   };
 }

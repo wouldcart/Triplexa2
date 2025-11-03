@@ -2,7 +2,11 @@
 import { useState } from 'react';
 import { Sightseeing } from '@/types/sightseeing';
 import { useToast } from '@/hooks/use-toast';
-import { updateSightseeing as updateSightseeingDb, deleteSightseeing as deleteSightseeingDb } from '../services/sightseeingService';
+import { 
+  updateSightseeing as updateSightseeingDb, 
+  deleteSightseeing as deleteSightseeingDb,
+  createSightseeing as createSightseeingDb
+} from '../services/sightseeingService';
 
 interface UseSightseeingActionsProps {
   sightseeings: Sightseeing[];
@@ -74,23 +78,44 @@ export const useSightseeingActions = ({
   };
   
   // Handle duplicating a sightseeing
-  const handleDuplicateSightseeing = (id: number) => {
+  const handleDuplicateSightseeing = async (id: number) => {
     const sightseeing = findSightseeingById(id);
-    if (sightseeing) {
-      const newSightseeing = {
+    if (!sightseeing) return;
+
+    try {
+      // Build duplication payload: copy all fields, set new timestamps and name
+      const nowIso = new Date().toISOString();
+      const duplicatePayload: Sightseeing = {
         ...sightseeing,
-        id: Math.max(...sightseeings.map(s => s.id)) + 1,
+        id: 0, // let DB assign next external_id
         name: `${sightseeing.name} (Copy)`,
-        createdAt: new Date().toISOString(),
-        lastUpdated: new Date().toISOString()
+        createdAt: nowIso,
+        lastUpdated: nowIso
       };
-      
-      setSightseeings(current => [...current, newSightseeing]);
-      
+
+      // Create duplicate in Supabase
+      const created = await createSightseeingDb(duplicatePayload);
+
+      // Update local state with the new record
+      setSightseeings(current => [...current, created]);
+
+      // Emit update event for other components
+      window.dispatchEvent(new CustomEvent('sightseeingUpdated'));
+
       toast({
         title: "Sightseeing duplicated",
-        description: `"${sightseeing.name}" has been duplicated successfully.`,
+        description: `"${sightseeing.name}" has been duplicated and opened for editing.`,
         variant: "default"
+      });
+
+      // Navigate to edit page for the new sightseeing
+      window.location.href = `/inventory/sightseeing/edit/${created.id}`;
+    } catch (error) {
+      console.error('Error duplicating sightseeing:', error);
+      toast({
+        title: "Duplicate failed",
+        description: "An error occurred while duplicating the sightseeing.",
+        variant: "destructive"
       });
     }
   };

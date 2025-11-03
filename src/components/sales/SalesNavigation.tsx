@@ -24,19 +24,20 @@ export const SalesNavigation: React.FC = () => {
   const location = useLocation();
   const { currentUser } = useApp();
   const { signOut } = useAuth();
-  const { canAccessModule } = useAccessControl();
+  const { canAccessModule, isStaff } = useAccessControl();
 
   const handleLogout = async () => {
     await signOut();
     navigate('/login');
   };
 
+  const menuDashboardPath = '/dashboards/sales';
   const salesMenuItems = [
     {
       id: 'dashboard',
       title: 'Dashboard',
       icon: Home,
-      path: '/dashboards/sales',
+      path: menuDashboardPath,
       permission: 'sales-dashboard'
     },
     {
@@ -112,6 +113,8 @@ export const SalesNavigation: React.FC = () => {
         <nav className="space-y-1">
           {salesMenuItems.map((item) => {
             if (!canAccessModule(item.permission)) return null;
+            // Hide admin-only items for staff explicitly
+            if (isStaff && item.id === 'reports') return null;
 
             const Icon = item.icon;
             return (
@@ -135,28 +138,30 @@ export const SalesNavigation: React.FC = () => {
 
         <Separator className="my-4" />
 
-        {/* Quick Actions */}
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground px-3 mb-2">Quick Actions</p>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start text-sm"
-            onClick={() => navigate('/sales/quotes/new')}
-          >
-            <FileText className="mr-2 h-4 w-4" />
-            Create Quote
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start text-sm"
-            onClick={() => navigate('/sales/enquiries/new')}
-          >
-            <MessageSquare className="mr-2 h-4 w-4" />
-            New Enquiry
-          </Button>
-        </div>
+        {/* Quick Actions - staff only */}
+        {isStaff && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground px-3 mb-2">Quick Actions</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-sm"
+              onClick={() => navigate('/sales/quotes/new')}
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Create Quote
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-sm"
+              onClick={() => navigate('/sales/enquiries/new')}
+            >
+              <MessageSquare className="mr-2 h-4 w-4" />
+              New Enquiry
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Footer with User Info and Logout */}

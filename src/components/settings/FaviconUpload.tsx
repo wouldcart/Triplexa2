@@ -48,7 +48,8 @@ const FaviconUpload: React.FC = () => {
           return;
         }
         const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
-        const filename = `favicons/${crypto.randomUUID()}.${ext}`;
+        // Align with Supabase RLS policy for branding bucket (allows logos/* writes)
+        const filename = `logos/${crypto.randomUUID()}.${ext}`;
         const { error: uploadError } = await supabase.storage.from('branding').upload(filename, file, {
           cacheControl: '3600',
           upsert: true,

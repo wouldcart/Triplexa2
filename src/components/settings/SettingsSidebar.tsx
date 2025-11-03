@@ -37,6 +37,8 @@ const settingsItems = [
   { title: 'Appearance', url: '/settings/appearance', icon: Palette },
   { title: 'Integrations', url: '/settings/integrations', icon: Smartphone },
   { title: 'Data Management', url: '/settings/data', icon: Database },
+  // Unified App Settings entry for admins/managers
+  { title: 'App Settings', url: '/settings/app', icon: Cog, adminOnly: true },
 ] as const;
 
 export function SettingsSidebar() {

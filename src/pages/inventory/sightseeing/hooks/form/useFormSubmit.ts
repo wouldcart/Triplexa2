@@ -14,10 +14,12 @@ export const useFormSubmit = ({ formData, isFormValid, sightseeingId }: FormSubm
   const { toast } = useToast();
   
   const handleSubmit = async () => {
-    if (!isFormValid) {
+    // Minimal save support: require only basic fields; warn for incomplete data
+    const isBasicValid = !!formData.name && !!formData.country && !!formData.city;
+    if (!isFormValid && !isBasicValid) {
       toast({
         title: "Validation Error",
-        description: "Please fill required fields: Name, Country, City, Activities, Pick-up Time, and ensure pricing is valid.",
+        description: "Please fill basic fields: Name, Country, and City.",
         variant: "destructive"
       });
       return;
@@ -105,6 +107,19 @@ export const useFormSubmit = ({ formData, isFormValid, sightseeingId }: FormSubm
     } as any;
     
     try {
+      // If pricing is missing, ensure status is inactive for minimal save
+      const hasPricing = 
+        (updatedFormData.isFree) || 
+        (updatedFormData.price && (updatedFormData.price.adult > 0 || updatedFormData.price.child > 0)) || 
+        (updatedFormData.sicAvailable && updatedFormData.sicPricing && (updatedFormData.sicPricing.adult > 0 || updatedFormData.sicPricing.child > 0)) ||
+        (updatedFormData.pricingOptions && updatedFormData.pricingOptions.some(o => o.isEnabled && (o.adultPrice > 0 || o.childPrice > 0))) || 
+        (updatedFormData.transferOptions && updatedFormData.transferOptions.some(o => o.isEnabled && o.price > 0)) ||
+        (updatedFormData.packageOptions && updatedFormData.packageOptions.some(o => o.isEnabled && (o.adultPrice > 0 || o.childPrice > 0))) ||
+        (updatedFormData.groupSizeOptions && updatedFormData.groupSizeOptions.some(o => (o.adultPrice > 0 || o.childPrice > 0)));
+      if (!hasPricing) {
+        updatedFormData.status = 'inactive';
+      }
+
       if (sightseeingId) {
         // Update existing record in Supabase
         await updateSightseeingDb(updatedFormData);
@@ -114,8 +129,10 @@ export const useFormSubmit = ({ formData, isFormValid, sightseeingId }: FormSubm
       }
 
       toast({
-        title: sightseeingId ? "Sightseeing Updated" : "New Sightseeing Created",
-        description: `"${formData.name}" has been ${sightseeingId ? "updated" : "added"} successfully.`,
+        title: sightseeingId ? "Sightseeing Updated" : "New Sightseeing Saved",
+        description: !isFormValid
+          ? `"${formData.name || 'Untitled'}" has been saved with minimum information${!hasPricing ? ' as Inactive' : ''}.`
+          : `"${formData.name}" has been ${sightseeingId ? "updated" : "added"} successfully.`,
         variant: "default"
       });
 
