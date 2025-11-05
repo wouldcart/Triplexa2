@@ -582,6 +582,26 @@ export class AgentManagementService {
         console.warn('Credential generation failed:', e);
       }
 
+      // Persist staff assignments if provided
+      if (agentData.assigned_staff && agentData.assigned_staff.length > 0 && userId) {
+        const assignments = agentData.assigned_staff.map(staffId => ({
+          agent_id: userId,
+          staff_id: staffId,
+          assigned_by: creatorProfile?.id || user?.id || null,
+          notes: agentData.notes || null, // Use notes from agentData
+          assigned_at: new Date().toISOString(),
+        }));
+
+        const { error: assignmentError } = await (adminSupabase as any)
+          .from('agent_staff_assignments')
+          .insert(assignments);
+
+        if (assignmentError) {
+          console.warn('Error persisting staff assignments:', assignmentError.message);
+          // Do not block agent creation if assignment fails
+        }
+      }
+
       const merged: ManagedAgent = {
         id: agentCore.id,
         name: agentData.name,
@@ -593,7 +613,7 @@ export class AgentManagementService {
         source_type: (agentCore as any)?.source_type || 'other',
         source_details: (agentCore as any)?.source_details || sourceDetails,
         created_by: (agentCore as any)?.created_by || creatorProfile?.id || user?.id || undefined,
-        assigned_staff: [],
+        assigned_staff: agentData.assigned_staff || [], // Reflect assigned staff in the returned object
         login_credentials: loginCreds,
         created_at: agentCore.created_at || new Date().toISOString(),
         updated_at: agentCore.updated_at || new Date().toISOString()
@@ -2093,5 +2113,3 @@ export class AgentManagementService {
     }
   }
 }
-
-

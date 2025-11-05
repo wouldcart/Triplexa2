@@ -138,7 +138,8 @@ const AddAgent: React.FC = () => {
         phone: formData.phone?.trim() || undefined,
         company_name: formData.company_name?.trim() || undefined,
         status: formData.status,
-        assigned_staff: formData.assigned_staff
+        assigned_staff: formData.assigned_staff,
+        notes: formData.notes,
       };
 
       const { data, error } = await AgentManagementService.createAgent(agentRequest);
