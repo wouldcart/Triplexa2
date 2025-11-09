@@ -8,7 +8,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ArrowLeft, Save, Send, Eye, Plus, Clock, CheckCircle, AlertCircle, Calendar, MapPin, Users, Shield } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { Query } from '@/types/query';
-import { mockQueries } from '@/data/queryData';
 import ProposalService from '@/services/proposalService';
 import { useToast } from '@/hooks/use-toast';
 import { EnhancedDayPlanningInterface } from '@/components/proposal/EnhancedDayPlanningInterface';
@@ -390,12 +389,8 @@ const AdvancedProposalCreation: React.FC = () => {
           throw new Error('Query ID not provided');
         }
 
-        // Try to load from ProposalService first, then fallback to mockQueries
-        let queryData = ProposalService.getQueryById(id);
-        
-        if (!queryData) {
-          queryData = mockQueries.find(q => q.id === id) || null;
-        }
+        // Load using async ProposalService with Supabase fallback
+        const queryData = await ProposalService.getQueryByIdAsync(id);
 
         if (!queryData) {
           throw new Error(`Query with ID ${id} not found`);

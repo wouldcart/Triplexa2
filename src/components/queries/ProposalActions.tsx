@@ -618,13 +618,13 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
           </div>
           
           {/* Action Buttons */}
-          <div className="flex gap-2 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-2 w-full sm:w-auto max-w-full">
             <Button 
               variant="outline" 
               size="sm"
               onClick={() => loadProposalsAndDrafts()}
               disabled={refreshing}
-              className="flex-1 sm:flex-none"
+              className="w-full sm:w-auto sm:flex-none"
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline ml-2">Refresh</span>
@@ -632,7 +632,7 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
             <Button 
               onClick={handleCreateNewProposal} 
               size="sm"
-              className="flex-1 sm:flex-none"
+              className="w-full sm:w-auto sm:flex-none"
             >
               <Plus className="h-4 w-4" />
               <span className="ml-2">Create New</span>

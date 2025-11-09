@@ -11,6 +11,7 @@ import { CalendarIcon, Users, MapPin, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Query } from '@/types/query';
+import { createEnquiry } from '@/services/enquiriesService';
 import { useAgentData } from '@/hooks/useAgentData';
 import { useToast } from '@/hooks/use-toast';
 import { EnqIdGenerator } from '@/utils/enqIdGenerator';
@@ -38,17 +39,16 @@ const QuickCreateQuery: React.FC<QuickCreateQueryProps> = ({ isOpen, onClose, on
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const generateQueryId = () => {
+  const generateQueryId = async () => {
     const selectedCountryCode = getCountryCodeByName(destination.country);
     console.log('QuickCreateQuery: Mapped country name to code:', { 
       countryName: destination.country, 
       countryCode: selectedCountryCode 
     });
-    
-    // Debug: Check localStorage settings
-    const savedSettings = localStorage.getItem('applicationSettings');
-    console.log('QuickCreateQuery: Current application settings:', savedSettings ? JSON.parse(savedSettings) : 'No settings found');
-    
+
+    // Prepare Supabase-backed config and active countries cache
+    await EnqIdGenerator.prepareConfig(selectedCountryCode);
+
     const enquiryId = EnqIdGenerator.generateEnqId(selectedCountryCode);
     console.log('QuickCreateQuery: Generated enquiry ID:', enquiryId);
     return enquiryId;
@@ -83,7 +83,7 @@ const QuickCreateQuery: React.FC<QuickCreateQueryProps> = ({ isOpen, onClose, on
       const tripDuration = calculateTripDuration();
       
       const newQuery: Query = {
-        id: generateQueryId(),
+        id: await generateQueryId(),
         agentId: parseInt(agentId),
         agentName: selectedAgent?.name || 'Unknown Agent',
         destination: {
@@ -118,14 +118,15 @@ const QuickCreateQuery: React.FC<QuickCreateQueryProps> = ({ isOpen, onClose, on
         }
       };
 
-      // Save to localStorage
-      const existingQueries = JSON.parse(localStorage.getItem('travel_queries') || '[]');
-      const updatedQueries = [newQuery, ...existingQueries];
-      localStorage.setItem('travel_queries', JSON.stringify(updatedQueries));
+      // Persist to Supabase
+      const { data: created, error } = await createEnquiry(newQuery);
+      if (error) {
+        throw error;
+      }
 
       // Call success callback
       if (onSuccess) {
-        onSuccess(newQuery);
+        onSuccess(created || newQuery);
       }
 
       // Reset form
@@ -139,7 +140,7 @@ const QuickCreateQuery: React.FC<QuickCreateQueryProps> = ({ isOpen, onClose, on
 
       toast({
         title: "Quick Query Created",
-        description: `Enquiry ${newQuery.id} has been created successfully`,
+        description: `Enquiry ${(created || newQuery).id} has been created successfully`,
       });
 
     } catch (error) {

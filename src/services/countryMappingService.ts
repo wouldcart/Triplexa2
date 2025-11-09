@@ -30,12 +30,30 @@ export const getCountryByName = (name: string): Country | undefined => {
   );
 };
 
+// New: lookup by ISO country code (e.g., "TH", "AE")
+export const getCountryByCode = (code: string): Country | undefined => {
+  return countries.find(country => country.code.toLowerCase() === code.toLowerCase());
+};
+
 export const getCountriesByIds = (ids: string[]): Country[] => {
   return ids.map(id => getCountryById(id)).filter(Boolean) as Country[];
 };
 
+// Robust mapping: accept IDs, codes, or names and return normalized country names
 export const getStaffOperationalCountries = (operationalCountries: string[]): string[] => {
   return operationalCountries
-    .map(id => getCountryById(id)?.name)
-    .filter(Boolean) as string[];
+    .map(value => {
+      // Try ID
+      const byId = getCountryById(value);
+      if (byId) return byId.name;
+      // Try code
+      const byCode = getCountryByCode(value);
+      if (byCode) return byCode.name;
+      // Try name
+      const byName = getCountryByName(value);
+      if (byName) return byName.name;
+      // Fallback: as-is
+      return value;
+    })
+    .filter(name => !!name && typeof name === 'string') as string[];
 };

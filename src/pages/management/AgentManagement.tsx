@@ -313,12 +313,11 @@ export default function AgentManagement() {
           department: 'General',
           role: agent.role,
           status: normalizeStatus(agent.status),
-          performance_score: 85,
+          performance_score: 0,
           total_bookings: 0,
           revenue_generated: 0,
           join_date: agent.created_at || new Date().toISOString(),
           last_active: agent.updated_at || new Date().toISOString(),
-          rating: 4.5,
           source_type: agent.source_type,
           source_details: agent.source_details,
           source: agent.created_by ? 'admin' : 'self-registered',
@@ -446,14 +445,64 @@ export default function AgentManagement() {
           return { ...a, source: sourceLabel, source_details: details };
         });
 
-        setAgents(finalAgents);
-        calculateStats(finalAgents);
+        const hydratedAgents = await computeBookingsAndRevenue(finalAgents);
+        setAgents(hydratedAgents);
+        calculateStats(hydratedAgents);
       }
     } catch (err) {
       setError('Failed to load agents');
       console.error('Error loading agents:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Compute total bookings and revenue per agent using sales_bookings
+  const computeBookingsAndRevenue = async (agentList: Agent[]): Promise<Agent[]> => {
+    try {
+      const userIds = Array.from(new Set(
+        agentList.map(a => a.user_id).filter((id): id is string => !!id)
+      ));
+
+      if (userIds.length === 0) {
+        return agentList.map(a => ({ ...a, total_bookings: 0, revenue_generated: 0 }));
+      }
+
+      const { data, error } = await supabase
+        .from('sales_bookings')
+        .select('created_by,total_amount,status')
+        .in('created_by', userIds);
+
+      if (error) {
+        console.warn('Failed to fetch bookings for aggregation:', error);
+        return agentList;
+      }
+
+      const statsMap = new Map<string, { count: number; revenue: number }>();
+      (data || []).forEach((row: any) => {
+        const createdBy = row?.created_by as string | null;
+        if (!createdBy) return;
+        const status = String(row?.status || '').toLowerCase();
+        // Count only realized bookings
+        if (status !== 'confirmed' && status !== 'completed') return;
+        const entry = statsMap.get(createdBy) || { count: 0, revenue: 0 };
+        entry.count += 1;
+        const amt = Number(row?.total_amount ?? 0) || 0;
+        entry.revenue += amt;
+        statsMap.set(createdBy, entry);
+      });
+
+      return agentList.map(a => {
+        const stat = a.user_id ? statsMap.get(a.user_id) : undefined;
+        return {
+          ...a,
+          total_bookings: stat?.count || 0,
+          revenue_generated: stat?.revenue || 0,
+        };
+      });
+    } catch (err) {
+      console.warn('Aggregation failed, returning original agent list:', err);
+      return agentList;
     }
   };
 

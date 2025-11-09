@@ -16,7 +16,7 @@ import {
   User
 } from 'lucide-react';
 import { Query } from '@/types/query';
-import { getQueryById } from '@/data/queryData';
+import ProposalService from '@/services/proposalService';
 import { useAgentData } from '@/hooks/useAgentData';
 import ProposalManagement from './ProposalManagement';
 
@@ -27,11 +27,14 @@ const EnquiryManagement: React.FC = () => {
   const { getAgentById } = useAgentData();
 
   useEffect(() => {
-    if (id) {
-      const queryData = getQueryById(id);
-      setQuery(queryData);
-      setLoading(false);
-    }
+    const loadQuery = async () => {
+      if (id) {
+        const queryData = await ProposalService.getQueryByIdAsync(id);
+        setQuery(queryData);
+        setLoading(false);
+      }
+    };
+    loadQuery();
   }, [id]);
 
   if (loading) {

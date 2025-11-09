@@ -44,7 +44,7 @@ const ItineraryProposalBuilder: React.FC<ItineraryProposalBuilderProps> = ({ que
           throw new Error('Query ID not provided');
         }
 
-        const queryData = ProposalService.getQueryById(currentQueryId);
+        const queryData = await ProposalService.getQueryByIdAsync(currentQueryId);
         if (!queryData) {
           throw new Error(`Query with ID ${currentQueryId} not found`);
         }

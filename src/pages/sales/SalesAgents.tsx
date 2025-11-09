@@ -16,10 +16,12 @@ import {
   Filter,
   User2,
   Building2,
-  PlusCircle
+  PlusCircle,
+  ArrowRight,
+  Eye,
+  Clock
 } from 'lucide-react';
 import { useAccessControl } from '@/hooks/use-access-control';
-import PageLayout from '@/components/layout/PageLayout';
 import { useApp } from '@/contexts/AppContext';
 import { AgentManagementService } from '@/services/agentManagementService';
 import type { ManagedAgent } from '@/types/agentManagement';
@@ -35,14 +37,13 @@ const SalesAgents: React.FC = () => {
   const [agents, setAgents] = useState<ManagedAgent[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   if (!canAccessModule('sales-dashboard')) {
     return (
-      <PageLayout>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">You don't have access to this module.</p>
-        </div>
-      </PageLayout>
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">You don't have access to this module.</p>
+      </div>
     );
   }
 
@@ -91,15 +92,11 @@ const SalesAgents: React.FC = () => {
     totalBookings: 0
   };
 
+  const selectedAgent = selectedAgentId
+    ? agents.find(a => a.id === selectedAgentId) || null
+    : null;
+
   return (
-    <PageLayout
-      title="Agent Management"
-      breadcrumbItems={[
-        { title: "Home", href: "/" },
-        { title: "Sales", href: "/sales" },
-        { title: "Agent Management", href: "/sales/agents" },
-      ]}
-    >
       <div className="space-y-6">
         {/* Page Header */}
         <div className="flex items-center justify-between">
@@ -126,6 +123,42 @@ const SalesAgents: React.FC = () => {
             </Button>
           </div>
         </div>
+
+        {/* Selected Agent Quick Actions (styled like SalesDashboard) */}
+        {selectedAgent && (
+          <div className="rounded-lg border bg-card text-card-foreground shadow-sm">
+            <div className="p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
+                  <Users className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold leading-none tracking-tight">Selected Agent</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedAgent.name} · {selectedAgent.email || '—'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={() => navigate(`/management/agents/${selectedAgent.id}`)}>
+                  <Eye className="mr-2 h-4 w-4" /> View Profile
+                </Button>
+                <Button variant="outline" onClick={() => navigate(`/management/agents/${selectedAgent.id}/edit`)}>
+                  Edit
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (selectedAgent?.email) window.location.href = `mailto:${selectedAgent.email}`;
+                  }}
+                >
+                  <Mail className="mr-2 h-4 w-4" /> Message
+                </Button>
+                <Button variant="ghost" onClick={() => setSelectedAgentId(null)}>Clear</Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -248,6 +281,8 @@ const SalesAgents: React.FC = () => {
                     revenue: '₹0',
                     lastActivity: agent.updated_at || agent.created_at || ''
                   }}
+                  selected={selectedAgentId === agent.id}
+                  onSelect={() => setSelectedAgentId(agent.id)}
                   onEdit={() => navigate(`/management/agents/${agent.id}/edit`)}
                   onToggleStatus={async () => {
                     const newStatus = agent.status === 'active' ? 'inactive' : 'active';
@@ -289,6 +324,8 @@ const SalesAgents: React.FC = () => {
                       revenue: '₹0',
                       lastActivity: agent.updated_at || agent.created_at || ''
                     }}
+                    selected={selectedAgentId === agent.id}
+                    onSelect={() => setSelectedAgentId(agent.id)}
                     onEdit={() => navigate(`/management/agents/${agent.id}/edit`)}
                     onToggleStatus={async () => {
                       const newStatus = agent.status === 'active' ? 'inactive' : 'active';
@@ -325,6 +362,8 @@ const SalesAgents: React.FC = () => {
                       revenue: '₹0',
                       lastActivity: agent.updated_at || agent.created_at || ''
                     }}
+                    selected={selectedAgentId === agent.id}
+                    onSelect={() => setSelectedAgentId(agent.id)}
                     onEdit={() => navigate(`/management/agents/${agent.id}/edit`)}
                     onToggleStatus={async () => {
                       const newStatus = agent.status === 'active' ? 'inactive' : 'active';
@@ -341,7 +380,6 @@ const SalesAgents: React.FC = () => {
           </TabsContent>
         </Tabs>
       </div>
-    </PageLayout>
   );
 };
 
@@ -360,15 +398,27 @@ interface AgentCardProps {
     revenue: string;
     lastActivity: string;
   };
+  selected?: boolean;
+  onSelect?: () => void;
   onEdit?: () => void;
   onToggleStatus?: () => void;
 }
 
-const AgentCard: React.FC<AgentCardProps> = ({ agent, onEdit, onToggleStatus }) => {
+const AgentCard: React.FC<AgentCardProps> = ({ agent, selected, onSelect, onEdit, onToggleStatus }) => {
   return (
-    <Card>
+    <Card
+      className={`cursor-pointer transition-shadow ${selected ? 'ring-2 ring-primary shadow-md' : 'hover:shadow'} `}
+      onClick={onSelect}
+      role="button"
+      aria-selected={!!selected}
+    >
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{agent.name}</CardTitle>
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          {agent.name}
+          {selected && (
+            <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-blue-100 text-blue-700">Selected</span>
+          )}
+        </CardTitle>
         <Badge variant={agent.status === "active" ? "default" : "secondary"}>
           {agent.status === "active" ? "Active" : "Inactive"}
         </Badge>

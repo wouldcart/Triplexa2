@@ -1,267 +1,192 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
+import PageLayout from '@/components/layout/PageLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Settings, 
-  FileText, 
-  Users, 
-  Bell, 
-  Lock, 
+import {
+  Settings,
+  Globe,
   Palette,
-  Database,
+  Bell,
+  Users,
+  Shield,
+  Code,
+  Languages,
   Mail,
-  Smartphone,
-  Cog,
-  Folder
+  DollarSign,
+  CreditCard,
+  FileText,
 } from 'lucide-react';
-import LocalFileManager from '@/components/settings/LocalFileManager';
-import PDFTemplateManager from '@/components/pdf/PDFTemplateManager';
 
+type SubLink = { label: string; icon: React.ElementType; path: string };
+type ModuleItem = {
+  id: string;
+  title: string;
+  description: string;
+  icon: React.ElementType;
+  path: string;
+  subLinks?: SubLink[];
+  adminOnly?: boolean;
+};
+
+const modules: ModuleItem[] = [
+  {
+    id: 'general',
+    title: 'General',
+    description: 'Core app configuration and preferences',
+    icon: Settings,
+    path: '/settings/general',
+    subLinks: [
+      { label: 'General', icon: Settings, path: '/settings/general?category=general' },
+      { label: 'SEO', icon: Globe, path: '/settings/general?category=seo' },
+      { label: 'Branding', icon: Palette, path: '/settings/general?category=branding' },
+    ],
+  },
+  {
+    id: 'account',
+    title: 'Account',
+    description: 'User account and profile settings',
+    icon: Users,
+    path: '/settings/account',
+  },
+  {
+    id: 'notifications',
+    title: 'Notifications',
+    description: 'Email and push notifications preferences',
+    icon: Bell,
+    path: '/settings/notifications',
+  },
+  {
+    id: 'appearance',
+    title: 'Appearance & Branding',
+    description: 'Themes, colors, logos and layout',
+    icon: Palette,
+    path: '/settings/appearance',
+  },
+  {
+    id: 'language',
+    title: 'Language',
+    description: 'Localization and language packs',
+    icon: Languages,
+    path: '/settings/language',
+  },
+  {
+    id: 'api',
+    title: 'API & Integrations',
+    description: 'API keys and platform integrations',
+    icon: Code,
+    path: '/settings/api',
+    subLinks: [
+      { label: 'API', icon: Code, path: '/settings/api' },
+      { label: 'Integrations', icon: Code, path: '/settings/general?category=integrations' },
+    ],
+  },
+  {
+    id: 'access',
+    title: 'Access Control',
+    description: 'Roles, permissions and policies',
+    icon: Shield,
+    path: '/settings/access',
+  },
+  {
+    id: 'agents',
+    title: 'Agent Management',
+    description: 'Manage field agents and access',
+    icon: Users,
+    path: '/settings/agents',
+  },
+  {
+    id: 'translation',
+    title: 'Translation Tool',
+    description: 'Translate and localize templates',
+    icon: Languages,
+    path: '/settings/translation',
+  },
+  {
+    id: 'pricing',
+    title: 'Pricing',
+    description: 'Configure pricing rules and taxes',
+    icon: DollarSign,
+    path: '/settings/pricing',
+  },
+  {
+    id: 'currency',
+    title: 'Currency Converter',
+    description: 'Exchange rates and currencies',
+    icon: CreditCard,
+    path: '/settings/currency-converter',
+  },
+  {
+    id: 'emails',
+    title: 'Email Templates',
+    description: 'Design and manage email templates',
+    icon: Mail,
+    path: '/settings/email-templates',
+    subLinks: [
+      { label: 'Manage Templates', icon: FileText, path: '/email-templates' },
+    ],
+  },
+  {
+    id: 'app',
+    title: 'App Settings',
+    description: 'Administrative app configuration',
+    icon: Settings,
+    path: '/settings/app',
+    subLinks: [
+      { label: 'General', icon: Settings, path: '/settings/app' },
+    ],
+    adminOnly: true,
+  },
+];
 
 const SettingsPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('app-settings');
-
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto py-8 px-4">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Settings className="h-8 w-8 text-primary" />
-            <h1 className="text-3xl font-bold">Settings</h1>
-          </div>
-          <p className="text-muted-foreground">
-            Manage your application settings, templates, and preferences
-          </p>
-        </div>
-
-        {/* Settings Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-10">
-            <TabsTrigger value="app-settings" className="flex items-center gap-2">
-              <Cog className="h-4 w-4" />
-              App Settings
-            </TabsTrigger>
-            <TabsTrigger value="pdf-templates" className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              PDF Templates
-            </TabsTrigger>
-            <TabsTrigger value="email-templates" className="flex items-center gap-2">
-              <Mail className="h-4 w-4" />
-              Email Templates
-            </TabsTrigger>
-            <TabsTrigger value="team" className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Team
-            </TabsTrigger>
-            <TabsTrigger value="notifications" className="flex items-center gap-2">
-              <Bell className="h-4 w-4" />
-              Notifications
-            </TabsTrigger>
-            <TabsTrigger value="security" className="flex items-center gap-2">
-              <Lock className="h-4 w-4" />
-              Security
-            </TabsTrigger>
-            <TabsTrigger value="appearance" className="flex items-center gap-2">
-              <Palette className="h-4 w-4" />
-              Appearance
-            </TabsTrigger>
-            <TabsTrigger value="integrations" className="flex items-center gap-2">
-              <Smartphone className="h-4 w-4" />
-              Integrations
-            </TabsTrigger>
-            <TabsTrigger value="data" className="flex items-center gap-2">
-              <Database className="h-4 w-4" />
-              Data
-            </TabsTrigger>
-            <TabsTrigger value="local-files" className="flex items-center gap-2">
-              <Folder className="h-4 w-4" />
-              Local Files
-            </TabsTrigger>
-          </TabsList>
-
-          {/* App Settings Tab */}
-          <TabsContent value="app-settings">
-            <Card>
-              <CardHeader>
-                <CardTitle>App Settings Moved</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <Settings className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">App Settings have been moved</h3>
-                  <p className="text-muted-foreground mb-4">
-                    App settings are now available in the General Settings page
-                  </p>
-                  <Button onClick={() => window.location.href = '/settings/general'}>
-                    Go to General Settings
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* PDF Templates Tab */}
-          <TabsContent value="pdf-templates">
-            <PDFTemplateManager />
-          </TabsContent>
-
-          {/* Email Templates Tab */}
-          <TabsContent value="email-templates">
-            <Card>
-              <CardHeader>
-                <CardTitle>Email Templates</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Link to="/email-templates" className="block">
-                  <div className="text-center py-12 rounded-md hover:bg-muted transition-colors cursor-pointer">
-                    <Mail className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">Email Template Management</h3>
-                    <p className="text-muted-foreground">
-                      Click here to manage and edit your email templates
-                    </p>
-                  </div>
-                </Link>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Team Tab */}
-          <TabsContent value="team">
-            <Card>
-              <CardHeader>
-                <CardTitle>Team Management</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Team Management</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Manage team members, roles, and permissions
-                  </p>
-                  <Button variant="outline">
-                    Coming Soon
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Notifications Tab */}
-          <TabsContent value="notifications">
-            <Card>
-              <CardHeader>
-                <CardTitle>Notification Settings</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <Bell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Notification Preferences</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Configure how and when you receive notifications
-                  </p>
-                  <Button variant="outline">
-                    Coming Soon
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Security Tab */}
-          <TabsContent value="security">
-            <Card>
-              <CardHeader>
-                <CardTitle>Security Settings</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <Lock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Security & Privacy</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Manage passwords, two-factor authentication, and privacy settings
-                  </p>
-                  <Button variant="outline">
-                    Coming Soon
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Appearance Tab */}
-          <TabsContent value="appearance">
-            <Card>
-              <CardHeader>
-                <CardTitle>Appearance & Branding</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <Palette className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Customize Appearance</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Customize colors, fonts, and branding for your proposals
-                  </p>
-                  <Button variant="outline">
-                    Coming Soon
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Integrations Tab */}
-          <TabsContent value="integrations">
-            <Card>
-              <CardHeader>
-                <CardTitle>Integrations</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <Smartphone className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Third-party Integrations</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Connect with external services and APIs
-                  </p>
-                  <Button variant="outline">
-                    Coming Soon
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Data Tab */}
-          <TabsContent value="data">
-            <Card>
-              <CardHeader>
-                <CardTitle>Data Management</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <Database className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Data Import & Export</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Manage your data, import/export settings, and backups
-                  </p>
-                  <Button variant="outline">
-                    Coming Soon
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Local Files Tab */}
-          <TabsContent value="local-files">
-            <LocalFileManager />
-          </TabsContent>
-        </Tabs>
+    <PageLayout title="Settings" description="System Configuration">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {modules.map((m) => {
+              const Icon = m.icon;
+              return (
+                <Card key={m.id} className="hover:shadow-md transition-shadow">
+                  <CardHeader className="flex flex-row items-center gap-3">
+                    <div className="p-2 rounded-md bg-muted">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        {m.title}
+                        {m.adminOnly && <Badge variant="secondary">Admin</Badge>}
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground">{m.description}</p>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-3 mb-4">
+                      <Link to={m.path}>
+                        <Button size="sm">Open {m.title}</Button>
+                      </Link>
+                    </div>
+                    {m.subLinks && m.subLinks.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {m.subLinks.map((s) => {
+                          const SIcon = s.icon;
+                          return (
+                            <Link to={s.path} key={s.path}>
+                              <Button variant="outline" size="sm" className="gap-2">
+                                <SIcon className="h-4 w-4" />
+                                {s.label}
+                              </Button>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
       </div>
-    </div>
+    </PageLayout>
   );
 };
 

@@ -225,6 +225,16 @@ create policy "staff_bank_accounts_insert_own"
     staff_id = auth.uid()
   );
 
+-- Insert: HR/managers/super_admin can insert for any staff
+drop policy if exists "staff_bank_accounts_insert_hr" on public.staff_bank_accounts;
+create policy "staff_bank_accounts_insert_hr"
+  on public.staff_bank_accounts
+  for insert
+  to authenticated
+  with check (
+    public.is_hr()
+  );
+
 -- Update: owner or HR, with trigger protection for verification fields
 drop policy if exists "staff_bank_accounts_update_own_or_hr" on public.staff_bank_accounts;
 create policy "staff_bank_accounts_update_own_or_hr"

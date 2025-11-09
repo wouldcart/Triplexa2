@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useParams } from 'react-router-dom';
 import { Query } from '@/types/query';
-import { getQueryById } from '@/data/queryData';
+import ProposalService from '@/services/proposalService';
 import { PricingService } from '@/services/pricingService';
 import { formatCurrency } from '@/lib/formatters';
 import { useRealTimeItinerary } from '@/hooks/useRealTimeItinerary';
@@ -63,10 +63,13 @@ const EnhancedProposalBuilderContent: React.FC<ProposalBuilderProps> = ({ onData
   } = useRealTimeItinerary(id || '');
 
   useEffect(() => {
-    if (id) {
-      const queryData = getQueryById(id);
-      setQuery(queryData || null);
-    }
+    const loadQuery = async () => {
+      if (id) {
+        const queryData = await ProposalService.getQueryByIdAsync(id);
+        setQuery(queryData || null);
+      }
+    };
+    loadQuery();
   }, [id]);
 
   // Integrate real-time itinerary data with modules
@@ -102,8 +105,9 @@ const EnhancedProposalBuilderContent: React.FC<ProposalBuilderProps> = ({ onData
             data: {
               dayNumber: day.day,
               transport,
-              from: transport.from || transport.startLocation || 'Unknown',
-              to: transport.to || transport.endLocation || 'Unknown',
+              // Use defined properties and safe fallbacks; remove non-existent fields
+              from: transport.from ?? 'Unknown',
+              to: transport.to ?? 'Unknown',
             },
             pricing: {
               basePrice: transport.price,

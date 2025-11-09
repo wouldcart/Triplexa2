@@ -27,6 +27,9 @@ import { listDocuments, uploadDocument, getSignedUrl, approveDocument, rejectDoc
 import { getBankAccount, upsertBankAccount, updateBankVerificationStatus } from "@/services/staffBankService";
 import { StaffDocument, StaffBankAccount } from "@/types/staff";
 import { AuthService } from "@/services/authService";
+import TargetSettings from "@/components/staff/TargetSettings";
+import { staffWorkingHoursService } from "@/services/staffWorkingHoursService";
+import { staffTargetService } from "@/services/staffTargetService";
 
 const StaffProfile: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -63,6 +66,25 @@ const StaffProfile: React.FC = () => {
   const [branch, setBranch] = useState<string>("");
   const [savingBank, setSavingBank] = useState<boolean>(false);
   const [currentRole, setCurrentRole] = useState<string>("agent");
+
+  // Working Hours & Shifts state (Supabase-backed)
+  const defaultWorkingHoursUI = {
+    monday: { isWorking: false, shifts: [] as any[] },
+    tuesday: { isWorking: false, shifts: [] as any[] },
+    wednesday: { isWorking: false, shifts: [] as any[] },
+    thursday: { isWorking: false, shifts: [] as any[] },
+    friday: { isWorking: false, shifts: [] as any[] },
+    saturday: { isWorking: false, shifts: [] as any[] },
+    sunday: { isWorking: false, shifts: [] as any[] },
+  };
+  const [uiWorkingHours, setUiWorkingHours] = useState<any>(defaultWorkingHoursUI);
+  const [whLoading, setWhLoading] = useState<boolean>(false);
+  const [whTimezone, setWhTimezone] = useState<string>((Intl.DateTimeFormat().resolvedOptions().timeZone || ""));
+
+  // Performance Targets state (Supabase-backed)
+  const [targets, setTargets] = useState<any[]>([]);
+  const [targetsLoading, setTargetsLoading] = useState<boolean>(false);
+  const [targetsSaving, setTargetsSaving] = useState<boolean>(false);
 
   useEffect(() => {
     // Resolve current user role for HR actions
@@ -306,6 +328,81 @@ const StaffProfile: React.FC = () => {
     };
     loadDocsAndBank();
   }, [staff?.id]);
+
+  // Ensure shifts have stable IDs for UI operations
+  const ensureShiftIds = (hours: any) => {
+    const withIds: any = {};
+    const dayKeys = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
+    dayKeys.forEach((day) => {
+      const dayData = hours?.[day] || { isWorking: false, shifts: [] };
+      const shifts = Array.isArray(dayData.shifts) ? dayData.shifts.map((s: any, idx: number) => ({
+        id: s.id || `shift_${day}_${Date.now()}_${idx}`,
+        startTime: s.startTime || s.start_time || "09:00",
+        endTime: s.endTime || s.end_time || "17:00",
+        breakStart: s.breakStart || s.break_start || undefined,
+        breakEnd: s.breakEnd || s.break_end || undefined,
+        label: s.label || undefined,
+      })) : [];
+      withIds[day] = { isWorking: !!dayData.isWorking, shifts };
+    });
+    return withIds;
+  };
+
+  // Load working hours & targets when staff is available
+  useEffect(() => {
+    const loadWorkingHours = async () => {
+      if (!staff?.id) return;
+      try {
+        setWhLoading(true);
+        const { data } = await staffWorkingHoursService.getWorkingHoursByStaff(staff.id);
+        const prepared = ensureShiftIds(data);
+        setUiWorkingHours(prepared);
+        // Load timezone separately for view-only display
+        const tzRes = await staffWorkingHoursService.getTimezoneByStaff(staff.id);
+        if (tzRes && tzRes.timezone) {
+          setWhTimezone(String(tzRes.timezone));
+        }
+      } catch (e: any) {
+        console.warn("Failed to load working hours:", e?.message || e);
+        setUiWorkingHours(defaultWorkingHoursUI);
+      } finally {
+        setWhLoading(false);
+      }
+    };
+
+    const loadTargets = async () => {
+      if (!staff?.id) return;
+      try {
+        setTargetsLoading(true);
+        const { data } = await staffTargetService.listTargetsByStaff(staff.id);
+        setTargets(data || []);
+      } catch (e: any) {
+        console.warn("Failed to load targets:", e?.message || e);
+        setTargets([]);
+      } finally {
+        setTargetsLoading(false);
+      }
+    };
+
+    loadWorkingHours();
+    loadTargets();
+  }, [staff?.id]);
+
+  // View mode: editing is handled in Edit Profile page
+
+  const handleSaveTargets = async () => {
+    if (!staff?.id) return;
+    setTargetsSaving(true);
+    try {
+      const { error } = await staffTargetService.replaceTargetsForStaff(staff.id, targets as any);
+      if (error) throw error;
+      toast({ title: "Targets updated" });
+    } catch (e: any) {
+      toast({ title: "Save failed", description: e?.message || "Could not save targets", variant: "destructive" });
+    } finally {
+      setTargetsSaving(false);
+    }
+  };
 
   const refreshDocuments = async () => {
     if (!staff?.id) return;
@@ -1023,7 +1120,7 @@ const StaffProfile: React.FC = () => {
                   </div>
                   <div>
                     <Label className="text-sm">Account Number</Label>
-                    <Input className="mt-1" type="password" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} placeholder="Enter full number (will be encrypted)" />
+                    <Input className="mt-1" type="text" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} placeholder="Enter full number (will be encrypted)" />
                   </div>
                   <div>
                     <Label className="text-sm">Country</Label>
@@ -1041,7 +1138,7 @@ const StaffProfile: React.FC = () => {
 
                 <div className="flex gap-2">
                   <Button onClick={handleBankSave} disabled={savingBank}>
-                    {savingBank ? 'Saving...' : 'Save Bank Details'}
+                    {savingBank ? 'Saving...' : (bank ? 'Update Bank Details' : 'Add Bank Details')}
                   </Button>
                   {(currentRole === 'hr_manager' || currentRole === 'manager' || currentRole === 'super_admin') && bank?.id ? (
                     <>
@@ -1108,49 +1205,94 @@ const StaffProfile: React.FC = () => {
               </Card>
             )}
 
-            {/* Targets */}
-            {staff.targets && staff.targets.length > 0 && (
-              <Card className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
-                <CardHeader>
-                  <CardTitle className="text-gray-900 dark:text-gray-100">Performance Targets</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {staff.targets.map((target) => (
-                      <div key={target.id} className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-600 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Target className="h-4 w-4 text-blue-500" />
-                          <div>
-                            <h4 className="font-medium text-gray-900 dark:text-gray-100">{target.name}</h4>
-                            <div className="text-sm text-gray-600 dark:text-gray-300">
-                              {target.period} target
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                            {target.achieved} / {target.value}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            {((target.achieved / target.value) * 100).toFixed(1)}%
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Working Hours & Shifts */}
+            {/* Performance Targets (Supabase-backed CRUD) */}
             <Card className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
               <CardHeader>
-                <CardTitle className="text-gray-900 dark:text-gray-100">Working Hours & Shifts</CardTitle>
+                <CardTitle className="text-gray-900 dark:text-gray-100 flex items-center justify-between">
+                  <span>Performance Targets</span>
+                  {targetsLoading && (
+                    <span className="text-xs text-muted-foreground">Loading…</span>
+                  )}
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {renderWorkingHours(staff.workingHours)}
+              <CardContent className="space-y-4">
+                <TargetSettings
+                  department={staff.department || "General"}
+                  role={staff.role || "staff"}
+                  targets={targets as any}
+                  onTargetsChange={(next) => setTargets(next as any)}
+                />
+                <div className="flex items-center gap-3">
+                  <Button onClick={handleSaveTargets} disabled={targetsSaving}>
+                    {targetsSaving ? "Saving…" : "Save Targets"}
+                  </Button>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Working Hours & Shifts (View Mode) */}
+            <Card className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+              <CardHeader>
+                <CardTitle className="text-gray-900 dark:text-gray-100 flex items-center justify-between">
+                  <span>Working Hours & Shifts</span>
+                  {whLoading && (
+                    <span className="text-xs text-muted-foreground">Loading…</span>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map((day) => {
+                    const dayLabelMap: Record<string, string> = {
+                      monday: 'Monday',
+                      tuesday: 'Tuesday',
+                      wednesday: 'Wednesday',
+                      thursday: 'Thursday',
+                      friday: 'Friday',
+                      saturday: 'Saturday',
+                      sunday: 'Sunday',
+                    };
+                    const d = (uiWorkingHours as any)?.[day] || { isWorking: false, shifts: [] };
+                    return (
+                      <div key={day} className="rounded-md border border-gray-200 dark:border-gray-700">
+                        <div className="flex items-center justify-between px-3 py-2">
+                          <span className="font-medium text-gray-900 dark:text-gray-100">{dayLabelMap[day]}</span>
+                          <Badge variant="outline">{d.isWorking ? 'Working' : 'Off'}</Badge>
+                        </div>
+                        <div className="px-3 pb-3 space-y-1">
+                          {d.isWorking && Array.isArray(d.shifts) && d.shifts.length > 0 ? (
+                            d.shifts.map((s: any, idx: number) => (
+                              <div key={s.id || idx} className="text-sm text-muted-foreground">
+                                {s.startTime || s.start_time} – {s.endTime || s.end_time}
+                                {s.breakStart || s.break_start ? (
+                                  <span> (Break {s.breakStart || s.break_start}-{s.breakEnd || s.break_end})</span>
+                                ) : null}
+                                {s.label ? <span> • {s.label}</span> : null}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-sm text-muted-foreground">No shifts</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="text-xs text-muted-foreground">To update working hours, use the Edit Profile button above.</div>
+              </CardContent>
+            </Card>
+
+            {/* Timezone (View Mode) */}
+            <Card className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+              <CardHeader>
+                <CardTitle className="text-gray-900 dark:text-gray-100">Timezone</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{whTimezone || 'Not set'}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">Manage timezone in Edit Profile.</div>
               </CardContent>
             </Card>
           </div>

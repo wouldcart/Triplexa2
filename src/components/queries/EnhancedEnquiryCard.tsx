@@ -1,11 +1,11 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   MapPin, 
   Calendar, 
@@ -35,6 +35,9 @@ import {
 import { Query } from '@/types/query';
 import { format, differenceInDays, differenceInHours, formatDistanceToNow, differenceInMinutes } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useSupabaseAgentsList } from '@/hooks/useSupabaseAgentsList';
+import { findSupabaseAgentByNumericId } from '@/utils/supabaseAgentIds';
+import { resolveProfileNameById } from '@/services/profilesHelper';
 
 interface EnhancedEnquiryCardProps {
   query: Query;
@@ -42,7 +45,27 @@ interface EnhancedEnquiryCardProps {
 }
 
 const EnhancedEnquiryCard: React.FC<EnhancedEnquiryCardProps> = ({ query, onAssignQuery }) => {
+  const { agents: supabaseAgents } = useSupabaseAgentsList();
   const navigate = useNavigate();
+
+  // Resolve assigned staff display name
+  const [assignedToName, setAssignedToName] = useState<string | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (query.assignedTo) {
+        try {
+          const name = await resolveProfileNameById(query.assignedTo);
+          if (mounted) setAssignedToName(name);
+        } catch {
+          if (mounted) setAssignedToName(null);
+        }
+      } else {
+        if (mounted) setAssignedToName(null);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [query.assignedTo]);
 
   // Calculate days left until travel
   const daysLeft = differenceInDays(new Date(query.travelDates.from), new Date());
@@ -216,11 +239,23 @@ const EnhancedEnquiryCard: React.FC<EnhancedEnquiryCardProps> = ({ query, onAssi
               {/* Enhanced Agent & Contact Info */}
               <div className="bg-gray-50 rounded-lg p-2 border border-gray-200">
                 <div className="flex items-center gap-2 text-sm mb-2">
-                  <Avatar className="h-5 w-5">
-                    <AvatarFallback className="text-xs">{query.agentName.charAt(0)}</AvatarFallback>
-                  </Avatar>
-                  <span className="font-medium">{query.agentName}</span>
-                  <Badge variant="outline" className="text-xs">Agent</Badge>
+                  {(() => {
+                    const supAgent = findSupabaseAgentByNumericId(supabaseAgents, Number(query.agentId));
+                    const displayName = supAgent?.agencyName || supAgent?.name || query.agentName;
+                    const initial = (displayName || query.agentName || '?').charAt(0);
+                    return (
+                      <>
+                        <Avatar className="h-5 w-5">
+                          {supAgent?.profile_image && (
+                            <AvatarImage src={supAgent.profile_image} alt={displayName || 'Agent'} />
+                          )}
+                          <AvatarFallback className="text-xs">{initial}</AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">{displayName}</span>
+                        <Badge variant="outline" className="text-xs">Agent</Badge>
+                      </>
+                    );
+                  })()}
                 </div>
                 
                 {/* Contact Preview */}
@@ -392,7 +427,7 @@ const EnhancedEnquiryCard: React.FC<EnhancedEnquiryCardProps> = ({ query, onAssi
                     <UserPlus className="h-3 w-3" />
                     <span>Assigned to:</span>
                   </div>
-                  <div className="text-sm font-medium text-blue-800">{query.assignedTo}</div>
+                  <div className="text-sm font-medium text-blue-800">{assignedToName || query.assignedTo}</div>
                   <div className="flex items-center gap-1 text-xs text-blue-600 mt-1">
                     <Activity className="h-3 w-3" />
                     <span>Active workload: 85%</span>

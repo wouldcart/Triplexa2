@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { StaffMember } from '@/types/assignment';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { ArrowDown, ArrowUp, GripVertical, Plus, Trash } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useActiveStaffData, EnhancedStaffWithWorkload } from '@/hooks/useActiveStaffData';
+import { useRealTimeCountriesData } from '@/hooks/useRealTimeCountriesData';
+import StaffSequenceService, { StaffSequenceRow } from '@/services/staffSequenceService';
 
 interface StaffSequenceProps {
   staff: EnhancedStaffWithWorkload[];
@@ -17,21 +20,68 @@ interface StaffSequenceProps {
 const StaffSequence: React.FC<StaffSequenceProps> = ({ staff }) => {
   const { toast } = useToast();
   const { activeStaff } = useActiveStaffData();
+  const { getCountryById } = useRealTimeCountriesData();
+  const toCountryName = (value: string) => getCountryById(value)?.name || value;
   
-  const [sequenceStaff, setSequenceStaff] = useState(() => 
-    [...staff]
-      .filter(s => s.active && s.autoAssignEnabled)
-      .sort((a, b) => (a.sequenceOrder || 999) - (b.sequenceOrder || 999))
-  );
+  const [sequenceStaff, setSequenceStaff] = useState<EnhancedStaffWithWorkload[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [addStaffDialogOpen, setAddStaffDialogOpen] = useState(false);
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+
+  // Hydrate sequence from Supabase
+  useEffect(() => {
+    let ignore = false;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const { data } = await StaffSequenceService.fetchSequence();
+        const mapped: EnhancedStaffWithWorkload[] = (data || [])
+          .map((row: StaffSequenceRow) => {
+            const found = activeStaff.find(s => (s as any).uuid && String((s as any).uuid) === String(row.staff_id));
+            if (found) {
+              return { ...found, sequenceOrder: row.sequence_order, autoAssignEnabled: row.auto_assign_enabled ?? true } as EnhancedStaffWithWorkload;
+            }
+            // Fallback placeholder if profile not in activeStaff
+            return {
+              ...(found || ({} as any)),
+              id: found?.id ?? -1,
+              name: found?.name ?? 'Unknown',
+              role: found?.role ?? 'staff',
+              email: found?.email ?? '',
+              department: found?.department ?? 'General',
+              status: found?.status ?? 'active',
+              assigned: found?.assigned ?? 0,
+              workloadCapacity: found?.workloadCapacity ?? 10,
+              expertise: found?.expertise ?? [],
+              active: found?.active ?? true,
+              avatar: found?.avatar ?? '',
+              availability: found?.availability ?? [],
+              autoAssignEnabled: row.auto_assign_enabled ?? true,
+              sequenceOrder: row.sequence_order,
+            } as EnhancedStaffWithWorkload;
+          })
+          .sort((a, b) => (a.sequenceOrder || 999) - (b.sequenceOrder || 999));
+        if (!ignore) setSequenceStaff(mapped);
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    };
+    load();
+    return () => { ignore = true; };
+  }, [activeStaff]);
 
   // Get staff members who are active but not in the sequence
-  const availableStaff = activeStaff.filter(s => 
-    s.active && 
-    !sequenceStaff.some(sequenceMember => sequenceMember.id === s.id)
-  );
+  const availableStaff = useMemo(() => {
+    return activeStaff.filter(s => 
+      s.active && 
+      !sequenceStaff.some(sequenceMember => {
+        const seqUuid = (sequenceMember as any).uuid ? String((sequenceMember as any).uuid) : String(sequenceMember.id);
+        const sUuid = (s as any).uuid ? String((s as any).uuid) : String(s.id);
+        return seqUuid === sUuid;
+      })
+    );
+  }, [activeStaff, sequenceStaff]);
 
   const moveStaff = (index: number, direction: 'up' | 'down') => {
     if (
@@ -66,63 +116,177 @@ const StaffSequence: React.FC<StaffSequenceProps> = ({ staff }) => {
       return;
     }
 
-    const staffId = parseInt(selectedStaffId);
-    const staffToAdd = activeStaff.find(s => s.id === staffId);
+    const staffToAdd = activeStaff.find(s => {
+      const sUuid = (s as any).uuid ? String((s as any).uuid) : String(s.id);
+      return sUuid === selectedStaffId;
+    });
     
     if (staffToAdd) {
-      // Add to sequence staff list
-      const updatedStaff: EnhancedStaffWithWorkload[] = [...sequenceStaff, {
-        ...staffToAdd,
-        autoAssignEnabled: true,
-        sequenceOrder: sequenceStaff.length + 1
-      }];
-      
-      setSequenceStaff(updatedStaff);
-      setAddStaffDialogOpen(false);
-      setSelectedStaffId('');
-      
-      toast({
-        title: "Staff added",
-        description: `${staffToAdd.name} has been added to the assignment sequence`,
-      });
+      // Persist to Supabase using UUID if available
+      const uuid = (staffToAdd as any).uuid ? String((staffToAdd as any).uuid) : String(staffToAdd.id);
+      StaffSequenceService.addStaff(uuid, sequenceStaff.length + 1)
+        .then(() => {
+          setAddStaffDialogOpen(false);
+          setSelectedStaffId('');
+          toast({
+            title: "Staff added",
+            description: `${staffToAdd.name} has been added to the assignment sequence`,
+          });
+          // Reload sequence from DB
+          return StaffSequenceService.fetchSequence();
+        })
+        .then(({ data }) => {
+          const mapped: EnhancedStaffWithWorkload[] = (data || [])
+            .map((row: StaffSequenceRow) => {
+              const found = activeStaff.find(s => (s as any).uuid && String((s as any).uuid) === String(row.staff_id));
+              if (found) {
+                return { ...found, sequenceOrder: row.sequence_order, autoAssignEnabled: row.auto_assign_enabled ?? true } as EnhancedStaffWithWorkload;
+              }
+              return {
+                id: -1,
+                name: 'Unknown',
+                role: 'staff',
+                email: '',
+                department: 'General',
+                status: 'active',
+                assigned: 0,
+                workloadCapacity: 10,
+                expertise: [],
+                active: true,
+                avatar: '',
+                availability: [],
+                autoAssignEnabled: row.auto_assign_enabled ?? true,
+                sequenceOrder: row.sequence_order,
+              } as EnhancedStaffWithWorkload;
+            })
+            .sort((a, b) => (a.sequenceOrder || 999) - (b.sequenceOrder || 999));
+          setSequenceStaff(mapped);
+        })
+        .catch(() => {
+          toast({
+            title: "Failed to add staff",
+            description: "Unable to persist sequence in Supabase",
+            variant: "destructive",
+          });
+        });
     }
   };
 
   const handleRemoveStaff = (staffId: number) => {
     const staffToRemove = sequenceStaff.find(s => s.id === staffId);
-    const updatedStaff = sequenceStaff.filter(s => s.id !== staffId);
-    
-    // Reorder sequence numbers
-    updatedStaff.forEach((staff, index) => {
-      staff.sequenceOrder = index + 1;
-    });
-    
-    setSequenceStaff(updatedStaff);
-    
-    toast({
-      title: "Staff removed",
-      description: `${staffToRemove?.name || 'Staff member'} has been removed from the assignment sequence`,
-    });
+    const uuid = staffToRemove && (staffToRemove as any).uuid ? String((staffToRemove as any).uuid) : undefined;
+    const name = staffToRemove?.name || 'Staff member';
+    if (!uuid) {
+      toast({ title: 'Cannot remove', description: 'Missing staff UUID', variant: 'destructive' });
+      return;
+    }
+    StaffSequenceService.removeStaff(uuid)
+      .then(() => {
+        toast({ title: 'Staff removed', description: `${name} has been removed from the assignment sequence` });
+        // Reload from DB
+        return StaffSequenceService.fetchSequence();
+      })
+      .then(({ data }) => {
+        const mapped: EnhancedStaffWithWorkload[] = (data || [])
+          .map((row: StaffSequenceRow) => {
+            const found = activeStaff.find(s => (s as any).uuid && String((s as any).uuid) === String(row.staff_id));
+            if (found) {
+              return { ...found, sequenceOrder: row.sequence_order, autoAssignEnabled: row.auto_assign_enabled ?? true } as EnhancedStaffWithWorkload;
+            }
+            return {
+              id: -1,
+              name: 'Unknown',
+              role: 'staff',
+              email: '',
+              department: 'General',
+              status: 'active',
+              assigned: 0,
+              workloadCapacity: 10,
+              expertise: [],
+              active: true,
+              avatar: '',
+              availability: [],
+              autoAssignEnabled: row.auto_assign_enabled ?? true,
+              sequenceOrder: row.sequence_order,
+            } as EnhancedStaffWithWorkload;
+          })
+          .sort((a, b) => (a.sequenceOrder || 999) - (b.sequenceOrder || 999));
+        setSequenceStaff(mapped);
+      })
+      .catch(() => {
+        toast({ title: 'Failed to remove staff', description: 'Unable to update Supabase', variant: 'destructive' });
+      });
+  };
+
+  const handleToggleStaffAutoAssign = (s: EnhancedStaffWithWorkload, index: number, enabled: boolean) => {
+    const uuid = (s as any).uuid ? String((s as any).uuid) : undefined;
+    if (!uuid) {
+      toast({ title: 'Cannot update auto-assign', description: 'Missing staff UUID', variant: 'destructive' });
+      return;
+    }
+    // Optimistic UI update
+    setSequenceStaff(prev => prev.map((item, i) => i === index ? { ...item, autoAssignEnabled: enabled } : item));
+    StaffSequenceService.updateAutoAssign(uuid, enabled)
+      .then(({ error }) => {
+        if (error) throw error;
+        toast({ title: 'Auto-assign updated', description: `${s.name}: ${enabled ? 'Enabled' : 'Disabled'}` });
+      })
+      .catch(() => {
+        // Revert on failure
+        setSequenceStaff(prev => prev.map((item, i) => i === index ? { ...item, autoAssignEnabled: !enabled } : item));
+        toast({ title: 'Failed to update', description: 'Could not persist auto-assign in Supabase', variant: 'destructive' });
+      });
   };
 
   const saveSequence = () => {
-    // In a real app, this would save to the backend
-    setIsEditing(false);
-    
-    toast({
-      title: "Staff sequence updated",
-      description: "The auto-assignment staff sequence has been updated successfully",
-    });
+    const payload: StaffSequenceRow[] = sequenceStaff.map((s, idx) => ({
+      staff_id: ((s as any).uuid ? String((s as any).uuid) : String(s.id)),
+      sequence_order: s.sequenceOrder || idx + 1,
+      auto_assign_enabled: s.autoAssignEnabled ?? true,
+    }));
+    StaffSequenceService.upsertSequence(payload)
+      .then(() => {
+        setIsEditing(false);
+        toast({
+          title: 'Staff sequence updated',
+          description: 'The auto-assignment staff sequence has been updated successfully',
+        });
+      })
+      .catch(() => {
+        toast({ title: 'Failed to save sequence', description: 'Unable to persist to Supabase', variant: 'destructive' });
+      });
   };
 
   const cancelEdit = () => {
-    // Reset to original staff data
-    setSequenceStaff(
-      [...staff]
-        .filter(s => s.active && s.autoAssignEnabled)
-        .sort((a, b) => (a.sequenceOrder || 999) - (b.sequenceOrder || 999))
-    );
-    setIsEditing(false);
+    // Reload from DB instead of local reset
+    StaffSequenceService.fetchSequence().then(({ data }) => {
+      const mapped: EnhancedStaffWithWorkload[] = (data || [])
+        .map((row: StaffSequenceRow) => {
+          const found = activeStaff.find(s => (s as any).uuid && String((s as any).uuid) === String(row.staff_id));
+          if (found) {
+            return { ...found, sequenceOrder: row.sequence_order, autoAssignEnabled: row.auto_assign_enabled ?? true } as EnhancedStaffWithWorkload;
+          }
+          return {
+            id: -1,
+            name: 'Unknown',
+            role: 'staff',
+            email: '',
+            department: 'General',
+            status: 'active',
+            assigned: 0,
+            workloadCapacity: 10,
+            expertise: [],
+            active: true,
+            avatar: '',
+            availability: [],
+            autoAssignEnabled: row.auto_assign_enabled ?? true,
+            sequenceOrder: row.sequence_order,
+          } as EnhancedStaffWithWorkload;
+        })
+        .sort((a, b) => (a.sequenceOrder || 999) - (b.sequenceOrder || 999));
+      setSequenceStaff(mapped);
+      setIsEditing(false);
+    });
   };
 
   return (
@@ -154,13 +318,27 @@ const StaffSequence: React.FC<StaffSequenceProps> = ({ staff }) => {
       </CardHeader>
       <CardContent>
         <div className="space-y-2">
-          {sequenceStaff.length > 0 ? (
-            sequenceStaff.map((staff, index) => (
+          {loading ? (
+            <div className="text-center py-6 text-muted-foreground">Loading sequence…</div>
+          ) : sequenceStaff.length > 0 ? (
+            sequenceStaff.map((staff, index) => {
+              const rowKey = (staff as any).uuid
+                ? String((staff as any).uuid)
+                : (staff as any).sequenceUuid
+                ? String((staff as any).sequenceUuid)
+                : `row-${index}`;
+              const selectId = (staff as any).uuid
+                ? String((staff as any).uuid)
+                : (staff as any).sequenceUuid
+                ? String((staff as any).sequenceUuid)
+                : String(staff.id);
+              return (
               <div
-                key={staff.id}
-                className={`flex items-center justify-between p-3 border rounded-lg ${
+                key={rowKey}
+                className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer ${
                   isEditing ? 'bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700' : 'border-border'
-                }`}
+                } ${selectedStaffId === selectId ? 'ring-2 ring-primary' : ''}`}
+                onClick={() => setSelectedStaffId(selectId)}
               >
                 <div className="flex items-center">
                   {isEditing && (
@@ -182,16 +360,29 @@ const StaffSequence: React.FC<StaffSequenceProps> = ({ staff }) => {
                         <>
                           <span className="text-xs text-muted-foreground">•</span>
                           <span className="text-xs text-muted-foreground">
-                            {staff.expertise.slice(0, 2).join(', ')}
+                            {staff.expertise.slice(0, 2).map(toCountryName).join(', ')}
                             {staff.expertise.length > 2 && ` +${staff.expertise.length - 2}`}
                           </span>
+                        </>
+                      )}
+                      {staff.autoAssignEnabled === false && (
+                        <>
+                          <span className="text-xs text-muted-foreground">•</span>
+                          <Badge variant="outline" className="text-xs">Auto-assign disabled</Badge>
                         </>
                       )}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex gap-1">
+                <div className="flex gap-1 items-center">
+                  <div className="flex items-center gap-2 mr-1">
+                    <Switch
+                      id={`auto-assign-${rowKey}`}
+                      checked={!!staff.autoAssignEnabled}
+                      onCheckedChange={(checked) => handleToggleStaffAutoAssign(staff, index, checked)}
+                    />
+                  </div>
                   {isEditing && (
                     <>
                       <Button
@@ -227,7 +418,8 @@ const StaffSequence: React.FC<StaffSequenceProps> = ({ staff }) => {
                   )}
                 </div>
               </div>
-            ))
+              );
+            })
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <div className="mb-2">No staff in the auto-assignment sequence</div>
@@ -245,6 +437,9 @@ const StaffSequence: React.FC<StaffSequenceProps> = ({ staff }) => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Staff to Sequence</DialogTitle>
+            <DialogDescription>
+              Select a staff member to add to the auto-assignment sequence.
+            </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             {availableStaff.length > 0 ? (
@@ -261,7 +456,10 @@ const StaffSequence: React.FC<StaffSequenceProps> = ({ staff }) => {
                   </SelectTrigger>
                   <SelectContent>
                     {availableStaff.map((staff) => (
-                      <SelectItem key={staff.id} value={staff.id.toString()}>
+                      <SelectItem
+                        key={(staff as any).uuid ? String((staff as any).uuid) : staff.id.toString()}
+                        value={(staff as any).uuid ? String((staff as any).uuid) : staff.id.toString()}
+                      >
                         <div className="flex items-center gap-2">
                           <Avatar className="h-6 w-6">
                             <AvatarFallback className="text-xs">{staff.name.charAt(0)}</AvatarFallback>
@@ -279,7 +477,10 @@ const StaffSequence: React.FC<StaffSequenceProps> = ({ staff }) => {
                 {selectedStaffId && (
                   <div className="p-3 border rounded-lg bg-muted/50">
                     {(() => {
-                      const selectedStaff = availableStaff.find(s => s.id === parseInt(selectedStaffId));
+                      const selectedStaff = availableStaff.find(s => {
+                        const sUuid = (s as any).uuid ? String((s as any).uuid) : String(s.id);
+                        return sUuid === selectedStaffId;
+                      });
                       return selectedStaff ? (
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">

@@ -14,13 +14,15 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import PageLayout from '@/components/layout/PageLayout';
 import { ArrowLeft, Save, UserPlus, Users, AlertCircle, CheckCircle, Mail, Phone, Building } from 'lucide-react';
 import { AgentManagementService } from '@/services/agentManagementService';
-import { CreateAgentRequest, AgentStatus, StaffMember } from '@/types/agentManagement';
+import { AgentStatus, StaffMember } from '@/types/agentManagement';
 import { toast } from 'sonner';
 import { useApp } from '@/contexts/AppContext';
 import { useAccessControl } from '@/hooks/use-access-control';
 import { agentWelcomeTemplate } from '@/email/templates';
 import { storeAgentCredentials } from '@/utils/agentAuth';
 import { authHelpers } from '@/lib/supabaseClient';
+import { AuthService } from '@/services/authService';
+import { supabase } from '@/integrations/supabase/client';
 
 const AddAgent: React.FC = () => {
   const navigate = useNavigate();
@@ -32,6 +34,10 @@ const AddAgent: React.FC = () => {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
   const [modalCredentials, setModalCredentials] = useState<{ email: string; password: string }>({ email: '', password: '' });
+  const [autoAssignStaffId, setAutoAssignStaffId] = useState<string | null>(null);
+  const [emailExists, setEmailExists] = useState(false);
+  const [phoneExists, setPhoneExists] = useState(false);
+  const [existingProfile, setExistingProfile] = useState<{ id: string; name?: string; phone?: string; email: string; company_name?: string } | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -71,6 +77,42 @@ const AddAgent: React.FC = () => {
     fetchStaffMembers();
   }, [hasAdminAccess]);
 
+  // Detect staffId in URL and validate against profiles; preselect and mark for primary assignment
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get('staffId') || params.get('staff_id');
+    if (!sid) return;
+
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id,name,role')
+          .eq('id', sid)
+          .in('role', ['staff', 'admin', 'super_admin'])
+          .maybeSingle();
+
+        if (!error && data?.id) {
+          const validId = String(data.id);
+          setAutoAssignStaffId(validId);
+          setFormData(prev => ({
+            ...prev,
+            assigned_staff: prev.assigned_staff.includes(validId)
+              ? prev.assigned_staff
+              : [...prev.assigned_staff, validId]
+          }));
+          if (data?.name) {
+            toast.info(`Auto-assignment queued: ${data.name} will be set as primary.`);
+          } else {
+            toast.info('Auto-assignment queued: selected staff will be set as primary.');
+          }
+        }
+      } catch (e) {
+        console.warn('Failed validating staffId from URL:', e);
+      }
+    })();
+  }, []);
+
   // Form validation
   const validateForm = () => {
     const errors: Record<string, string> = {};
@@ -85,8 +127,22 @@ const AddAgent: React.FC = () => {
       errors.email = 'Please enter a valid email address';
     }
 
-    if (formData.phone && !/^[\+]?[1-9][\d]{0,15}$/.test(formData.phone.replace(/\s/g, ''))) {
-      errors.phone = 'Please enter a valid phone number';
+    // Require phone (consistent with signup) and validate digits length
+    if (!formData.phone.trim()) {
+      errors.phone = 'Phone number is required';
+    } else {
+      const digits = formData.phone.replace(/\D/g, '');
+      if (digits.length < 7) {
+        errors.phone = 'Please enter a valid phone number';
+      }
+    }
+
+    // Duplicate checks (match signup rules)
+    if (emailExists) {
+      errors.email = 'Email already exists. Please login.';
+    }
+    if (phoneExists) {
+      errors.phone = 'Phone number already exists. Please login.';
     }
 
     // No password validation needed for magic link authentication
@@ -110,6 +166,75 @@ const AddAgent: React.FC = () => {
     }
   };
 
+  // Debounced email existence check and Supabase profile prefill
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      try {
+        const email = formData.email.trim();
+        if (!email) {
+          setEmailExists(false);
+          setExistingProfile(null);
+          return;
+        }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          setEmailExists(false);
+          setExistingProfile(null);
+          return;
+        }
+        const { exists } = await AuthService.userExistsByEmail(email);
+        setEmailExists(!!exists);
+
+        // Prefill profile details if record exists (show complete Supabase data)
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id,name,phone,email,company_name')
+          .eq('email', email)
+          .maybeSingle();
+        if (!error && data) {
+          setExistingProfile({
+            id: String(data.id),
+            name: data.name || undefined,
+            phone: data.phone || undefined,
+            email: data.email,
+            company_name: (data as any).company_name || undefined
+          });
+          setFormData(prev => ({
+            ...prev,
+            name: prev.name || data.name || '',
+            phone: prev.phone || data.phone || '',
+            company_name: prev.company_name || (data as any).company_name || ''
+          }));
+        } else {
+          setExistingProfile(null);
+        }
+      } catch {
+        setEmailExists(false);
+        setExistingProfile(null);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [formData.email]);
+
+  // Debounced phone existence check (digits-only)
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      try {
+        const phone = formData.phone.trim();
+        const digits = phone.replace(/\D/g, '');
+        if (!digits || digits.length < 7) {
+          setPhoneExists(false);
+          return;
+        }
+        const { exists } = await AuthService.userExistsByPhone(phone);
+        setPhoneExists(!!exists);
+      } catch {
+        setPhoneExists(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [formData.phone]);
+
   const handleStaffAssignment = (staffId: string, checked: boolean) => {
     setFormData(prev => ({
       ...prev,
@@ -131,18 +256,18 @@ const AddAgent: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // Create agent request data
-      const agentRequest: CreateAgentRequest = {
+      // Sign up agent via Supabase Auth; records for agents are auto-managed
+      const signupRequest: any = {
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
         phone: formData.phone?.trim() || undefined,
         company_name: formData.company_name?.trim() || undefined,
-        status: formData.status,
-        assigned_staff: formData.assigned_staff,
-        notes: formData.notes,
+        notes: formData.notes || '',
+        source_type: 'staff_created',
+        source_details: 'management_add_agent'
       };
 
-      const { data, error } = await AgentManagementService.createAgent(agentRequest);
+      const { data, error } = await AgentManagementService.signupAgent(signupRequest);
       
       if (error) {
         console.error('Error creating agent:', error);
@@ -158,7 +283,42 @@ const AddAgent: React.FC = () => {
         // Success toast
         toast.success(`Agent "${data.name}" created successfully!`);
 
-        // Send magic link for passwordless authentication
+        // Post-signup staff assignment (primary + additional)
+        try {
+          const agentId = String(data.id);
+          const selectedStaff = formData.assigned_staff || [];
+          const primaryStaffId = autoAssignStaffId || (selectedStaff.length > 0 ? String(selectedStaff[0]) : undefined);
+
+          if (primaryStaffId) {
+            const { error: primaryAssignErr } = await AgentManagementService.addStaffAssignmentToAgent(agentId, String(primaryStaffId), { isPrimary: true, notes: formData.notes });
+            if (!primaryAssignErr) {
+              toast.success('Primary staff assigned.');
+            } else {
+              console.warn('Primary staff assignment failed:', primaryAssignErr);
+            }
+          }
+
+          const additionalStaff = selectedStaff.filter(sid => String(sid) !== String(primaryStaffId || ''));
+          for (const sid of additionalStaff) {
+            const { error: secondaryAssignErr } = await AgentManagementService.addStaffAssignmentToAgent(agentId, String(sid), { isPrimary: false, notes: formData.notes });
+            if (secondaryAssignErr) {
+              console.warn(`Secondary staff assignment failed for ${sid}:`, secondaryAssignErr);
+            }
+          }
+        } catch (assignFlowErr) {
+          console.warn('Staff assignment flow failed:', assignFlowErr);
+        }
+
+        // Persist Track Login Activity preference
+        try {
+          await AgentManagementService.patchAgentSettingsPreferences(String(data.id), {
+            security: { trackLoginActivity: !!formData.trackLoginActivity },
+          });
+        } catch (prefsErr) {
+          console.warn('Persisting trackLoginActivity failed:', prefsErr);
+        }
+
+        // Send magic link for passwordless authentication or generate credentials
         if (formData.sendMagicLinkEmail) {
           try {
             const { error: magicLinkError } = await authHelpers.signInWithMagicLink(formData.email.trim().toLowerCase());
@@ -173,12 +333,52 @@ const AddAgent: React.FC = () => {
             console.error('Magic link error:', e);
             toast.warning('Agent created, but magic link sending failed.');
           }
-        }
 
-        // Navigate back to agents list after successful creation
-        setTimeout(() => {
-          navigate('/management/agents');
-        }, 2000);
+          // Navigate back to agents list after successful creation
+          setTimeout(() => {
+            navigate('/management/agents');
+          }, 2000);
+        } else {
+          // Generate credentials and show modal when not using magic link
+          try {
+            const { data: credsData, error: genError } = await AgentManagementService.generateCredentials(String(data.id));
+            if (genError) {
+              console.error('Credential generation error:', genError);
+              toast.error('Failed to generate temporary credentials.');
+            } else if (credsData) {
+              try {
+                const creator = {
+                  staffId: (currentUser?.id ? String(currentUser.id) : 'system'),
+                  staffName: ((currentUser as any)?.name || (currentUser as any)?.user_metadata?.name || 'System') as string,
+                };
+
+                storeAgentCredentials({
+                  agentId: String(data.id),
+                  email: formData.email.trim().toLowerCase(),
+                  username: credsData.username,
+                  password: credsData.temporaryPassword,
+                  forcePasswordChange: true,
+                  isTemporary: true,
+                  createdAt: new Date().toISOString(),
+                  createdBy: creator,
+                });
+              } catch (storeErr) {
+                console.warn('Local credentials store failed:', storeErr);
+              }
+
+              setModalCredentials({
+                email: formData.email.trim().toLowerCase(),
+                password: credsData.temporaryPassword,
+              });
+              setShowCredentialsModal(true);
+            } else {
+              toast.warning('Credentials could not be generated for the agent.');
+            }
+          } catch (genErr) {
+            console.error('Credential generation error:', genErr);
+            toast.error('Failed to generate temporary credentials.');
+          }
+        }
 
         // Stay on page to allow admin to review credentials; optionally navigate later
       } else {
@@ -260,11 +460,24 @@ const AddAgent: React.FC = () => {
                       {formErrors.email}
                     </p>
                   )}
+                  {emailExists && (
+                    <div className="mt-2 text-sm">
+                      <span className="text-red-600">This email is already registered.</span>{' '}
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="p-0 h-auto"
+                        onClick={() => navigate(`/login?email=${encodeURIComponent(formData.email.trim())}`)}
+                      >
+                        Login Instead
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone" className="flex items-center">
                     <Phone className="mr-1 h-4 w-4" />
-                    Phone Number
+                    Phone Number *
                   </Label>
                   <Input
                     id="phone"
@@ -278,6 +491,19 @@ const AddAgent: React.FC = () => {
                       <AlertCircle className="mr-1 h-3 w-3" />
                       {formErrors.phone}
                     </p>
+                  )}
+                  {phoneExists && (
+                    <div className="mt-2 text-sm">
+                      <span className="text-red-600">This phone number is already registered.</span>{' '}
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="p-0 h-auto"
+                        onClick={() => navigate(`/login?email=${encodeURIComponent(formData.email.trim())}`)}
+                      >
+                        Login Instead
+                      </Button>
+                    </div>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -451,7 +677,14 @@ const AddAgent: React.FC = () => {
                   </Button>
                   <Button 
                     type="submit" 
-                    disabled={isSubmitting || !formData.name || !formData.email}
+                    disabled={
+                      isSubmitting ||
+                      !formData.name ||
+                      !formData.email ||
+                      !formData.phone ||
+                      emailExists ||
+                      phoneExists
+                    }
                     className="min-w-[140px]"
                   >
                     {isSubmitting ? (
@@ -518,7 +751,7 @@ const AddAgent: React.FC = () => {
               </Alert>
             </div>
             <DialogFooter>
-              <Button type="button" onClick={() => setShowCredentialsModal(false)}>Done</Button>
+              <Button type="button" onClick={() => { setShowCredentialsModal(false); navigate('/management/agents'); }}>Done</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

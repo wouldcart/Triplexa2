@@ -1,11 +1,11 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
 import { 
   Eye, Edit, Clock, Star, MapPin, Users, Calendar,
@@ -17,6 +17,9 @@ import { cn } from '@/lib/utils';
 import EnhancedStatusBadge from '@/components/queries/status/EnhancedStatusBadge';
 import { useApp } from '@/contexts/AppContext';
 import { useAccessControl } from '@/hooks/use-access-control';
+import { useSupabaseAgentsList } from '@/hooks/useSupabaseAgentsList';
+import { findSupabaseAgentByNumericId } from '@/utils/supabaseAgentIds';
+import { resolveProfileNameById } from '@/services/profilesHelper';
 
 interface EnhancedQueryListProps {
   queries: Query[];
@@ -25,15 +28,46 @@ interface EnhancedQueryListProps {
   categorizeQuery: (query: Query) => string;
 }
 
-const EnhancedQueryList: React.FC<EnhancedQueryListProps> = ({
-  queries,
-  showActions = true,
-  calculatePriority,
-  categorizeQuery
-}) => {
+  const EnhancedQueryList: React.FC<EnhancedQueryListProps> = ({
+    queries,
+    showActions = true,
+    calculatePriority,
+    categorizeQuery
+  }) => {
+    const { agents: supabaseAgents } = useSupabaseAgentsList();
   const navigate = useNavigate();
   const { currentUser } = useApp();
   const { hasAdminAccess, isStaff } = useAccessControl();
+
+  // Resolve assigned staff names for display
+  const [assignedNamesMap, setAssignedNamesMap] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const ids = Array.from(new Set((queries || [])
+      .map(q => q.assignedTo)
+      .filter((id): id is string => Boolean(id))));
+    const missing = ids.filter(id => !(id in assignedNamesMap));
+    if (missing.length === 0) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const entries = await Promise.all(missing.map(async (id) => {
+          const name = await resolveProfileNameById(id);
+          return [id, name] as const;
+        }));
+        if (!mounted) return;
+        const update: Record<string, string> = {};
+        for (const [id, name] of entries) {
+          if (name) update[id] = name;
+        }
+        if (Object.keys(update).length > 0) {
+          setAssignedNamesMap(prev => ({ ...prev, ...update }));
+        }
+      } catch {
+        // swallow errors; fallback will show raw ID
+      }
+    })();
+    return () => { mounted = false; };
+  }, [queries, assignedNamesMap]);
 
   // Filter queries based on user access level
   const getAccessibleQueries = (): Query[] => {
@@ -199,19 +233,29 @@ const EnhancedQueryList: React.FC<EnhancedQueryListProps> = ({
                           )}
                         </div>
                         <div className="flex items-center gap-2">
-                          <Avatar className="h-6 w-6">
-                            <AvatarFallback className="text-xs">
-                              {query.agentName.charAt(0)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="text-sm text-gray-600">{query.agentName}</span>
+                          {(() => {
+                            const supAgent = findSupabaseAgentByNumericId(supabaseAgents, Number(query.agentId));
+                            const displayName = supAgent?.agencyName || supAgent?.name || query.agentName;
+                            const initial = (displayName || query.agentName || '?').charAt(0);
+                            return (
+                              <>
+                                <Avatar className="h-6 w-6">
+                                  {supAgent?.profile_image && (
+                                    <AvatarImage src={supAgent.profile_image} alt={displayName || 'Agent'} />
+                                  )}
+                                  <AvatarFallback className="text-xs">{initial}</AvatarFallback>
+                                </Avatar>
+                                <span className="text-sm text-gray-600">{displayName}</span>
+                              </>
+                            );
+                          })()}
                         </div>
                         <p className="text-xs text-gray-500">
                           Created: {formatDate(query.createdAt)}
                         </p>
                         {query.assignedTo && (
                           <p className="text-xs text-blue-600">
-                            Assigned to: {query.assignedTo}
+                            Assigned to: {assignedNamesMap[query.assignedTo] || query.assignedTo}
                           </p>
                         )}
                       </div>

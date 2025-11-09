@@ -73,7 +73,7 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
       return;
     }
 
-    assignQueryToStaff(query.id, currentStaffMember.id);
+    assignQueryToStaff(query, currentStaffMember.id);
     
     // Create assignment notification
     const notification = staffNotificationService.createAssignmentNotification(
@@ -98,7 +98,7 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
       return;
     }
 
-    assignQueryToStaff(query.id, parseInt(selectedStaffId));
+    assignQueryToStaff(query, parseInt(selectedStaffId));
     
     // Create assignment notification for the assigned staff member
     const notification = staffNotificationService.createAssignmentNotification(

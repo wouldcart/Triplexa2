@@ -18,6 +18,23 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 }) => {
   const { user: currentUser, loading } = useAuth();
 
+  // Dev-only auth bypass to preview protected routes locally
+  const isDev = import.meta.env.DEV;
+  let devBypassEnabled = false;
+  try {
+    const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : undefined;
+    const urlBypass = urlParams?.get('dev') === '1';
+    const localBypass = typeof window !== 'undefined' && localStorage.getItem('dev_auth_bypass') === '1';
+    const envBypass = (import.meta.env as any).VITE_DEV_AUTH_BYPASS === '1';
+    devBypassEnabled = isDev && (urlBypass || localBypass || envBypass);
+  } catch (e) {
+    devBypassEnabled = false;
+  }
+
+  if (devBypassEnabled) {
+    return <>{children}</>;
+  }
+
   // Helper function to check permissions
   const hasPermission = (permission: string): boolean => {
     if (!currentUser) return false;

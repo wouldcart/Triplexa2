@@ -3,6 +3,8 @@ import { AdvancedProposalModule } from '@/types/advancedProposal';
 import { mockQueries } from '@/data/queryData';
 import { EnqIdGenerator } from '@/utils/enqIdGenerator';
 import { initialCountries } from '@/pages/inventory/countries/data/countryData';
+import { getCountryByName } from '@/services/countryMappingService';
+import { getEnquiryById } from '@/services/enquiriesService';
 
 export interface ProposalData {
   id: string;
@@ -50,7 +52,7 @@ class ProposalService {
     return ProposalService.instance;
   }
 
-  public createQuery(queryData: Omit<Query, 'id' | 'createdAt' | 'updatedAt'>): Query {
+  public async createQuery(queryData: Omit<Query, 'id' | 'createdAt' | 'updatedAt'>): Promise<Query> {
     try {
       const queries = this.getAllQueries();
       
@@ -60,11 +62,20 @@ class ProposalService {
         // Map country name to country code for ID generation
         let selectedCountryCode: string | undefined;
         if (queryData.destination?.country) {
-          const foundCountry = initialCountries.find(c => c.name === queryData.destination.country);
-          selectedCountryCode = foundCountry?.code;
+          // Use robust mapping that supports common aliases (UAE, USA, UK)
+          const mapped = getCountryByName(queryData.destination.country);
+          if (mapped) {
+            selectedCountryCode = mapped.code;
+          } else {
+            const foundCountry = initialCountries.find(c => c.name === queryData.destination.country);
+            selectedCountryCode = foundCountry?.code;
+          }
           console.log('Creating query for country:', queryData.destination.country, 'mapped to code:', selectedCountryCode);
         }
-        
+
+        // Ensure Supabase-backed enquiry configuration and active countries are prepared
+        await EnqIdGenerator.prepareConfig(selectedCountryCode);
+
         enquiryId = EnqIdGenerator.generateEnqId(selectedCountryCode);
         console.log('Generated enquiry ID:', enquiryId);
       } catch (enquiryError) {
@@ -123,6 +134,26 @@ class ProposalService {
       return null;
     } catch (error) {
       console.error('Error loading query:', error);
+      return null;
+    }
+  }
+
+  // Async version with Supabase fallback while preserving existing logic
+  public async getQueryByIdAsync(id: string): Promise<Query | null> {
+    try {
+      // First, reuse existing local/mock logic
+      const localOrMock = this.getQueryById(id);
+      if (localOrMock) return localOrMock;
+
+      // Supabase fallback via enquiriesService
+      const { data, error } = await getEnquiryById(id);
+      if (error) {
+        console.warn('Supabase getEnquiryById error:', error);
+        return null;
+      }
+      return data || null;
+    } catch (err) {
+      console.warn('getQueryByIdAsync fallback failed:', err);
       return null;
     }
   }

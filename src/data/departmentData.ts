@@ -2,9 +2,9 @@ import { Department, EnhancedStaffMember, Task, RealTimeUpdate } from "@/types/s
 
 export const departments: Department[] = [
   {
-    id: "sales",
+    id: "Sales",
     name: "Sales",
-    code: "SALES",
+    code: "Sales",
     description: "Handle all enquiry data with real-time updates and performance tracking",
     staffCount: 15,
     features: [
@@ -40,7 +40,7 @@ export const departments: Department[] = [
       ],
       autoAssignment: true,
       escalationRules: [
-        { id: "1", condition: "no_response_24h", action: "escalate_to_manager", target: "sales_manager", timeThreshold: 24 }
+        { id: "1", condition: "no_response_24h", action: "escalate_to_manager", target: "Sales_manager", timeThreshold: 24 }
       ]
     },
     permissions: [
@@ -192,10 +192,10 @@ export const departments: Department[] = [
     ]
   },
   {
-    id: "field-sales",
+    id: "field-Sales",
     name: "Field Sales",
     code: "FS",
-    description: "Field sales executives for agent acquisition and lead management",
+    description: "Field Sales executives for agent acquisition and lead management",
     staffCount: 3,
     features: [
       {
@@ -215,7 +215,7 @@ export const departments: Department[] = [
       {
         id: "territory-management",
         name: "Territory Management",
-        description: "Manage sales territories and targets",
+        description: "Manage Sales territories and targets",
         enabled: true,
         config: { geoMapping: true, targetSetting: true }
       }
@@ -334,7 +334,7 @@ export const enhancedStaffMembers: EnhancedStaffMember[] = [
     name: "John Smith",
     email: "john.smith@company.com",
     phone: "+1234567890",
-    department: "sales",
+    department: "Sales",
     role: "Senior Sales Executive",
     status: "active",
     avatar: "/avatars/john-smith.png",
@@ -639,7 +639,7 @@ export const enhancedStaffMembers: EnhancedStaffMember[] = [
     name: "David Rodriguez",
     email: "david.rodriguez@company.com",
     phone: "+1234567894",
-    department: "field-sales",
+    department: "field-Sales",
     role: "Field Sales Executive",
     status: "active",
     joinDate: "2023-06-12",
@@ -842,7 +842,7 @@ export const tasks: Task[] = [
     description: "Client interested in 15-day Europe package for corporate group",
     assignedTo: "staff-001",
     assignedBy: "manager-001",
-    department: "sales",
+    department: "Sales",
     priority: "high",
     status: "in-progress",
     dueDate: "2025-05-27T18:00:00Z",
@@ -911,7 +911,7 @@ export const realTimeUpdates: RealTimeUpdate[] = [
       assignedTo: "staff-001"
     },
     timestamp: "2025-05-26T16:30:00Z",
-    department: "sales",
+    department: "Sales",
     staffId: "staff-001"
   },
   {
@@ -938,7 +938,7 @@ export const realTimeUpdates: RealTimeUpdate[] = [
       achievement: 125
     },
     timestamp: "2025-05-26T16:20:00Z",
-    department: "sales",
+    department: "Sales",
     staffId: "staff-001"
   }
 ];
@@ -987,7 +987,7 @@ export const getRealtimeUpdatesByDepartment = (departmentId: string): RealTimeUp
         assignedTo: "staff-002"
       },
       timestamp: "2025-05-26T16:10:00Z",
-      department: "sales",
+      department: "Sales",
       staffId: "staff-002"
     },
     {

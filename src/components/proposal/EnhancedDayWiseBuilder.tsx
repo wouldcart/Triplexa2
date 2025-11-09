@@ -79,7 +79,7 @@ const EnhancedDayWiseBuilder: React.FC<EnhancedDayWiseBuilderProps> = ({
         }
 
         console.log('Loading query data for:', currentQueryId);
-        const queryData = ProposalService.getQueryById(currentQueryId);
+        const queryData = await ProposalService.getQueryByIdAsync(currentQueryId);
         if (!queryData) {
           throw new Error(`Query ${currentQueryId} not found`);
         }

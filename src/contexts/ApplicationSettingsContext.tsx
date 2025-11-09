@@ -55,6 +55,7 @@ interface ApplicationSettingsContextType {
   updateCountry: (countryCode: string, updates: Partial<CountryEnquirySettings>) => void;
   removeCountry: (countryCode: string) => void;
   setDefaultCountry: (countryCode: string) => void;
+  hydrated: boolean;
 }
 
 const defaultSettings: ApplicationSettings = {
@@ -98,6 +99,7 @@ const ApplicationSettingsContext = createContext<ApplicationSettingsContextType 
 
 export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<ApplicationSettings>(defaultSettings);
+  const [hydrated, setHydrated] = useState<boolean>(false);
   const location = useLocation();
   const isPublicRoute = /^\/(privacy|terms)(\/|$)/.test(location.pathname);
 
@@ -135,8 +137,11 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
           },
           enquirySettings: (enquiryConfigRes as EnquiryConfiguration) || prev.enquirySettings
         }));
+        setHydrated(true);
       } catch (error) {
         console.warn('ApplicationSettings: Failed to hydrate from AppSettingsService, using defaults', error);
+        // Even on failure, mark as hydrated to avoid blocking UI indefinitely
+        setHydrated(true);
       }
     })();
   }, [isPublicRoute]);
@@ -227,6 +232,10 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
 
   const updateEnquirySettings = (enquirySettings: Partial<EnquiryConfiguration>) => {
     setSettings(prev => {
+      // Block writes during initial hydration to avoid overwriting server state
+      if (!hydrated) {
+        return prev;
+      }
       const updated = {
         ...prev,
         enquirySettings: { ...prev.enquirySettings, ...enquirySettings }
@@ -256,6 +265,9 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
 
   const addCountry = (country: CountryEnquirySettings) => {
     setSettings(prev => {
+      if (!hydrated) {
+        return prev;
+      }
       const updated = {
         ...prev,
         enquirySettings: {
@@ -285,6 +297,9 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
 
   const updateCountry = (countryCode: string, updates: Partial<CountryEnquirySettings>) => {
     setSettings(prev => {
+      if (!hydrated) {
+        return prev;
+      }
       const updated = {
         ...prev,
         enquirySettings: {
@@ -318,6 +333,9 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
 
   const removeCountry = (countryCode: string) => {
     setSettings(prev => {
+      if (!hydrated) {
+        return prev;
+      }
       const updated = {
         ...prev,
         enquirySettings: {
@@ -349,6 +367,9 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
 
   const setDefaultCountry = (countryCode: string) => {
     setSettings(prev => {
+      if (!hydrated) {
+        return prev;
+      }
       const updated = {
         ...prev,
         enquirySettings: {
@@ -392,7 +413,8 @@ export const ApplicationSettingsProvider: React.FC<{ children: React.ReactNode }
         addCountry,
         updateCountry,
         removeCountry,
-        setDefaultCountry
+        setDefaultCountry,
+        hydrated
       }}
     >
       {children}

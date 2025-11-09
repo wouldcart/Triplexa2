@@ -25,9 +25,14 @@ import PricingSimulator from '@/components/pricing/PricingSimulator';
 import TaxManagement from '@/components/pricing/TaxManagement';
 import AdvancedPricingEngine from '@/components/pricing/AdvancedPricingEngine';
 import MarkupExportPreview from '@/components/pricing/MarkupExportPreview';
+import { CountriesService, type CountryListItem } from '@/integrations/supabase/services/countriesService';
+import { PricingConfigurationService } from '@/integrations/supabase/services/pricingConfigurationService';
+import { AppSettingsHelpers, SETTING_CATEGORIES } from '@/services/appSettingsService_database';
 const PricingSettings: React.FC = () => {
   const [settings, setSettings] = useState<PricingSettingsType>(PricingService.getSettings());
   const [enhancedSettings, setEnhancedSettings] = useState(EnhancedPricingService.getEnhancedSettings());
+  const [countries, setCountries] = useState<CountryListItem[]>([]);
+  const [defaultCountryCode, setDefaultCountryCode] = useState<string>(EnhancedPricingService.getEnhancedSettings().defaultCountry || 'TH');
   const [editingSlab, setEditingSlab] = useState<MarkupSlab | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [deletingSlabId, setDeletingSlabId] = useState<string | null>(null);
@@ -40,10 +45,42 @@ const PricingSettings: React.FC = () => {
     getCurrencyByCountryCode
   } = useCurrency();
   useEffect(() => {
-    const currentSettings = PricingService.getSettings();
-    const currentEnhancedSettings = EnhancedPricingService.getEnhancedSettings();
-    setSettings(currentSettings);
-    setEnhancedSettings(currentEnhancedSettings);
+    // Hydrate from Supabase where available; keep localStorage fallback
+    (async () => {
+      try {
+        const [countryList, defaultConfig] = await Promise.all([
+          CountriesService.listActiveCountries(),
+          PricingConfigurationService.getDefaultConfiguration(),
+        ]);
+        setCountries(countryList);
+        if (defaultConfig) {
+          setDefaultCountryCode(defaultConfig.country_code);
+          const mapped = await PricingConfigurationService.toPricingSettings(defaultConfig);
+          if (mapped) {
+            setSettings(mapped);
+            // Keep local copy in sync for legacy consumers
+            PricingService.updateSettings(mapped);
+          }
+          // Also reflect base currency into enhanced settings
+          EnhancedPricingService.updateEnhancedSettings({
+            defaultCountry: defaultConfig.country_code,
+            currencyConversion: {
+              ...EnhancedPricingService.getEnhancedSettings().currencyConversion,
+              baseCurrency: defaultConfig.currency,
+            },
+          });
+          setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+        } else {
+          // Fallback to local storage
+          setSettings(PricingService.getSettings());
+          setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+        }
+      } catch (e) {
+        console.warn('Failed to hydrate pricing settings or countries from Supabase, using local fallback.', e);
+        setSettings(PricingService.getSettings());
+        setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+      }
+    })();
   }, []);
   const handleRefresh = () => {
     setSettings(PricingService.getSettings());
@@ -231,38 +268,73 @@ const PricingSettings: React.FC = () => {
 
                   <div className="space-y-2">
                     <Label>Default Country & Currency</Label>
-                    <Select value={enhancedSettings.defaultCountry || "TH"} onValueChange={value => {
-                    if (value && value !== "") {
-                      const selectedCountry = EnhancedPricingService.getAvailableCountries().find(c => c.code === value);
-                      if (selectedCountry) {
-                        EnhancedPricingService.updateEnhancedSettings({
-                          defaultCountry: value,
-                          currencyConversion: {
-                            ...enhancedSettings.currencyConversion,
-                            baseCurrency: selectedCountry.currency
-                          }
-                        });
-                        setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+                    <Select value={defaultCountryCode || 'TH'} onValueChange={async (value) => {
+                    if (!value) return;
+                    // Optimistically update UI state so selection works even if persistence fails
+                    setDefaultCountryCode(value);
+                    const selectedCountry = countries.find(c => c.code === value) || null;
 
-                        // Create country rule if it doesn't exist
-                        const existingRule = EnhancedPricingService.getCountryRule(value);
-                        if (!existingRule) {
-                          EnhancedPricingService.createCountryRule({
-                            countryCode: value,
-                            countryName: selectedCountry.name,
-                            currency: selectedCountry.currency,
-                            currencySymbol: selectedCountry.currencySymbol,
-                            defaultMarkup: settings.defaultMarkupPercentage,
-                            markupType: 'percentage',
-                            isActive: true,
-                            region: selectedCountry.region,
-                            tier: 'standard',
-                            conversionMargin: 2
-                          });
-                        }
+                    // Keep enhanced settings in sync for legacy consumers immediately
+                    if (selectedCountry) {
+                      EnhancedPricingService.updateEnhancedSettings({
+                        defaultCountry: value,
+                        currencyConversion: {
+                          ...enhancedSettings.currencyConversion,
+                          baseCurrency: selectedCountry.currency,
+                        },
+                      });
+                      setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+                    }
+
+                    // Try persisting to Supabase, but do not block UI
+                    try {
+                      if (selectedCountry) {
+                        await PricingConfigurationService.setDefaultConfiguration(value, selectedCountry.currency);
+                        // Persist app-level hints for other modules (optional)
+                        await AppSettingsHelpers.upsertSetting({
+                          category: SETTING_CATEGORIES.PAYMENT,
+                          setting_key: 'pricing_default_country',
+                          setting_value: value,
+                          data_type: 'text',
+                          is_active: true,
+                        });
+                        await AppSettingsHelpers.upsertSetting({
+                          category: SETTING_CATEGORIES.PAYMENT,
+                          setting_key: 'pricing_base_currency',
+                          setting_value: selectedCountry.currency,
+                          data_type: 'text',
+                          is_active: true,
+                        });
+
                         toast({
-                          title: "Country Updated",
-                          description: `Default country set to ${selectedCountry.name}. Currency: ${selectedCountry.currency}.`
+                          title: 'Country Updated',
+                          description: `Default country set to ${selectedCountry.name}. Currency: ${selectedCountry.currency}.`,
+                        });
+                      }
+                    } catch (err) {
+                      console.error('Failed to persist default country via Supabase', err);
+                      // Keep UI selection; inform user persistence failed but local settings updated
+                      toast({
+                        title: 'Saved Locally',
+                        description: 'Could not save default country to Supabase. Using local settings.',
+                      });
+                    }
+
+                    // Create country rule if it doesn't exist (local-only rules)
+                    if (selectedCountry) {
+                      const existingRule = EnhancedPricingService.getCountryRule(value);
+                      if (!existingRule) {
+                        EnhancedPricingService.createCountryRule({
+                          countryCode: value,
+                          countryName: selectedCountry.name,
+                          currency: selectedCountry.currency,
+                          currencySymbol: selectedCountry.currency_symbol,
+                          defaultMarkup: settings.defaultMarkupPercentage,
+                          markupType: 'percentage',
+                          isActive: true,
+                          region: selectedCountry.region,
+                          tier: 'standard',
+                          conversionMargin: 2,
                         });
                       }
                     }
@@ -271,9 +343,11 @@ const PricingSettings: React.FC = () => {
                         <SelectValue placeholder="Select default country" />
                       </SelectTrigger>
                       <SelectContent>
-                        {EnhancedPricingService.getAvailableCountries().map(country => <SelectItem key={country.code} value={country.code}>
+                        {countries.map(country => (
+                          <SelectItem key={country.code} value={country.code}>
                             {country.name} ({country.currency})
-                          </SelectItem>)}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -339,15 +413,31 @@ const PricingSettings: React.FC = () => {
                       <Label className="text-sm sm:text-base">Country-Based Pricing</Label>
                       <p className="text-xs text-muted-foreground">Apply different markups per country</p>
                     </div>
-                    <Switch checked={enhancedSettings.enableCountryBasedPricing} onCheckedChange={checked => {
-                    EnhancedPricingService.updateEnhancedSettings({
-                      enableCountryBasedPricing: checked
-                    });
-                    setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
-                    toast({
-                      title: checked ? "Country Pricing Enabled" : "Country Pricing Disabled",
-                      description: checked ? "Pricing will consider country-specific rules" : "Pricing will use standard rules only"
-                    });
+                    <Switch checked={enhancedSettings.enableCountryBasedPricing} onCheckedChange={async (checked) => {
+                    try {
+                      EnhancedPricingService.updateEnhancedSettings({ enableCountryBasedPricing: checked });
+                      setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+
+                      await AppSettingsHelpers.upsertSetting({
+                        category: SETTING_CATEGORIES.PAYMENT,
+                        setting_key: 'enable_country_pricing',
+                        setting_value: String(checked),
+                        data_type: 'boolean',
+                        is_active: true,
+                      });
+
+                      toast({
+                        title: checked ? 'Country Pricing Enabled' : 'Country Pricing Disabled',
+                        description: checked ? 'Pricing will consider country-specific rules' : 'Pricing will use standard rules only',
+                      });
+                    } catch (err) {
+                      console.error('Failed to persist country pricing toggle via Supabase', err);
+                      toast({
+                        title: 'Update Failed',
+                        description: 'Could not update country pricing toggle. Please try again.',
+                        variant: 'destructive',
+                      });
+                    }
                   }} />
                   </div>
                 </div>

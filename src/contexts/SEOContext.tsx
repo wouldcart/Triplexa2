@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { AppSettingsService, SETTING_CATEGORIES } from '@/services/appSettingsService';
+import { authHelpers } from '@/lib/supabaseClient';
 
 interface SEOData {
   title?: string;
@@ -61,6 +62,12 @@ export const SEOProvider: React.FC<SEOProviderProps> = ({ children }) => {
     let mounted = true;
     (async () => {
       try {
+        // Skip settings calls when no active session to avoid noisy logs
+        const { session, error: sessionError } = await authHelpers.getSession();
+        if (sessionError || !session) {
+          return; // defaults will be used
+        }
+
         const [siteTitle, companyName, appDescription] = await Promise.all([
           AppSettingsService.getSettingValue(SETTING_CATEGORIES.SEO, 'site_title'),
           AppSettingsService.getSettingValue(SETTING_CATEGORIES.GENERAL, 'company_name'),
@@ -74,8 +81,8 @@ export const SEOProvider: React.FC<SEOProviderProps> = ({ children }) => {
           description: typeof appDescription === 'string' && appDescription.trim() ? appDescription : prev.description,
         }));
       } catch (e) {
-        // non-fatal; defaults will be used
-        console.warn('SEOContext: failed to load settings', e);
+        // Non-fatal; defaults will be used
+        console.debug('SEOContext: settings fetch skipped or failed', e);
       }
     })();
     return () => { mounted = false; };

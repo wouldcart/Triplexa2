@@ -21,7 +21,7 @@ interface SmartAssignmentPanelProps {
 
 const SmartAssignmentPanel: React.FC<SmartAssignmentPanelProps> = ({ queries }) => {
   const { toast } = useToast();
-  const { autoAssignQueries, autoAssignEnabled, setAutoAssignEnabled, isAssigning } = useQueryAssignment();
+  const { autoAssignQueries, autoAssignEnabled, autoAssignHydrated, setAutoAssignEnabled, isAssigning } = useQueryAssignment();
   const { activeStaff } = useActiveStaffData();
   const [smartRulesEnabled, setSmartRulesEnabled] = useState(true);
   const [workloadBalancing, setWorkloadBalancing] = useState(true);
@@ -135,7 +135,8 @@ const SmartAssignmentPanel: React.FC<SmartAssignmentPanelProps> = ({ queries }) 
               </div>
               <Switch
                 id="auto-assign"
-                checked={autoAssignEnabled}
+                checked={!!autoAssignEnabled}
+                disabled={!autoAssignHydrated}
                 onCheckedChange={setAutoAssignEnabled}
               />
             </div>
@@ -176,7 +177,7 @@ const SmartAssignmentPanel: React.FC<SmartAssignmentPanelProps> = ({ queries }) 
               </div>
               <Button 
                 onClick={handleBulkAssignment}
-                disabled={isAssigning || unassignedQueries.length === 0}
+                disabled={isAssigning || !autoAssignHydrated || autoAssignEnabled !== true || unassignedQueries.length === 0}
                 className="flex items-center gap-2"
               >
                 {isAssigning ? (

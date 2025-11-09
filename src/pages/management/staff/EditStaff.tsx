@@ -33,6 +33,9 @@ import { validatePasswordStrength, checkUsernameUniqueness } from '@/utils/crede
 import { updateStaffMember } from '@/services/staffStorageService';
 import { syncStaffWithAuthSystem } from '@/services/credentialService';
 import { supabase } from '@/integrations/supabase/client';
+import { staffWorkingHoursService } from '@/services/staffWorkingHoursService';
+import { staffTargetService } from '@/services/staffTargetService';
+import { TIMEZONE_OPTIONS, formatTimezoneDisplay } from '@/data/timezones';
 
 const staffSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -88,6 +91,7 @@ const EditStaff: React.FC = () => {
     saturday: { isWorking: false, shifts: [] },
     sunday: { isWorking: false, shifts: [] }
   });
+  const [whTimezone, setWhTimezone] = useState<string>(Intl.DateTimeFormat().resolvedOptions().timeZone || '');
   const [targets, setTargets] = useState<TargetType[]>([]);
 
   const form = useForm<StaffFormData>({
@@ -218,30 +222,82 @@ const EditStaff: React.FC = () => {
         }
         if (data) {
           const staffMember = mapProfileToEnhancedStaff(data);
-          setStaff(staffMember);
+
+          // Merge extended fields from staff table (join_date, date_of_birth, reporting_manager, operational_countries, employee_id)
+          let mergedStaffMember = staffMember;
+          try {
+            const { data: staffRow, error: staffRowError } = await supabase
+              .from('staff' as any)
+              .select('join_date, date_of_birth, reporting_manager, operational_countries, employee_id')
+              .eq('id', id)
+              .maybeSingle();
+
+            if (staffRowError) {
+              console.warn('Supabase staff (extended fields) fetch failed:', staffRowError);
+            }
+
+            if (staffRow) {
+              const extra = mapStaffRowToEnhancedStaff(staffRow);
+              mergedStaffMember = {
+                ...staffMember,
+                employeeId: extra.employeeId || staffMember.employeeId,
+                joinDate: extra.joinDate || staffMember.joinDate,
+                dateOfBirth: extra.dateOfBirth || staffMember.dateOfBirth,
+                reportingManager: extra.reportingManager || staffMember.reportingManager,
+                operationalCountries: Array.isArray(extra.operationalCountries) ? extra.operationalCountries : (staffMember.operationalCountries || []),
+              };
+            }
+          } catch (augmentErr) {
+            console.warn('Failed to augment staff details from staff table:', augmentErr);
+          }
+
+          setStaff(mergedStaffMember);
 
           // Convert legacy working hours format to new shift format if needed
-          const convertedWorkingHours = convertLegacyWorkingHours(staffMember.workingHours);
+          const convertedWorkingHours = convertLegacyWorkingHours(mergedStaffMember.workingHours);
           setWorkingHours(convertedWorkingHours);
-          setTargets(staffMember.targets || []);
+          setTargets(mergedStaffMember.targets || []);
 
-          const joinDate = staffMember.joinDate ? new Date(staffMember.joinDate) : new Date();
-          const dateOfBirth = staffMember.dateOfBirth ? new Date(staffMember.dateOfBirth) : new Date();
+          // Load persisted Working Hours & Targets from Supabase if available
+          try {
+            const wh = await staffWorkingHoursService.getWorkingHoursByStaff(id);
+            if (!wh.error) setWorkingHours(wh.data);
+            // Load timezone separately
+            try {
+              const tzRes = await staffWorkingHoursService.getTimezoneByStaff(id);
+              if (!tzRes.error && tzRes.timezone) {
+                setWhTimezone(String(tzRes.timezone));
+              }
+            } catch (tzErr) {
+              console.warn('Failed to load timezone for staff', tzErr);
+            }
+          } catch (err) {
+            console.warn('Failed to load working hours for staff', err);
+          }
+          try {
+            const tg = await staffTargetService.listTargetsByStaff(id);
+            if (!tg.error) setTargets(tg.data);
+          } catch (err) {
+            console.warn('Failed to load targets for staff', err);
+          }
 
-          const editableStatus = staffMember.status === 'on-leave' ? 'inactive' : staffMember.status as 'active' | 'inactive' | 'on-leave';
+          const joinDate = mergedStaffMember.joinDate ? new Date(mergedStaffMember.joinDate) : new Date();
+          const dateOfBirth = mergedStaffMember.dateOfBirth ? new Date(mergedStaffMember.dateOfBirth) : new Date();
+
+          const editableStatus = mergedStaffMember.status === 'on-leave' ? 'inactive' : mergedStaffMember.status as 'active' | 'inactive' | 'on-leave';
 
           form.reset({
-            name: staffMember.name,
-            email: staffMember.email,
-            phone: staffMember.phone,
-            department: staffMember.department,
-            role: staffMember.role,
+            name: mergedStaffMember.name,
+            email: mergedStaffMember.email,
+            phone: mergedStaffMember.phone,
+            department: mergedStaffMember.department,
+            role: mergedStaffMember.role,
             status: editableStatus,
-            employeeId: staffMember.employeeId || '',
-            operationalCountries: staffMember.operationalCountries || [],
-            skills: staffMember.skills,
-            certifications: staffMember.certifications,
-            reportingManager: staffMember.reportingManager || '',
+            employeeId: mergedStaffMember.employeeId || '',
+            operationalCountries: mergedStaffMember.operationalCountries || [],
+            skills: mergedStaffMember.skills,
+            certifications: mergedStaffMember.certifications,
+            reportingManager: mergedStaffMember.reportingManager || '',
             joinDate: joinDate,
             dateOfBirth: dateOfBirth,
             mustChangePassword: false,
@@ -352,6 +408,46 @@ const EditStaff: React.FC = () => {
     // Update using the staff storage service to ensure consistency
     updateStaffMember(id!, updatedStaff);
 
+    // Persist extended fields into public.staff (join_date, date_of_birth, reporting_manager, operational_countries)
+    try {
+      const { data: staffRow, error: staffErr } = await supabase
+        .from('staff' as any)
+        .select('id')
+        .eq('id', id)
+        .maybeSingle();
+
+      const staffPayload: any = {
+        id,
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        department: data.department,
+        role: data.role,
+        status: data.status,
+        employee_id: data.employeeId,
+        join_date: updatedStaff.joinDate ?? null,
+        reporting_manager: updatedStaff.reportingManager ?? null,
+        date_of_birth: updatedStaff.dateOfBirth ?? null,
+        operational_countries: Array.isArray(updatedStaff.operationalCountries)
+          ? updatedStaff.operationalCountries
+          : null,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (staffErr || !staffRow) {
+        await supabase
+          .from('staff' as any)
+          .upsert(staffPayload, { onConflict: 'id' });
+      } else {
+        await supabase
+          .from('staff' as any)
+          .update(staffPayload)
+          .eq('id', id);
+      }
+    } catch (staffSaveErr) {
+      console.warn('Failed to persist extended staff fields:', staffSaveErr);
+    }
+
     // If login credentials are provided, sync with auth system
     if (data.username && data.password && showCredentials) {
       await syncStaffWithAuthSystem(updatedStaff, data.username, data.password, data.mustChangePassword);
@@ -361,6 +457,20 @@ const EditStaff: React.FC = () => {
         email: updatedStaff.email,
         mustChangePassword: data.mustChangePassword 
       });
+    }
+
+    // Persist Working Hours & Performance Targets to Supabase
+    try {
+      const upsertWH = await staffWorkingHoursService.upsertWorkingHours(id!, workingHours, whTimezone || undefined);
+      if (upsertWH.error) console.warn('Working hours upsert error:', upsertWH.error);
+    } catch (err) {
+      console.warn('Working hours upsert failed:', err);
+    }
+    try {
+      const replaceTargets = await staffTargetService.replaceTargetsForStaff(id!, targets || []);
+      if (replaceTargets.error) console.warn('Targets replace error:', replaceTargets.error);
+    } catch (err) {
+      console.warn('Targets replace failed:', err);
     }
     
     // Trigger a storage event to notify other components
@@ -824,6 +934,34 @@ const EditStaff: React.FC = () => {
                     <p>Please select department and role first to configure targets</p>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* Timezone (Edit separately) */}
+            <Card className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+              <CardHeader>
+                <CardTitle className="text-gray-900 dark:text-gray-100">Timezone</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Label className="text-sm">Timezone</Label>
+                <Select value={whTimezone || ''} onValueChange={setWhTimezone}>
+                  <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100">
+                    <SelectValue placeholder="Select a timezone" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-80 overflow-y-auto">
+                    {TIMEZONE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        <div className="flex flex-col text-left">
+                          <span className="font-medium">{opt.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {opt.abbreviation}, {opt.offset} — {opt.cities.join(', ')}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">{opt.value}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </CardContent>
             </Card>
 

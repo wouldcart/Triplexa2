@@ -1,10 +1,23 @@
 
 import { CountryEnquirySettings, EnquiryConfiguration, DEFAULT_ENQUIRY_COUNTRIES } from '../types/enquiry';
 import { initialCountries } from '../pages/inventory/countries/data/countryData';
+import { ensureCountryConfig } from '@/services/enquiriesService';
+import { CountriesService } from '@/services/countriesService';
 
 export class EnqIdGenerator {
   private static validateCountryForEnquiry(countryCode: string): boolean {
-    // Check if country exists in active countries from Countries Management module
+    // Prefer cached active countries from Supabase if available
+    try {
+      const cached = localStorage.getItem('enquiry_active_country_codes');
+      if (cached) {
+        const codes = JSON.parse(cached) as string[];
+        if (Array.isArray(codes) && codes.length > 0) {
+          return codes.includes(countryCode);
+        }
+      }
+    } catch {}
+
+    // Fallback to Countries Management module static data
     const country = initialCountries.find(c => c.code === countryCode);
     if (!country || country.status !== 'active') {
       console.warn(`Country ${countryCode} is not active in the Countries Management module`);
@@ -62,6 +75,27 @@ export class EnqIdGenerator {
     }
     
     return enquiryId;
+  }
+
+  // Prepare Supabase-backed configuration and cache active countries before ID generation
+  public static async prepareConfig(countryCode?: string): Promise<void> {
+    try {
+      // Ensure enquiry configuration exists in App Settings and includes the target country
+      await ensureCountryConfig(countryCode);
+    } catch (e) {
+      console.warn('EnqIdGenerator.prepareConfig: ensureCountryConfig failed; continuing with local defaults', e);
+    }
+
+    try {
+      // Cache active countries codes to localStorage for validation
+      const response = await CountriesService.getCountriesByStatus('active');
+      if (response.success && response.data) {
+        const codes = (response.data || []).map((c: any) => c.code).filter(Boolean);
+        localStorage.setItem('enquiry_active_country_codes', JSON.stringify(codes));
+      }
+    } catch (e) {
+      console.warn('EnqIdGenerator.prepareConfig: failed to cache active countries; validation will use defaults', e);
+    }
   }
 
   public static generateEnqId(countryCode?: string): string {

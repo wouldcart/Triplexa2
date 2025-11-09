@@ -25,30 +25,27 @@ const QueryList: React.FC<QueryListProps> = ({
   const { activeStaff } = useActiveStaffData();
 
   // Render query priority badge with appropriate styling
-  const renderPriorityBadge = (priority: string) => {
-    if (priority === 'High') {
-      return <Badge variant="destructive">{priority}</Badge>;
-    } else if (priority === 'Medium') {
-      return <Badge variant="default">{priority}</Badge>;
-    } else {
-      return <Badge variant="outline">{priority}</Badge>;
+  const renderPriorityBadge = (priority?: string) => {
+    const p = (priority || 'normal').toLowerCase();
+    const label = p.charAt(0).toUpperCase() + p.slice(1);
+    if (p === 'urgent' || p === 'high') {
+      return <Badge variant="destructive">{label}</Badge>;
+    } else if (p === 'normal' || p === 'medium') {
+      return <Badge variant="default">{label}</Badge>;
     }
-  };
-
-  // Get priority based on query ID (mock logic)
-  const getPriority = (queryId: string) => {
-    if (queryId === 'ENQ20250001') return 'High';
-    if (queryId === 'ENQ20250002') return 'Medium';
-    return 'Low';
+    return <Badge variant="outline">{label}</Badge>;
   };
 
   // Get staff member assigned to query using active staff data
   const getAssignedStaff = (query: Query) => {
-    if (query.status === 'assigned' || query.status === 'in-progress') {
-      if (query.id === 'ENQ20250002') return activeStaff[0];
-      return activeStaff[1] || activeStaff[0];
-    }
-    return null;
+    const key = query.assignedTo;
+    if (!key) return null;
+    // Resolve against uuid, numeric id string, or name
+    const match = activeStaff.find(s => {
+      const uuid = (s as any).uuid;
+      return uuid === key || String(s.id) === key || s.name === key;
+    });
+    return match || null;
   };
 
   // Get best matching rule for unassigned query with country consideration
@@ -117,7 +114,7 @@ const QueryList: React.FC<QueryListProps> = ({
                 </TableCell>
                 <TableCell>{query.travelDates.from}</TableCell>
                 <TableCell>
-                  {renderPriorityBadge(getPriority(query.id))}
+                  {renderPriorityBadge(query.priority)}
                 </TableCell>
                 <TableCell>
                   {getBestMatchRule(query)}

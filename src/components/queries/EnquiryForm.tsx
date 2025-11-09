@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
+import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -16,6 +17,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CalendarIcon, Save, ArrowLeft, Users, MapPin, DollarSign, User, FileText, Plus, X, CheckCircle } from 'lucide-react';
 import { AgentSelector as EnhancedAgentSelector } from '@/pages/queries/components/AgentSelector';
+import { useSupabaseAgentsList } from '@/hooks/useSupabaseAgentsList';
+import { toNumericAgentId } from '@/utils/supabaseAgentIds';
 import { Query } from '@/types/query';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency, calculateTripDuration } from '@/utils/currencyUtils';
@@ -25,6 +28,8 @@ import { cn } from '@/lib/utils';
 import { CountryCitySelector } from '@/pages/queries/components/CountryCitySelector';
 import { useRealTimeCountriesData } from '@/hooks/useRealTimeCountriesData';
 import { getCountryCodeByName } from '@/utils/countryUtils';
+import ProposalService from '@/services/proposalService';
+import { createEnquiry, updateEnquiry } from '@/services/enquiriesService';
 
 interface EnquiryFormProps {
   mode: 'create' | 'edit';
@@ -51,6 +56,9 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
     formState: { errors }
   } = useForm<Query>();
 
+  // Load real agents from Supabase for name resolution on selection
+  const { agents: supabaseAgents } = useSupabaseAgentsList();
+
   // Load existing enquiry data if in edit mode
   useEffect(() => {
     if (mode === 'edit' && enquiryId) {
@@ -58,29 +66,22 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
     }
   }, [mode, enquiryId]);
 
-  const loadEnquiryData = (id: string) => {
+  const loadEnquiryData = async (id: string) => {
     try {
-      console.log('Loading enquiry data for editing:', id);
+      setLoading(true);
+      console.log('Loading enquiry data (async) for editing:', id);
       
-      // First try localStorage
-      const savedQueries = localStorage.getItem('travel_queries');
-      let enquiry: Query | undefined;
-      
-      if (savedQueries) {
-        const queries: Query[] = JSON.parse(savedQueries);
-        enquiry = queries.find(q => q.id === id);
-        console.log('Found enquiry in localStorage:', enquiry);
-      }
+      const enquiry = await ProposalService.getQueryByIdAsync(id);
       
       if (enquiry) {
         // Reset form with enquiry data
         reset(enquiry);
         
         // Set date objects for the date pickers
-        if (enquiry.travelDates.from) {
+        if (enquiry.travelDates?.from) {
           setFromDate(new Date(enquiry.travelDates.from));
         }
-        if (enquiry.travelDates.to) {
+        if (enquiry.travelDates?.to) {
           setToDate(new Date(enquiry.travelDates.to));
         }
         
@@ -111,17 +112,23 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
           setValue('destination.country', enquiry.destination?.country || '');
           setValue('destination.cities', enquiry.destination?.cities || []);
           setValue('agentName', enquiry.agentName || '');
-          setValue('agentId', enquiry.agentId || 0);
+          // Prefill agent: prefer Supabase UUID mapped to numeric for selector
+          const numericAgentId = enquiry.agentUuid
+            ? toNumericAgentId(enquiry.agentUuid)
+            : (typeof enquiry.agentId === 'number' ? enquiry.agentId : 0);
+          setValue('agentUuid', enquiry.agentUuid || '');
+          setValue('agentId', numericAgentId);
           setValue('paxDetails.adults', enquiry.paxDetails?.adults || 0);
           setValue('paxDetails.children', enquiry.paxDetails?.children || 0);
           setValue('paxDetails.infants', enquiry.paxDetails?.infants || 0);
           setValue('budget.min', enquiry.budget?.min || 0);
           setValue('budget.max', enquiry.budget?.max || 0);
           setValue('notes', enquiry.notes || '');
+          setValue('travelDates.isEstimated', enquiry.travelDates?.isEstimated || false);
         }, 100);
         
       } else {
-        console.warn('Enquiry not found:', id);
+        console.warn('Enquiry not found (async):', id);
         toast({
           title: "Enquiry not found",
           description: "The requested enquiry could not be loaded.",
@@ -130,12 +137,14 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
         navigate('/queries');
       }
     } catch (error) {
-      console.error('Error loading enquiry:', error);
+      console.error('Error loading enquiry (async):', error);
       toast({
         title: "Error loading enquiry",
         description: "Failed to load enquiry data.",
         variant: "destructive"
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -165,10 +174,14 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
         countryName: destination.country, 
         countryCode: selectedCountryCode 
       });
+      // Ensure Supabase-backed enquiry configuration and country validation are ready
+      await EnqIdGenerator.prepareConfig(selectedCountryCode);
+
       const enquiryData: Query = {
         id: mode === 'create' ? EnqIdGenerator.generateEnqId(selectedCountryCode) : enquiryId!,
         agentId: data.agentId || 0,
         agentName: data.agentName || '',
+        agentUuid: (data as any).agentUuid || '',
         destination: {
           country: destination.country,
           cities: destination.cities
@@ -180,7 +193,8 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
         },
         travelDates: {
           from: fromDate.toISOString().split('T')[0],
-          to: toDate.toISOString().split('T')[0]
+          to: toDate.toISOString().split('T')[0],
+          isEstimated: !!(data.travelDates?.isEstimated)
         },
         tripDuration,
         packageType: data.packageType || 'full-package',
@@ -205,23 +219,14 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
         }
       };
 
-      // Save to localStorage
-      const savedQueries = localStorage.getItem('travel_queries');
-      let queries: Query[] = savedQueries ? JSON.parse(savedQueries) : [];
-
+      // Persist to Supabase (create or update)
       if (mode === 'create') {
-        queries.unshift(enquiryData); // Add to beginning for newest first
+        const { data: created, error } = await createEnquiry(enquiryData);
+        if (error) throw error;
       } else {
-        const index = queries.findIndex(q => q.id === enquiryId);
-        if (index !== -1) {
-          queries[index] = enquiryData;
-        } else {
-          // If not found, add it (in case it was created elsewhere)
-          queries.unshift(enquiryData);
-        }
+        const { error } = await updateEnquiry(enquiryData.id, enquiryData);
+        if (error) throw error;
       }
-
-      localStorage.setItem('travel_queries', JSON.stringify(queries));
 
       toast({
         title: mode === 'create' ? "Enquiry Created" : "Enquiry Updated",
@@ -265,21 +270,27 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
   const getPreviewData = () => {
     const formData = watch();
     const paxCount = (formData.paxDetails?.adults || 0) + (formData.paxDetails?.children || 0) + (formData.paxDetails?.infants || 0);
-    
+    const fromStr = fromDate ? format(fromDate, 'dd/MM/yyyy') : '';
+    const toStr = toDate ? format(toDate, 'dd/MM/yyyy') : '';
+    const isEstimated = !!formData.travelDates?.isEstimated;
+    const durationObj = fromDate && toDate ? calculateTripDuration(fromDate.toISOString().split('T')[0], toDate.toISOString().split('T')[0]) : { days: 0 } as any;
     return {
       agent: formData.agentName || 'Not selected',
       passengers: `${paxCount} PAX`,
       destination: destination.country || 'Not selected',
       cities: destination.cities.length > 0 ? destination.cities.join(', ') : 'No cities selected',
-      duration: fromDate && toDate ? `${calculateTripDuration(fromDate.toISOString().split('T')[0], toDate.toISOString().split('T')[0]).days} days` : 'Not calculated',
-      budget: formData.budget?.max ? `${formatCurrency(formData.budget.max)} ${formData.budget?.currency || 'USD'}` : 'Not specified',
+      dates: fromStr && toStr ? `${fromStr} → ${toStr}${isEstimated ? ' (estimated)' : ''}` : 'Not selected',
+      duration: durationObj.days ? `${durationObj.days} days` : 'Not calculated',
+      budget: (formData.budget?.min || 0) || formData.budget?.max
+        ? `${formatCurrency(formData.budget?.min || 0)} — ${formatCurrency(formData.budget?.max || 0)} ${formData.budget?.currency || 'USD'}`
+        : 'Not specified',
       package: formData.packageType || 'Full Package',
       hotel: `${formData.hotelDetails?.rooms || 1} room, ${formData.hotelDetails?.category || 'standard'}`,
       contact: formData.communicationPreference || 'Email',
       inclusions: {
         sightseeing: formData.inclusions?.sightseeing !== false,
         transfers: formData.inclusions?.transfers || 'Airport',
-        transport: formData.inclusions?.transfers || 'Not selected'
+        mealPlan: formData.inclusions?.mealPlan || 'Not selected'
       }
     };
   };
@@ -335,14 +346,20 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
                        onValueChange={(agentId) => {
                          const id = parseInt(agentId);
                          setValue('agentId', id);
-                         // Get agent name from enhanced data
-                         import('@/hooks/useEnhancedAgentData').then(({ useEnhancedAgentData }) => {
-                           const { getAgentById } = useEnhancedAgentData(enquiryId);
-                           const agent = getAgentById(id);
-                           if (agent) {
-                             setValue('agentName', agent.name);
-                           }
-                         });
+                         // Prefer Supabase agents to set real agent name; fall back to enhanced data
+                         const match = supabaseAgents.find(a => toNumericAgentId(a.id) === id);
+                         if (match) {
+                           setValue('agentName', match.name);
+                           setValue('agentUuid', match.id);
+                         } else {
+                           import('@/hooks/useEnhancedAgentData').then(({ useEnhancedAgentData }) => {
+                             const { getAgentById } = useEnhancedAgentData(enquiryId);
+                             const agent = getAgentById(id);
+                             if (agent) {
+                               setValue('agentName', agent.name);
+                             }
+                           });
+                         }
                        }}
                        placeholder="Search and select an agent..."
                        queryId={enquiryId}
@@ -521,10 +538,20 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
                           />
                         </PopoverContent>
                       </Popover>
-                    </div>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+                {/* Estimated Dates Toggle (moved from Budget to Travel Information) */}
+                <div className="flex items-center justify-between pt-2">
+                  <Label htmlFor="isEstimated">Dates are estimated</Label>
+                  <Switch
+                    id="isEstimated"
+                    checked={!!watch('travelDates.isEstimated')}
+                    onCheckedChange={(checked) => setValue('travelDates.isEstimated', !!checked)}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">Toggle if travel dates are tentative.</p>
+              </CardContent>
+            </Card>
 
               {/* Package Type & Inclusions */}
               <Card>
@@ -774,7 +801,7 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
                            </div>
                           <div className="flex justify-between items-center">
                             <span className="text-sm text-muted-foreground">Travel Dates</span>
-                            <span className="text-sm font-medium">{preview.duration}</span>
+                            <span className="text-sm font-medium">{preview.dates}</span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-sm text-muted-foreground">Duration</span>
@@ -817,7 +844,7 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
                             </div>
                             <div className="flex items-center gap-2 text-xs">
                               <CheckCircle className="h-3 w-3 text-green-600" />
-                              <span>Transport: {preview.inclusions.transport}</span>
+                              <span>Meal Plan: {preview.inclusions.mealPlan}</span>
                             </div>
                           </div>
                         </div>

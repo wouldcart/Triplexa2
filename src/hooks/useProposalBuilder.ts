@@ -683,7 +683,7 @@ export const useProposalBuilder = (queryId?: string, options?: UseProposalBuilde
         }
       }));
 
-      const query = ProposalService.getQueryById(queryId);
+      const query = await ProposalService.getQueryByIdAsync(queryId);
       if (!query) throw new Error('Query not found');
 
       const proposalData = {

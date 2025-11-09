@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select';
 import { UserCheck, UserX, AlertCircle } from 'lucide-react';
 import { EnhancedStaffMember } from '@/types/staff';
-import { updateStaffMember } from '@/services/staffStorageService';
+import { updateStaffStatusBothTables } from '@/services/staffStorageService';
 import { toast } from '@/hooks/use-toast';
 
 interface StaffStatusManagerProps {
@@ -33,16 +33,33 @@ const StaffStatusManager: React.FC<StaffStatusManagerProps> = ({
     setIsUpdating(true);
     
     try {
-      // Update staff member status
-      updateStaffMember(staff.id, { status: newStatus });
+      // Update status in both profiles and staff tables
+      const { profileError, staffError } = await updateStaffStatusBothTables(staff.id, newStatus);
+      if (profileError && staffError) {
+        throw new Error('Failed to update status in both tables');
+      }
       
       setCurrentStatus(newStatus);
       onStatusUpdate?.(newStatus);
       
-      toast({
-        title: "Status Updated",
-        description: `${staff.name} is now ${newStatus}`,
-      });
+      if (!profileError && !staffError) {
+        toast({
+          title: "Status Updated",
+          description: `${staff.name} is now ${newStatus} (profiles + staff)`,
+        });
+      } else if (!profileError && staffError) {
+        toast({
+          title: "Partial Update",
+          description: `Updated profiles.status, but staff.status failed: ${staffError?.message || staffError}`,
+          variant: "destructive",
+        });
+      } else if (profileError && !staffError) {
+        toast({
+          title: "Partial Update",
+          description: `Updated staff.status, but profiles.status failed: ${profileError?.message || profileError}`,
+          variant: "destructive",
+        });
+      }
       
       console.log(`Staff ${staff.name} status updated to: ${newStatus}`);
     } catch (error) {

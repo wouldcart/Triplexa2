@@ -1,6 +1,8 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { AgentSelector as SearchableAgentSelector } from '@/pages/queries/components/AgentSelector';
+import { useSupabaseAgentsList } from '@/hooks/useSupabaseAgentsList';
+import { toNumericAgentId } from '@/utils/supabaseAgentIds';
 
 interface AgentSelectorProps {
   selectedAgentId: string;
@@ -11,10 +13,13 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
   selectedAgentId,
   onAgentChange
 }) => {
-  const handleAgentSelect = (agentId: string) => {
-    // Get agent name from the useAgentData hook via the SearchableAgentSelector
-    onAgentChange(agentId, ''); // The SearchableAgentSelector will handle getting the agent name
-  };
+  const { agents } = useSupabaseAgentsList();
+
+  const selectedAgentName = useMemo(() => {
+    const numeric = Number.parseInt(selectedAgentId || '');
+    const match = agents.find(a => toNumericAgentId(a.id) === numeric);
+    return match?.name || '';
+  }, [agents, selectedAgentId]);
 
   return (
     <div className="space-y-2">
@@ -22,8 +27,9 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
       <SearchableAgentSelector
         value={selectedAgentId}
         onValueChange={(agentId) => {
-          // We need to get the agent name, but the SearchableAgentSelector handles this internally
-          onAgentChange(agentId, '');
+          const numeric = Number.parseInt(agentId || '');
+          const match = agents.find(a => toNumericAgentId(a.id) === numeric);
+          onAgentChange(agentId, match?.name || '');
         }}
         placeholder="Search and select an agent..."
       />

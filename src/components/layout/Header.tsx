@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, Bell, Search, Moon, Sun, Maximize, Minimize, Monitor, ChevronRight, ChevronLeft, X } from 'lucide-react';
+import { Menu, Bell, Search, Moon, Sun, Maximize, Minimize, Monitor, ChevronRight, ChevronLeft, X, User, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useApp } from '@/contexts/AppContext';
 import { useTheme } from 'next-themes';
@@ -29,9 +29,15 @@ import {
 } from "@/components/ui/popover";
 import { toast } from "@/hooks/use-toast";
 import { AppSettingsService, SETTING_CATEGORIES } from '@/services/appSettingsService_database';
+import { LogoutButton } from '@/components/common/LogoutButton';
+import { useAuth } from '@/contexts/AuthContext';
 
-const Header: React.FC = () => {
-  const { sidebarOpen, setSidebarOpen, isFullscreen, toggleFullscreen, translate } = useApp();
+interface HeaderProps {
+  variant?: 'default' | 'hr';
+}
+
+const Header: React.FC<HeaderProps> = ({ variant = 'default' }) => {
+  const { sidebarOpen, setSidebarOpen, isFullscreen, toggleFullscreen, translate, currentUser } = useApp();
   const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -39,8 +45,11 @@ const Header: React.FC = () => {
   const [siteTitle, setSiteTitle] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [supabaseStatus, setSupabaseStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const { signOut } = useAuth();
   
   // Mock notifications data
   const [notifications, setNotifications] = useState([
@@ -141,6 +150,46 @@ const Header: React.FC = () => {
     };
   }, [isFullscreen, toggleFullscreen]);
 
+  // Online/offline banner + lightweight Supabase connectivity check
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const checkSupabase = async () => {
+      try {
+        setSupabaseStatus('loading');
+        const mod = await import('@/lib/supabaseClient');
+        const { supabase } = mod;
+        const { error } = await supabase.auth.getSession();
+        if (!mounted) return;
+        if (error) {
+          console.warn('Supabase check error:', error.message);
+          setSupabaseStatus('error');
+        } else {
+          setSupabaseStatus('ok');
+        }
+      } catch (e) {
+        console.warn('Supabase client not available or failed:', e);
+        if (mounted) setSupabaseStatus('error');
+      }
+    };
+    if (isOnline) {
+      checkSupabase();
+    } else {
+      setSupabaseStatus('error');
+    }
+    return () => { mounted = false; };
+  }, [isOnline]);
+
   // Load company_name, site_title and company_logo from App Settings (DB-backed with localStorage fallback)
   useEffect(() => {
     let mounted = true;
@@ -235,6 +284,20 @@ const Header: React.FC = () => {
     },
   ];
 
+  // HR-specific quick search actions
+  const hrSearchResults = [
+    {
+      heading: translate('HR Actions') || 'HR Actions',
+      items: [
+        { id: 'HR001', name: translate('Payroll Management') || 'Payroll Management', path: '/management/hr/payroll' },
+        { id: 'HR002', name: translate('Attendance Management') || 'Attendance Management', path: '/management/hr/attendance' },
+        { id: 'HR003', name: translate('Leave Management') || 'Leave Management', path: '/management/hr/leave' },
+        { id: 'HR004', name: translate('Salary Structure') || 'Salary Structure', path: '/management/hr/salary-structure' },
+        { id: 'HR005', name: translate('Staff Profiles') || 'Staff Profiles', path: '/management/staff/profile' },
+      ]
+    }
+  ];
+
   return (
     <header className={cn(
       "h-14 sm:h-16 flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-2 sm:px-4 bg-white dark:bg-gray-800",
@@ -246,41 +309,98 @@ const Header: React.FC = () => {
           <Menu className="h-4 w-4 sm:h-5 sm:w-5" />
         </Button>
         
-        {/* Desktop sidebar toggle */}
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          onClick={toggleSidebar} 
-          className="hidden lg:flex h-8 w-8 sm:h-10 sm:w-10"
-          title={sidebarOpen ? translate('Hide Sidebar') || 'Hide Sidebar' : translate('Show Sidebar') || 'Show Sidebar'}
-        >
-          {sidebarOpen ? <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" /> : <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5" />}
-        </Button>
+        {/* Desktop sidebar toggle (hidden on HR pages) */}
+        {variant !== 'hr' && (
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={toggleSidebar} 
+            className="hidden lg:flex h-8 w-8 sm:h-10 sm:w-10"
+            title={sidebarOpen ? translate('Hide Sidebar') || 'Hide Sidebar' : translate('Show Sidebar') || 'Show Sidebar'}
+          >
+            {sidebarOpen ? <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" /> : <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5" />}
+          </Button>
+        )}
         
-        {/* {(theme === 'dark' ? logoDarkUrl : logoUrl) && (
-          <img
-            src={theme === 'dark' && logoDarkUrl ? logoDarkUrl : logoUrl}
-            alt="Logo"
-            className="hidden md:block h-6 sm:h-8 w-auto mr-2"
-          />
-        )} */}
-        <div className="hidden md:block max-w-[240px] truncate text-xs sm:text-sm font-semibold text-gray-900 dark:text-white">
-          {companyName || siteTitle || translate('Travel Management System') || 'Travel Management System'}
-        </div>
-        <div className="relative flex-1 max-w-xs sm:max-w-sm md:max-w-md">
-          <Search className="absolute left-2 top-1/2 h-3 w-3 sm:h-4 sm:w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="search"
-            id="global-search"
-            name="globalSearch"
-            placeholder={isMobile ? `${translate('search')}...` : `${translate('search')}... (Ctrl+K)`}
-            className="pl-7 sm:pl-8 h-8 sm:h-9 w-full rounded-md border border-input bg-transparent px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => setOpen(true)}
-            readOnly
-          />
-        </div>
+        {variant === 'hr' ? (
+          <>
+            {(theme === 'dark' ? logoDarkUrl : logoUrl) ? (
+              <img
+                src={theme === 'dark' && logoDarkUrl ? logoDarkUrl : logoUrl}
+                alt="Logo"
+                className="hidden md:block h-6 sm:h-8 w-auto mr-2"
+              />
+            ) : (
+              <div className="hidden md:block max-w-[240px] truncate text-xs sm:text-sm font-semibold text-gray-900 dark:text-white mr-2">
+                {companyName || siteTitle || translate('HR Center') || 'HR Center'}
+              </div>
+            )}
+            <div className="relative flex-1 max-w-xs sm:max-w-sm md:max-w-md">
+              <Search className="absolute left-2 top-1/2 h-3 w-3 sm:h-4 sm:w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="search"
+                id="hr-search"
+                name="hrSearch"
+                placeholder={isMobile ? `${translate('Search HR actions')}...` : `${translate('Search HR actions')}... (Ctrl+K)`}
+                className="pl-7 sm:pl-8 h-8 sm:h-9 w-full rounded-md border border-input bg-transparent px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => setOpen(true)}
+                readOnly
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="hidden md:block max-w-[240px] truncate text-xs sm:text-sm font-semibold text-gray-900 dark:text-white">
+              {companyName || siteTitle || translate('Travel Management System') || 'Travel Management System'}
+            </div>
+            <div className="relative flex-1 max-w-xs sm:max-w-sm md:max-w-md">
+              <Search className="absolute left-2 top-1/2 h-3 w-3 sm:h-4 sm:w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="search"
+                id="global-search"
+                name="globalSearch"
+                placeholder={isMobile ? `${translate('search')}...` : `${translate('search')}... (Ctrl+K)`}
+                className="pl-7 sm:pl-8 h-8 sm:h-9 w-full rounded-md border border-input bg-transparent px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => setOpen(true)}
+                readOnly
+              />
+            </div>
+          </>
+        )}
       </div>
       
+      {variant === 'hr' ? (
+        <div className="flex items-center gap-2">
+          <div className="hidden sm:block text-sm font-medium text-gray-900 dark:text-white mr-1">
+            {currentUser?.name ? `${currentUser.name}` : translate('HR') || 'HR'}
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 text-gray-900 dark:text-white">
+                <User className="h-4 w-4 mr-1" />
+                {translate('Actions') || 'Actions'}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => navigate('/profile')} className="flex items-center gap-2">
+                <User className="h-4 w-4" />
+                <span>{translate('Profile') || 'Profile'}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/settings')} className="flex items-center gap-2">
+                <Settings className="h-4 w-4" />
+                <span>{translate('Settings') || 'Settings'}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={async () => { await signOut(); navigate('/login'); }}
+                className="flex items-center gap-2 text-destructive focus:text-destructive"
+              >
+                <X className="h-4 w-4" />
+                <span>{translate('Logout') || 'Logout'}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ) : (
       <div className="flex items-center gap-1 sm:gap-2">
         {/* DateTime Display - only show on large screens */}
         {!isMobile && (
@@ -410,13 +530,34 @@ const Header: React.FC = () => {
         <div className="hidden sm:block">
           <LanguageSwitcher />
         </div>
+        {/* Small connectivity warnings */}
+        {!isOnline && (
+          <div className="hidden sm:flex items-center px-2 py-1 rounded text-xs bg-amber-100 text-amber-800">
+            {translate('Offline') || 'Offline'}
+          </div>
+        )}
+        {isOnline && supabaseStatus === 'loading' && (
+          <div className="hidden sm:flex items-center px-2 py-1 rounded text-xs bg-slate-100 text-slate-700">
+            {translate('Checking Supabase...') || 'Checking Supabase...'}
+          </div>
+        )}
+        {isOnline && supabaseStatus === 'error' && (
+          <div className="hidden sm:flex items-center px-2 py-1 rounded text-xs bg-rose-100 text-rose-800">
+            {translate('Supabase connection issue') || 'Supabase connection issue'}
+          </div>
+        )}
       </div>
+      )}
 
       <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder={`${translate('search')} ${translate('for sightseeings, bookings, agents, hotels or enquiry numbers')}...` || `${translate('search')} for sightseeings, bookings, agents, hotels or enquiry numbers...`} />
+        {variant === 'hr' ? (
+          <CommandInput placeholder={`${translate('Search HR actions')}...` || `Search HR actions...`} />
+        ) : (
+          <CommandInput placeholder={`${translate('search')} ${translate('for sightseeings, bookings, agents, hotels or enquiry numbers')}...` || `${translate('search')} for sightseeings, bookings, agents, hotels or enquiry numbers...`} />
+        )}
         <CommandList>
           <CommandEmpty>{translate('No results found') || 'No results found'}.</CommandEmpty>
-          {searchResults.map((group) => (
+          {(variant === 'hr' ? hrSearchResults : searchResults).map((group) => (
             <CommandGroup key={group.heading} heading={group.heading}>
               {group.items.map((item) => (
                 <CommandItem 

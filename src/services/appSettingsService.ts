@@ -65,7 +65,7 @@ class AppSettingsService {
       // Guard: ensure we have an active session before calling getUser
       const { session, error: sessionError } = await authHelpers.getSession();
       if (sessionError || !session) {
-        console.warn('AppSettingsService: No active session — skipping settings check');
+        console.debug('AppSettingsService: No active session — skipping settings check');
         return false;
       }
 

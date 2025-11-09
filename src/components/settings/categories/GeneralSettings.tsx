@@ -13,6 +13,7 @@ import FaviconUpload from '@/components/settings/FaviconUpload';
 import AppLogoUpload from '@/components/settings/AppLogoUpload';
 import { useApp } from '@/contexts/AppContext';
 import { Save, RefreshCw, Globe, Clock, MapPin } from 'lucide-react';
+import CountryEnquiryManager from '@/components/admin/CountryEnquiryManager';
 
 interface GeneralSettingsProps {
   className?: string;
@@ -562,6 +563,9 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ className }) =
           </div>
         </CardContent>
       </Card>
+
+      {/* Country Enquiry Configuration */}
+      <CountryEnquiryManager />
 
       {/* Actions */}
       <div className="flex items-center justify-between">

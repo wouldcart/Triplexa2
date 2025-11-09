@@ -13,17 +13,18 @@ import PageLayout from "@/components/layout/PageLayout";
 import BreadcrumbNav from "@/components/navigation/BreadcrumbNav";
 import ProposalActions from "@/components/queries/ProposalActions";
 import { QueryAssignmentActions } from "@/components/queries/QueryAssignmentActions";
-import { AgentDetailsCard } from "@/components/queries/AgentDetailsCard";
+import { SupabaseAgentDetailsCard } from "@/components/queries/SupabaseAgentDetailsCard";
+import { getEnquiryById } from "@/services/enquiriesService";
 import EnquiryTimeline from "@/components/queries/workflow/EnquiryTimeline";
 import EnhancedStatusBadge from "@/components/queries/status/EnhancedStatusBadge";
 import EnhancedProposalService from "@/services/enhancedProposalService";
 import { 
   ArrowLeft, Calendar, Clock, Edit, FileText, Hotel, Map, Plane, 
-  User2, Users, MapPin, Phone, Mail, MessageSquare, Star,
+  User2, Users, MapPin, Star,
   DollarSign, Clock3, AlertTriangle, CheckCircle2, Eye, Send,
   Plus, Copy, Car, Landmark, Utensils
 } from "lucide-react";
-import { mockQueries, getQueryById, getProposalsByQueryId } from "@/data/queryData";
+import { getProposalsByQueryId } from "@/data/queryData";
 import { Query, Proposal } from "@/types/query";
 import { useToast } from "@/hooks/use-toast";
 import ProposalService from "@/services/proposalService";
@@ -51,66 +52,31 @@ const QueryDetails: React.FC = () => {
   const [selectedModules, setSelectedModules] = useState<any[]>([]);
   const [proposalState, setProposalState] = useState<any>(null);
 
+  // Fetch the query from Supabase (no localStorage fallback)
   useEffect(() => {
-    if (id) {
-      console.log('Loading query with ID:', id);
-      setIsLoading(true);
-      
-      // Try to load from localStorage first
-      try {
-        const savedQueries = localStorage.getItem('travel_queries');
-        let foundQuery: Query | undefined;
-        
-        if (savedQueries) {
-          const queries = JSON.parse(savedQueries);
-          foundQuery = queries.find((q: Query) => q.id === id);
-          console.log('Found query in localStorage:', foundQuery);
-        }
-        
-        // If not found in localStorage, try mock data
-        if (!foundQuery) {
-          foundQuery = mockQueries.find(q => q.id === id);
-          console.log('Found query in mock data:', foundQuery);
-        }
-        
-        // Also try alternative ID formats
-        if (!foundQuery) {
-          const numericId = id.replace(/\D/g, ''); // Extract numbers only
-          foundQuery = mockQueries.find(q => q.id.includes(numericId));
-          console.log('Found query with numeric match:', foundQuery);
-        }
-        
-        setQuery(foundQuery);
-        
-        if (foundQuery) {
-          // Load proposals from both mock data and ProposalService
-          const mockProposals = getProposalsByQueryId(foundQuery.id);
-          const savedProposals = ProposalService.getProposalsByQueryId(foundQuery.id);
-          
-          // Combine and deduplicate proposals
-          const allProposals = [...mockProposals, ...savedProposals];
-          const uniqueProposals = allProposals.filter((proposal, index, self) => 
-            index === self.findIndex(p => p.id === proposal.id)
-          );
-          
-          setProposals(uniqueProposals);
-          console.log('Loaded proposals:', uniqueProposals);
-
-          // For selectedModules, pick from first proposal if any, else empty
-          if (uniqueProposals.length > 0) {
-            setSelectedModules(uniqueProposals[0].modules || []);
-          } else {
-            setSelectedModules([]);
-          }
-        } else {
-          console.warn('Query not found:', id);
-        }
-      } catch (error) {
-        console.error('Error loading query:', error);
-      } finally {
-        setIsLoading(false);
+    if (!id) return;
+    setIsLoading(true);
+    (async () => {
+      const { data, error } = await getEnquiryById(id);
+      if (error) {
+        console.error('Error loading enquiry from Supabase:', error);
+        toast({ title: 'Failed to load enquiry', description: String(error), variant: 'destructive' });
       }
-    }
+      setQuery(data || undefined);
+      if (data) {
+        const mockProposals = getProposalsByQueryId(data.id);
+        const savedProposals = ProposalService.getProposalsByQueryId(data.id);
+        const allProposals = [...mockProposals, ...savedProposals];
+        const uniqueProposals = allProposals.filter((proposal, index, self) => 
+          index === self.findIndex(p => p.id === proposal.id)
+        );
+        setProposals(uniqueProposals);
+        setSelectedModules(uniqueProposals.length > 0 ? (uniqueProposals[0].modules || []) : []);
+      } else {
+        setSelectedModules([]);
+      }
+      setIsLoading(false);
+    })();
   }, [id]);
 
   const calculatePriority = (query: Query): 'low' | 'normal' | 'high' | 'urgent' => {
@@ -360,10 +326,21 @@ const QueryDetails: React.FC = () => {
                 {/* Travel Information with dark mode */}
                 <Card className="shadow-sm hover:shadow-md transition-shadow bg-card border-border">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-lg flex items-center gap-2 text-card-foreground">
-                      <Calendar className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                      Travel Information
-                    </CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg flex items-center gap-2 text-card-foreground">
+                        <Calendar className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                        Travel Information
+                      </CardTitle>
+                      {query?.travelDates?.isEstimated && (
+                        <Badge
+                          variant="outline"
+                          className="bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 flex items-center gap-1"
+                        >
+                          <Clock3 className="h-3 w-3" />
+                          Dates are estimated
+                        </Badge>
+                      )}
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -540,33 +517,11 @@ const QueryDetails: React.FC = () => {
               {/* Right Column - Agent Details and Actions */}
               <div className="lg:col-span-1 space-y-6">
                 {/* Agent Details */}
-                <AgentDetailsCard 
-                  agentId={query.agentId} 
-                  agentName={query.agentName} 
+                <SupabaseAgentDetailsCard 
+                  agentId={query?.agentUuid || ""}
+                  agentName={query?.agentName}
+                  agentCompany={query?.agentCompany}
                 />
-
-                {/* Quick Actions with dark mode */}
-                <Card className="shadow-sm bg-card border-border">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg text-card-foreground">Quick Actions</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="grid grid-cols-3 gap-2">
-                      <Button variant="outline" size="sm" className="flex flex-col items-center p-3 h-auto">
-                        <Phone className="h-4 w-4 mb-1" />
-                        <span className="text-xs">Call</span>
-                      </Button>
-                      <Button variant="outline" size="sm" className="flex flex-col items-center p-3 h-auto">
-                        <Mail className="h-4 w-4 mb-1" />
-                        <span className="text-xs">Email</span>
-                      </Button>
-                      <Button variant="outline" size="sm" className="flex flex-col items-center p-3 h-auto">
-                        <MessageSquare className="h-4 w-4 mb-1" />
-                        <span className="text-xs">Chat</span>
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
 
                 {/* Assignment Actions */}
                 <QueryAssignmentActions query={query} />

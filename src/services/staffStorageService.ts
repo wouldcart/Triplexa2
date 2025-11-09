@@ -1,6 +1,7 @@
 
 import { EnhancedStaffMember } from '@/types/staff';
 import { supabase } from '@/integrations/supabase/client';
+import { adminSupabase, isAdminClientConfigured } from '@/lib/supabaseClient';
 
 // Local storage source removed. Return empty array to avoid legacy fallback usage.
 export const getStoredStaff = (): EnhancedStaffMember[] => {
@@ -110,6 +111,38 @@ export const updateStaffMember = (id: string, updates: Partial<EnhancedStaffMemb
     const { error } = await supabase.from('profiles').update(payload).eq('id', id);
     if (error) console.error('Error updating staff in Supabase:', error);
   })().catch(e => console.error('Async error updating staff:', e));
+};
+
+/**
+ * Update status in both tables: `profiles.status` and `staff.status` for the same UUID.
+ * Returns detailed result so callers can handle partial failures gracefully.
+ */
+export const updateStaffStatusBothTables = async (
+  id: string,
+  status: 'active' | 'inactive' | 'on-leave'
+): Promise<{ profileError: any | null; staffError: any | null }> => {
+  const updated_at = new Date().toISOString();
+  const client: any = (isAdminClientConfigured && adminSupabase) ? adminSupabase : supabase;
+
+  // Update profiles.status
+  const { error: profileError } = await client
+    .from('profiles')
+    .update({ status, updated_at })
+    .eq('id', id);
+
+  // Update staff.status (table may not exist in some setups)
+  let staffError: any | null = null;
+  try {
+    const { error } = await client
+      .from('staff' as any)
+      .update({ status, updated_at })
+      .eq('id', id);
+    staffError = error || null;
+  } catch (e: any) {
+    staffError = e;
+  }
+
+  return { profileError, staffError };
 };
 
 export const deleteStaffMember = (id: string): void => {

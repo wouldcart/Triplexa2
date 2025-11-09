@@ -50,6 +50,7 @@ import SalesDashboard from '@/pages/dashboards/SalesDashboard';
 import ContentDashboard from '@/pages/dashboards/ContentDashboard';
 import SupportDashboard from '@/pages/dashboards/SupportDashboard';
 import FinanceDashboard from '@/pages/dashboards/FinanceDashboard';
+import StaffDashboard from '@/pages/dashboards/StaffDashboard';
 import AgentProfileModern from '@/pages/dashboards/agent/profile';
 
 // Profile page
@@ -95,11 +96,21 @@ import ViewHotel from './pages/inventory/hotels/ViewHotel';
 
 // Import transport inventory pages
 import TransportRoutesPage from './pages/inventory/transport/TransportRoutesPage';
-import SettingsPage from './pages/settings/SettingsPage';
+import SettingsPage from '@/pages/settings/SettingsPage';
 import TransportTypesPage from './pages/inventory/transport/TransportTypesPage';
 import LocationCodesPage from './pages/inventory/transport/LocationCodesPage';
 
 import HRDashboard from './pages/management/staff/HRDashboard';
+import HRLayout from './pages/management/hr/HRLayout';
+import PayrollPage from './pages/management/hr/PayrollPage';
+import LeavesPage from './pages/management/hr/LeavesPage';
+import AttendanceManagement from './pages/management/staff/hr/AttendanceManagement';
+import SalaryStructureManager from './pages/management/staff/hr/SalaryStructureManager';
+import StaffDocsVerification from './pages/management/hr/StaffDocsVerification';
+import BankVerification from './pages/management/hr/BankVerification';
+import Onboarding from './pages/management/hr/Onboarding';
+import Offboarding from './pages/management/hr/Offboarding';
+import ComplianceCenter from './pages/management/hr/ComplianceCenter';
 import NotFound from './pages/NotFound';
 
 // Import existing inventory pages
@@ -488,7 +499,18 @@ function App() {
         <Route path="/management/staff/:id" element={<ProtectedRoute><StaffProfile /></ProtectedRoute>} />
         <Route path="/management/staff/:id/edit" element={<ProtectedRoute><EditStaff /></ProtectedRoute>} />
         <Route path="/management/staff/edit/:id" element={<ProtectedRoute><EditStaff /></ProtectedRoute>} />
-        <Route path="/management/hr" element={<ProtectedRoute><HRDashboard /></ProtectedRoute>} />
+        <Route path="/management/hr" element={<ProtectedRoute><HRLayout /></ProtectedRoute>}>
+          <Route index element={<HRDashboard />} />
+          <Route path="payroll" element={<PayrollPage />} />
+          <Route path="leaves" element={<LeavesPage />} />
+          <Route path="attendance" element={<AttendanceManagement />} />
+          <Route path="salary" element={<SalaryStructureManager />} />
+          <Route path="staff-docs" element={<StaffDocsVerification />} />
+          <Route path="bank-verification" element={<BankVerification />} />
+          <Route path="onboarding" element={<Onboarding />} />
+          <Route path="offboarding" element={<Offboarding />} />
+          <Route path="compliance" element={<ComplianceCenter />} />
+        </Route>
         
         {/* Admin Management Routes */}
         <Route path="/management/admin" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AdminManagement /></ProtectedRoute>} />
@@ -505,6 +527,7 @@ function App() {
         <Route path="/dashboards/content" element={<ProtectedRoute><ContentDashboard /></ProtectedRoute>} />
         <Route path="/dashboards/support" element={<ProtectedRoute><SupportDashboard /></ProtectedRoute>} />
         <Route path="/dashboards/finance" element={<ProtectedRoute><FinanceDashboard /></ProtectedRoute>} />
+        <Route path="/dashboards/staff" element={<ProtectedRoute><StaffDashboard /></ProtectedRoute>} />
         
         {/* Sales Module Routes with Layout */}
         <Route path="/dashboards/sales" element={<ProtectedRoute><SalesLayout /></ProtectedRoute>}>

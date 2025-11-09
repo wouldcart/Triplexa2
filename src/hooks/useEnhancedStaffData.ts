@@ -1,36 +1,22 @@
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StaffMember } from '@/types/assignment';
-import { staffMembers } from '@/data/staffData';
+import { fetchEnhancedStaff } from '@/services/staffAssignmentService';
 
 export const useEnhancedStaffData = () => {
-  // Convert EnhancedStaffMember to StaffMember format for assignment system
-  const enhancedStaffMembers = useMemo(() => {
-    return staffMembers.map(staff => ({
-      id: parseInt(staff.id), // Convert string id to number
-      name: staff.name,
-      role: staff.role,
-      email: staff.email,
-      active: staff.status === 'active', // Convert status to active boolean
-      assigned: Math.floor(Math.random() * 8), // Mock assignment count
-      avatar: staff.avatar || '',
-      expertise: staff.skills || [], // Use skills as expertise
-      workloadCapacity: staff.department === 'Sales' ? 12 : 10,
-      availability: [
-        { day: 'Monday', isAvailable: true, workingHours: { start: '09:00', end: '17:00' } },
-        { day: 'Tuesday', isAvailable: true, workingHours: { start: '09:00', end: '17:00' } },
-        { day: 'Wednesday', isAvailable: true, workingHours: { start: '09:00', end: '17:00' } },
-        { day: 'Thursday', isAvailable: true, workingHours: { start: '09:00', end: '17:00' } },
-        { day: 'Friday', isAvailable: true, workingHours: { start: '09:00', end: '17:00' } },
-        { day: 'Saturday', isAvailable: false },
-        { day: 'Sunday', isAvailable: false },
-      ],
-      autoAssignEnabled: true,
-      sequenceOrder: parseInt(staff.id),
-      department: staff.department,
-      experience: Math.floor(Math.random() * 5) + 2, // 2-7 years
-      specializations: staff.skills || []
-    }));
+  const [enhancedStaffMembers, setEnhancedStaffMembers] = useState<StaffMember[]>([]);
+
+  useEffect(() => {
+    let ignore = false;
+    (async () => {
+      try {
+        const staff = await fetchEnhancedStaff();
+        if (!ignore) setEnhancedStaffMembers(staff);
+      } catch (e) {
+        if (!ignore) setEnhancedStaffMembers([]);
+      }
+    })();
+    return () => { ignore = true; };
   }, []);
 
   const activeStaff = useMemo(() => {
@@ -85,12 +71,12 @@ export const useEnhancedStaffData = () => {
   return {
     activeStaff,
     allStaff: enhancedStaffMembers,
-    enhancedStaffMembers, // Add this property that other hooks are looking for
+    enhancedStaffMembers,
     getBestStaffForQuery,
     getStaffByDepartment,
     getAvailableStaff,
     totalActiveStaff: activeStaff.length,
-    totalAvailableCapacity: activeStaff.reduce((sum, staff) => 
+    totalAvailableCapacity: activeStaff.reduce((sum, staff) =>
       sum + (staff.workloadCapacity - staff.assigned), 0
     )
   };

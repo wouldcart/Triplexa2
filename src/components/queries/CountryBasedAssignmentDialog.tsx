@@ -17,7 +17,7 @@ import { Query } from '@/types/query';
 import { useActiveStaffData } from '@/hooks/useActiveStaffData';
 import { useQueryAssignment } from '@/hooks/useQueryAssignment';
 import { findStaffByCountry, getAssignmentReason } from '@/services/countryAssignmentService';
-import { getStaffOperationalCountries } from '@/services/countryMappingService';
+import { useRealTimeCountriesData } from '@/hooks/useRealTimeCountriesData';
 
 interface CountryBasedAssignmentDialogProps {
   open: boolean;
@@ -33,6 +33,9 @@ export const CountryBasedAssignmentDialog: React.FC<CountryBasedAssignmentDialog
   const { activeStaff } = useActiveStaffData();
   const { assignQueryToStaff, isAssigning } = useQueryAssignment();
   const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
+  const { getCountryById } = useRealTimeCountriesData();
+  const mapIdsToCountryNames = (values: string[]): string[] =>
+    (values || []).map(v => getCountryById(v)?.name || v).filter(Boolean) as string[];
 
   const staffMatches = useMemo(() => {
     if (!query) return [];
@@ -47,7 +50,7 @@ export const CountryBasedAssignmentDialog: React.FC<CountryBasedAssignmentDialog
   const handleAssign = () => {
     if (!selectedStaffId || !query) return;
     
-    assignQueryToStaff(query.id, selectedStaffId);
+    assignQueryToStaff(query, selectedStaffId);
     onOpenChange(false);
     setSelectedStaffId(null);
   };
@@ -80,7 +83,7 @@ export const CountryBasedAssignmentDialog: React.FC<CountryBasedAssignmentDialog
               
               <div className="space-y-2">
                 {perfectMatches.map(({ staff, workloadRatio, score }) => {
-                  const operationalCountries = getStaffOperationalCountries(staff.operationalCountries || []);
+                  const operationalCountries = mapIdsToCountryNames(staff.operationalCountries || []);
                   
                   return (
                     <Card 
@@ -159,7 +162,7 @@ export const CountryBasedAssignmentDialog: React.FC<CountryBasedAssignmentDialog
               
               <div className="space-y-2">
                 {otherMatches.slice(0, 3).map(({ staff, workloadRatio, score }) => {
-                  const operationalCountries = getStaffOperationalCountries(staff.operationalCountries || []);
+                  const operationalCountries = mapIdsToCountryNames(staff.operationalCountries || []);
                   
                   return (
                     <Card 

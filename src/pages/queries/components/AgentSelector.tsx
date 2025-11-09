@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -17,8 +17,8 @@ import {
 import { Check, ChevronDown, User, MapPin, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { useEnhancedAgentData } from "@/hooks/useEnhancedAgentData";
-import { Agent } from "@/types/agent";
+import { useSupabaseAgentsList } from "@/hooks/useSupabaseAgentsList";
+import { toNumericAgentId } from "@/utils/supabaseAgentIds";
 
 interface AgentSelectorProps {
   value: string;
@@ -38,39 +38,42 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
   queryId
 }) => {
   const [open, setOpen] = useState(false);
-  const { activeAgents, getAgentsByCountry, getAgentsByCity, getHighPerformingAgents, loading, sources } = useEnhancedAgentData(queryId);
+  const { agents, loading, error } = useSupabaseAgentsList();
 
-  // Filter agents based on location filters
-  const filteredAgents = React.useMemo(() => {
-    let agents = activeAgents;
-
+  // Filter agents based on location filters (Supabase-backed)
+  const filteredAgents = useMemo(() => {
+    let list = agents;
     if (countryFilter) {
-      const countryAgents = getAgentsByCountry(countryFilter);
-      if (countryAgents.length > 0) {
-        agents = countryAgents;
-      }
+      const cf = countryFilter.toLowerCase();
+      const byCountry = list.filter(a => (a.country || '').toLowerCase() === cf);
+      if (byCountry.length > 0) list = byCountry;
     }
-
     if (cityFilter) {
-      const cityAgents = getAgentsByCity(cityFilter);
-      if (cityAgents.length > 0) {
-        agents = cityAgents;
-      }
+      const ct = cityFilter.toLowerCase();
+      const byCity = list.filter(a => (a.city || '').toLowerCase() === ct);
+      if (byCity.length > 0) list = byCity;
     }
+    return list;
+  }, [agents, countryFilter, cityFilter]);
 
-    return agents;
-  }, [activeAgents, countryFilter, cityFilter, getAgentsByCountry, getAgentsByCity]);
+  // Supabase stats are not yet populated; provide simple top suggestions
+  const highPerformers = useMemo(() => filteredAgents.slice(0, 3), [filteredAgents]);
 
-  // Get high-performing agents for suggestions
-  const highPerformers = getHighPerformingAgents().slice(0, 3);
+  const selectedAgent = useMemo(() => {
+    const numeric = Number.parseInt(value || '');
+    return filteredAgents.find(a => toNumericAgentId(a.id) === numeric);
+  }, [filteredAgents, value]);
 
-  const selectedAgent = filteredAgents.find(agent => agent.id.toString() === value);
-
-  const renderAgentItem = (agent: Agent) => (
+  const renderAgentItem = (agent: { id: string; name: string; email?: string; city?: string; country?: string; agencyName?: string; stats?: any }) => (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between">
         <span className="font-medium">{agent.name}</span>
-        {agent.stats.conversionRate > 20 && (
+        {agent.agencyName && (
+          <Badge variant="outline" className="text-xs ml-2">
+            {agent.agencyName}
+          </Badge>
+        )}
+        {agent?.stats?.conversionRate > 20 && (
           <Badge variant="secondary" className="text-xs">
             <TrendingUp className="h-3 w-3 mr-1" />
             Top Performer
@@ -78,18 +81,20 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
         )}
       </div>
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span>{agent.email}</span>
-        <span>•</span>
+        {agent.email && <span>{agent.email}</span>}
+        {agent.email && <span>•</span>}
         <div className="flex items-center gap-1">
           <MapPin className="h-3 w-3" />
-          <span>{agent.city}, {agent.country}</span>
+          <span>{agent.city || 'Unknown'}, {agent.country || 'Unknown'}</span>
         </div>
       </div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span>Conversion: {agent.stats.conversionRate}%</span>
-        <span>•</span>
-        <span>Bookings: {agent.stats.totalBookings}</span>
-      </div>
+      {agent?.stats && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Conversion: {agent.stats.conversionRate}%</span>
+          <span>•</span>
+          <span>Bookings: {agent.stats.totalBookings}</span>
+        </div>
+      )}
     </div>
   );
 
@@ -126,12 +131,7 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
           <CommandInput placeholder="Search agents..." />
           <CommandList>
             <CommandEmpty>
-              {loading ? "Loading agents..." : "No agent found."}
-              {!loading && (
-                <div className="text-xs text-muted-foreground mt-2">
-                  Sources: Local ({sources.local}) • API ({sources.api}) • Query ({sources.query})
-                </div>
-              )}
+              {loading ? "Loading agents..." : error ? "Failed to load agents." : "No agent found."}
             </CommandEmpty>
             
             {highPerformers.length > 0 && (
@@ -141,14 +141,15 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
                     key={agent.id}
                     value={agent.name}
                     onSelect={() => {
-                      onValueChange(agent.id.toString());
+                      const numId = toNumericAgentId(agent.id);
+                      onValueChange(numId.toString());
                       setOpen(false);
                     }}
                   >
                     <Check
                       className={cn(
                         "mr-2 h-4 w-4",
-                        value === agent.id.toString()
+                        Number.parseInt(value || '') === toNumericAgentId(agent.id)
                           ? "opacity-100"
                           : "opacity-0"
                       )}
@@ -165,14 +166,15 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
                   key={agent.id}
                   value={agent.name}
                   onSelect={() => {
-                    onValueChange(agent.id.toString());
+                    const numId = toNumericAgentId(agent.id);
+                    onValueChange(numId.toString());
                     setOpen(false);
                   }}
                 >
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === agent.id.toString()
+                      Number.parseInt(value || '') === toNumericAgentId(agent.id)
                         ? "opacity-100"
                         : "opacity-0"
                     )}

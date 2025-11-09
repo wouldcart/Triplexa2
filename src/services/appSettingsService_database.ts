@@ -122,6 +122,7 @@ class AppSettingsService {
       if (error) {
         const errorMessage = error.message?.toLowerCase() || '';
         const errorCode = error.code || '';
+        const isNetworkFetchError = errorMessage.includes('failed to fetch') || errorMessage.includes('network') || errorMessage.includes('fetch');
         
         // Common error conditions that indicate table issues
         if (
@@ -135,11 +136,20 @@ class AppSettingsService {
           console.warn('AppSettingsService: Database table not accessible, using localStorage fallback');
           return false;
         }
+
+        // Network connectivity issues: mark DB inaccessible to avoid repeated attempts
+        if (isNetworkFetchError) {
+          console.warn('AppSettingsService: Network error accessing database, falling back to localStorage');
+          this.markDatabaseInaccessible();
+          return false;
+        }
       }
       
       return !error;
     } catch (err) {
       console.warn('AppSettingsService: Error checking table existence, using localStorage fallback:', err);
+      // On unexpected network/type errors, mark inaccessible to prevent repeated attempts
+      this.markDatabaseInaccessible();
       return false;
     }
   }
@@ -150,12 +160,22 @@ class AppSettingsService {
       // Guard: ensure we have an active session before calling getUser
       const { session, error: sessionError } = await authHelpers.getSession();
       if (sessionError || !session) {
-        console.info('AppSettingsService (DB): No active session — using localStorage fallback');
+        const msg = (sessionError?.message || '').toLowerCase();
+        if (msg.includes('failed to fetch') || msg.includes('err_aborted') || msg.includes('network')) {
+          console.warn('AppSettingsService (DB): Network error during getSession. Marking DB inaccessible temporarily.');
+          this.markDatabaseInaccessible();
+        }
+        console.debug('AppSettingsService (DB): No active session — using localStorage fallback');
         return false;
       }
 
       const { user, error: userError } = await authHelpers.getUser();
       if (userError) {
+        const msg = (userError?.message || '').toLowerCase();
+        if (msg.includes('failed to fetch') || msg.includes('err_aborted') || msg.includes('network')) {
+          console.warn('AppSettingsService (DB): Network error during getUser. Marking DB inaccessible temporarily.');
+          this.markDatabaseInaccessible();
+        }
         console.warn('AppSettingsService (DB): getUser error handled:', userError?.message || userError);
         return false;
       }
@@ -168,6 +188,7 @@ class AppSettingsService {
       if (roleError) {
         const errorCode = roleError.code || '';
         const errorMessage = roleError.message?.toLowerCase() || '';
+        const isNetworkFetchError = errorMessage.includes('failed to fetch') || errorMessage.includes('err_aborted') || errorMessage.includes('network');
         
         // Handle specific error codes that indicate database access issues
         if (
@@ -181,6 +202,10 @@ class AppSettingsService {
           console.warn('❌ AppSettingsService (DB): Database function not accessible, using localStorage fallback:', roleError);
           this.markDatabaseInaccessible();
         } else {
+          if (isNetworkFetchError) {
+            console.warn('❌ AppSettingsService (DB): Network error during role check. Marking DB inaccessible.');
+            this.markDatabaseInaccessible();
+          }
           console.error('❌ AppSettingsService (DB): Error getting user role:', roleError);
         }
         return false;
@@ -385,6 +410,7 @@ class AppSettingsService {
         if (error) {
           const errorCode = error.code || '';
           const errorMessage = error.message?.toLowerCase() || '';
+          const isNetworkFetchError = errorMessage.includes('failed to fetch') || errorMessage.includes('network') || errorMessage.includes('fetch');
           
           // Handle specific error codes that indicate database access issues
           if (
@@ -396,7 +422,13 @@ class AppSettingsService {
             console.warn('AppSettingsService: Database access issue, using localStorage fallback:', error);
             this.markDatabaseInaccessible();
           } else {
-            console.error('AppSettingsService: Database error, falling back to localStorage:', error);
+            // Network or transient errors: mark inaccessible to avoid repeated attempts for a short period
+            if (isNetworkFetchError) {
+              console.warn('AppSettingsService: Network error (Failed to fetch). Using localStorage and caching inaccessibility.');
+              this.markDatabaseInaccessible();
+            } else {
+              console.error('AppSettingsService: Database error, falling back to localStorage:', error);
+            }
           }
           
           return this.getSettingFromStorage(category, settingKey);
@@ -423,6 +455,84 @@ class AppSettingsService {
         // Use localStorage fallback
         return this.getSettingFromStorage(category, settingKey);
       }
+    } catch (error: any) {
+      return {
+        data: null,
+        error: error.message,
+        success: false
+      };
+    }
+  }
+
+  // Get a single setting by its UUID (database or storage fallback)
+  static async getSettingById(id: string): Promise<AppSettingsServiceResponse<AppSetting | null>> {
+    try {
+      // Check if database is accessible from cache first
+      if (!this.isDatabaseAccessible()) {
+        return this.getSettingByIdFromStorage(id);
+      }
+
+      const hasPermission = await this.checkPermissions();
+      if (!hasPermission) {
+        this.markDatabaseInaccessible();
+        return this.getSettingByIdFromStorage(id);
+      }
+
+      const tableExists = await this.checkTableExists();
+      if (tableExists) {
+        const { data, error } = await (supabase as any)
+          .from('app_settings')
+          .select('*')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (error) {
+          const errorCode = error.code || '';
+          const errorMessage = error.message?.toLowerCase() || '';
+          const isNetworkFetchError = errorMessage.includes('failed to fetch') || errorMessage.includes('network') || errorMessage.includes('fetch');
+
+          if (
+            errorCode === '406' ||
+            errorCode === 'PGRST301' ||
+            errorMessage.includes('not acceptable') ||
+            errorMessage.includes('permission denied')
+          ) {
+            this.markDatabaseInaccessible();
+          } else if (isNetworkFetchError) {
+            this.markDatabaseInaccessible();
+          }
+          return this.getSettingByIdFromStorage(id);
+        }
+
+        this.markDatabaseAccessible();
+        return {
+          data: (data as AppSetting) || null,
+          error: null,
+          success: true
+        };
+      } else {
+        return this.getSettingByIdFromStorage(id);
+      }
+    } catch (error: any) {
+      return {
+        data: null,
+        error: error.message,
+        success: false
+      };
+    }
+  }
+
+  // Get setting by ID from localStorage
+  static async getSettingByIdFromStorage(id: string): Promise<AppSettingsServiceResponse<AppSetting | null>> {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
+      const setting = settings.find(s => s.id === id) || null;
+      return {
+        data: setting,
+        error: null,
+        success: true
+      };
     } catch (error: any) {
       return {
         data: null,
@@ -593,6 +703,90 @@ class AppSettingsService {
         // Use localStorage fallback
         return this.updateSettingInStorage(category, settingKey, updates, userId);
       }
+    } catch (error: any) {
+      return {
+        data: null,
+        error: error.message,
+        success: false
+      };
+    }
+  }
+
+  // Update setting by ID
+  static async updateSettingById(
+    id: string,
+    updates: AppSettingUpdate
+  ): Promise<AppSettingsServiceResponse<AppSetting | null>> {
+    try {
+      const hasPermission = await this.checkPermissions();
+      const { session } = await authHelpers.getSession();
+      const userId = session?.user?.id;
+      if (!hasPermission) {
+        return this.updateSettingByIdInStorage(id, updates, userId);
+      }
+      const tableExists = await this.checkTableExists();
+      if (tableExists) {
+        const { data, error } = await (supabase as any)
+          .from('app_settings')
+          .update({
+            ...updates,
+            updated_by: userId
+          })
+          .eq('id', id)
+          .select()
+          .maybeSingle();
+
+        if (error) {
+          console.error('Database error updating by ID, falling back to localStorage:', error);
+          return this.updateSettingByIdInStorage(id, updates, userId);
+        }
+
+        return {
+          data: (data as AppSetting) || null,
+          error: null,
+          success: true
+        };
+      } else {
+        return this.updateSettingByIdInStorage(id, updates, userId);
+      }
+    } catch (error: any) {
+      return {
+        data: null,
+        error: error.message,
+        success: false
+      };
+    }
+  }
+
+  // Update setting by ID in localStorage
+  static async updateSettingByIdInStorage(
+    id: string,
+    updates: AppSettingUpdate,
+    userId?: string
+  ): Promise<AppSettingsServiceResponse<AppSetting | null>> {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
+      const idx = settings.findIndex(s => s.id === id);
+      if (idx === -1) {
+        return {
+          data: null,
+          error: 'Setting not found',
+          success: false
+        };
+      }
+      settings[idx] = {
+        ...settings[idx],
+        ...updates,
+        updated_at: new Date().toISOString(),
+        updated_by: userId
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+      return {
+        data: settings[idx],
+        error: null,
+        success: true
+      };
     } catch (error: any) {
       return {
         data: null,

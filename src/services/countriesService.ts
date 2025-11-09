@@ -6,6 +6,15 @@ export type CountryRow = Tables<'countries'>;
 export type CountryInsert = TablesInsert<'countries'>;
 export type CountryUpdate = TablesUpdate<'countries'>;
 
+// Reduce complex type inference by using a simple alias for augmented rows
+export type CountryWithCityCount = CountryRow & { city_count: number };
+
+// Helper to avoid deep type instantiation when spreading complex Supabase row types
+const toCountryWithCityCount = (country: CountryRow, cityCount: number): CountryWithCityCount => {
+  const base = country as unknown as {};
+  return { ...base, city_count: cityCount } as CountryWithCityCount;
+};
+
 export interface CountryServiceResponse<T = any> {
   data: T | null;
   error: string | null;
@@ -13,6 +22,13 @@ export interface CountryServiceResponse<T = any> {
 }
 
 export class CountriesService {
+  // Helper to perform a lightweight head count query without triggering deep generic instantiation
+  private static async fetchCitiesHeadCount(countryName: string): Promise<number> {
+    const res = await (supabase.from('cities') as any)
+      .select('*', { count: 'exact', head: true })
+      .eq('country', countryName) as { count: number | null };
+    return res.count ?? 0;
+  }
   /**
    * Fetch all countries from the database (User-facing version)
    */
@@ -850,7 +866,7 @@ export class CountriesService {
   /**
    * Get countries with city count for better integration
    */
-  static async getCountriesWithCityCount(): Promise<CountryServiceResponse<(CountryRow & { city_count: number })[]>> {
+  static async getCountriesWithCityCount(): Promise<CountryServiceResponse<CountryWithCityCount[]>> {
     try {
       const { data, error } = await supabase
         .from('countries')
@@ -867,17 +883,13 @@ export class CountriesService {
       }
 
       // Manually count cities for each country
-      const transformedData = await Promise.all(
-        (data || []).map(async (country) => {
-          const { count } = await supabase
-            .from('cities')
-            .select('*', { count: 'exact', head: true })
-            .eq('country', country.name);
-          
-          return {
-            ...country,
-            city_count: count || 0
-          };
+      const countriesData = (data || []) as CountryRow[];
+      const transformedData: CountryWithCityCount[] = await Promise.all(
+        countriesData.map(async (country) => {
+          // Extract name with light typing to avoid deep instantiation on CountryRow
+          const countryName: string = (country as any).name as string;
+          const count = await CountriesService.fetchCitiesHeadCount(countryName);
+          return toCountryWithCityCount(country, count);
         })
       );
 

@@ -57,6 +57,60 @@ export class AgentManagementService {
       localStorage.setItem('managed_agents_fallback', JSON.stringify(agents));
     } catch {}
   }
+  
+  // Normalize array-like fields that may arrive as JSON strings or Postgres array literals
+  private static normalizeArrayField(val: any): string[] | undefined {
+    if (val == null) return undefined;
+    if (Array.isArray(val)) {
+      return val.map((v) => (v == null ? '' : String(v))).filter(Boolean);
+    }
+    if (typeof val === 'string') {
+      const s = val.trim();
+      if (!s) return undefined;
+      // JSON array string: ["a","b"]
+      if (s.startsWith('[') && s.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(s);
+          return Array.isArray(parsed)
+            ? parsed.map((v: any) => (v == null ? '' : String(v))).filter(Boolean)
+            : undefined;
+        } catch {}
+      }
+      // Postgres array literal: {a,b,c} or {"a","b"}
+      if (s.startsWith('{') && s.endsWith('}')) {
+        const inner = s.slice(1, -1);
+        const rawItems = inner.length ? inner.split(',') : [];
+        return rawItems
+          .map((item) => item.trim().replace(/^"(.*)"$/, '$1').replace(/\\"/g, '"'))
+          .filter(Boolean);
+      }
+      // Fallback: single string value
+      return [s];
+    }
+    return undefined;
+  }
+
+  // Normalize commission_structure when it comes as jsonb or JSON string
+  private static normalizeCommissionStructure(val: any): { type?: string; value?: number } | undefined {
+    if (val == null) return undefined;
+    let obj = val;
+    if (typeof obj === 'string') {
+      const s = obj.trim();
+      if (!s) return undefined;
+      try {
+        obj = JSON.parse(s);
+      } catch {
+        return undefined;
+      }
+    }
+    if (typeof obj === 'object') {
+      const type = (obj as any)?.type;
+      const rawValue = (obj as any)?.value;
+      const value = typeof rawValue === 'string' ? Number(rawValue) : rawValue;
+      return { type, value };
+    }
+    return undefined;
+  }
   // Get all agents with optional filters (public.agents merged with profiles)
   static async getAgents(filters?: AgentFilters): Promise<{ data: ManagedAgent[] | null; error: any }> {
     try {
@@ -192,7 +246,7 @@ export class AgentManagementService {
       const { data: agentCore, error: agentError } = await (client as any)
         .from('agents' as any)
         // Read all relevant agent-owned columns
-        .select('id,user_id,status,created_at,updated_at,created_by,source_type,source_details,agency_name,agency_code,name,email,country,city,preferred_language,business_type,commission_type,commission_value,profile_image,business_phone,business_address,license_number,iata_number,specializations,website,alternate_email,mobile_numbers,documents,suspension_reason,suspended_at,suspended_by')
+        .select('id,user_id,status,created_at,updated_at,created_by,source_type,source_details,agency_name,agency_code,name,email,country,city,preferred_language,business_type,commission_type,commission_value,commission_structure,profile_image,business_phone,business_address,license_number,iata_number,specializations,website,alternate_email,mobile_numbers,documents,suspension_reason,suspended_at,suspended_by')
         .eq('id', id)
         .maybeSingle();
 
@@ -268,7 +322,7 @@ export class AgentManagementService {
         try {
           const { data: byUser } = await (client as any)
             .from('agents' as any)
-            .select('id,status,created_at,updated_at,created_by,source_type,source_details,agency_name,name,email,country,city,preferred_language,business_type,commission_type,commission_value,profile_image,business_phone,business_address,license_number,iata_number,specializations,website,alternate_email,mobile_numbers,documents,suspension_reason,suspended_at,suspended_by,user_id')
+            .select('id,status,created_at,updated_at,created_by,source_type,source_details,agency_name,name,email,country,city,preferred_language,business_type,commission_type,commission_value,commission_structure,profile_image,business_phone,business_address,license_number,iata_number,specializations,website,alternate_email,mobile_numbers,documents,suspension_reason,suspended_at,suspended_by,user_id')
             .eq('user_id', id)
             .maybeSingle();
           if (byUser) {
@@ -287,6 +341,7 @@ export class AgentManagementService {
               type: (byUser as any)?.business_type || undefined,
               commission_type: (byUser as any)?.commission_type || undefined,
               commission_value: (byUser as any)?.commission_value || undefined,
+              commission_structure: AgentManagementService.normalizeCommissionStructure((byUser as any)?.commission_structure) || undefined,
               source_type: (byUser as any)?.source_type,
               source_details: (byUser as any)?.source_details,
               created_by: (byUser as any)?.created_by,
@@ -298,16 +353,23 @@ export class AgentManagementService {
               business_address: (byUser as any)?.business_address || undefined,
               license_number: (byUser as any)?.license_number || undefined,
               iata_number: (byUser as any)?.iata_number || undefined,
-              specializations: (byUser as any)?.specializations || undefined,
+              specializations: AgentManagementService.normalizeArrayField((byUser as any)?.specializations) || undefined,
               preferred_language: (byUser as any)?.preferred_language ?? undefined,
               alternate_email: (byUser as any)?.alternate_email || undefined,
               website: (byUser as any)?.website || undefined,
               partnership: (byUser as any)?.partnership || undefined,
-              mobile_numbers: (byUser as any)?.mobile_numbers || undefined,
+              mobile_numbers: AgentManagementService.normalizeArrayField((byUser as any)?.mobile_numbers) || undefined,
+              documents: AgentManagementService.normalizeArrayField((byUser as any)?.documents) || undefined,
               suspension_reason: (byUser as any)?.suspension_reason ?? undefined,
               suspended_at: (byUser as any)?.suspended_at ?? undefined,
               suspended_by: (byUser as any)?.suspended_by ?? undefined,
             };
+            if (!merged.commission_type && merged.commission_structure?.type) {
+              merged.commission_type = merged.commission_structure.type as any;
+            }
+            if ((merged.commission_value == null || merged.commission_value === undefined) && merged.commission_structure?.value != null) {
+              merged.commission_value = merged.commission_structure.value as any;
+            }
             return { data: merged, error: null };
           }
         } catch {}
@@ -397,6 +459,7 @@ export class AgentManagementService {
         type: (agentCore as any)?.business_type || undefined,
         commission_type: (agentCore as any)?.commission_type || undefined,
         commission_value: (agentCore as any)?.commission_value || undefined,
+        commission_structure: AgentManagementService.normalizeCommissionStructure((agentCore as any)?.commission_structure) || undefined,
         source_type: (agentCore as any)?.source_type,
         source_details: (agentCore as any)?.source_details,
         created_by: (agentCore as any)?.created_by,
@@ -409,17 +472,26 @@ export class AgentManagementService {
         business_address: (agentCore as any)?.business_address || undefined,
         license_number: (agentCore as any)?.license_number || undefined,
         iata_number: (agentCore as any)?.iata_number || undefined,
-        specializations: (agentCore as any)?.specializations || undefined,
+        specializations: AgentManagementService.normalizeArrayField((agentCore as any)?.specializations) || undefined,
         preferred_language: (agentCore as any)?.preferred_language ?? undefined,
         alternate_email: (agentCore as any)?.alternate_email || undefined,
         website: (agentCore as any)?.website || undefined,
         partnership: (agentCore as any)?.partnership || undefined,
         // note: mobile_numbers in agentCore is array or null
-        mobile_numbers: (agentCore as any)?.mobile_numbers || undefined,
+        mobile_numbers: AgentManagementService.normalizeArrayField((agentCore as any)?.mobile_numbers) || undefined,
+        documents: AgentManagementService.normalizeArrayField((agentCore as any)?.documents) || undefined,
         suspension_reason: (agentCore as any)?.suspension_reason ?? undefined,
         suspended_at: (agentCore as any)?.suspended_at ?? undefined,
         suspended_by: (agentCore as any)?.suspended_by ?? undefined,
       };
+
+      // Derive commission_type/value from commission_structure for UI if missing
+      if (!merged.commission_type && merged.commission_structure?.type) {
+        merged.commission_type = merged.commission_structure.type as any;
+      }
+      if ((merged.commission_value == null || merged.commission_value === undefined) && merged.commission_structure?.value != null) {
+        merged.commission_value = merged.commission_structure.value as any;
+      }
 
       return { data: merged, error: null };
     } catch (error) {
@@ -437,21 +509,45 @@ export class AgentManagementService {
       let creatorProfile: { id: string; name?: string; role?: string; email?: string } | null = null;
       if (user?.id) {
         try {
-          const { data: cp } = await supabase.from('profiles').select('id,name,role,email').eq('id', user.id).maybeSingle();
+          const { data: cp } = await supabase
+            .from('profiles')
+            .select('id,name,role,email')
+            .eq('id', user.id)
+            .maybeSingle();
           creatorProfile = (cp as any) || null;
         } catch {}
       }
 
-      // Use admin client to create user, profile, and agent records to bypass RLS
-      // If admin client is not available (browser/dev env), gracefully fall back to local storage
-      if (!isAdminClientConfigured || !adminSupabase) {
-        const now = new Date().toISOString();
-        const creatorLabel = (creatorProfile?.role || '').toLowerCase() === 'admin' ? 'Admin' : 'Staff';
-        const sourceDetails = creatorProfile
-          ? `Created by ${creatorLabel}: ${creatorProfile.name || creatorProfile.email || ''}`
-          : (user?.email ? `Created by: ${user.email}` : 'Created internally');
+      const creatorLabel = (creatorProfile?.role || '').toLowerCase() === 'admin' ? 'Admin' : 'Staff';
+      const sourceDetails = creatorProfile
+        ? `Created by ${creatorLabel}: ${creatorProfile.name || creatorProfile.email || ''}`
+        : (user?.email ? `Created by: ${user.email}` : 'Created internally');
 
-        // Generate a local id for temporary storage (will be reconciled when the agent signs up/logs in)
+      // Determine primary staff to assign
+      const primaryStaffId = agentData.primary_staff_id || creatorProfile?.id || user?.id || null;
+
+      // Attempt transactional creation via RPC
+      const { data: rpcData, error: rpcError } = await (supabase as any).rpc('create_new_agent', {
+        p_name: agentData.name,
+        p_email: agentData.email,
+        p_phone: agentData.phone ?? null,
+        p_company_name: agentData.company_name ?? null,
+        p_agency_code: (agentData as any)?.agency_code ?? null,
+        p_country: null,
+        p_city: null,
+        p_business_type: null,
+        p_source_type: 'other',
+        p_source_details: sourceDetails,
+        p_staff_id: primaryStaffId ?? null,
+        p_notes: agentData.notes ?? null,
+      });
+
+      // Fallback: local storage when RPC fails hard (e.g., missing function or permission)
+      if (rpcError || !rpcData || (rpcData as any)?.ok === false) {
+        const errorMsg = (rpcError as any)?.message || (rpcData as any)?.error || 'Failed to create agent';
+
+        // Soft fallback to local storage to keep UI responsive in dev
+        const now = new Date().toISOString();
         const localId = (typeof crypto !== 'undefined' && (crypto as any).randomUUID)
           ? (crypto as any).randomUUID()
           : `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -471,155 +567,48 @@ export class AgentManagementService {
           login_credentials: {},
           created_at: now,
           updated_at: now,
-          // Optional extended fields default undefined
-          country: undefined,
-          city: undefined,
-          type: undefined,
         } as ManagedAgent;
 
         const stored = this.readAgentsFromStorage();
         stored.unshift(newAgent);
         this.writeAgentsToStorage(stored);
 
-        return { data: newAgent, error: null };
+        return { data: newAgent, error: errorMsg };
       }
 
-      const adminAuth = (adminSupabase as any).auth.admin;
+      const result = rpcData as any;
+      const agentId: string | undefined = result?.agent_id ? String(result.agent_id) : undefined;
 
-      // Check if user already exists (Supabase JS v2 does not provide getUserByEmail)
-      // Use listUsers and filter by email instead
-      let userId: string | undefined;
-      try {
-        const { data: users, error: listErr } = await adminAuth.listUsers();
-        if (listErr) {
-          console.warn('Error listing users:', listErr.message);
-        } else {
-          const existing = users?.users?.find((u: any) => String(u.email || '').toLowerCase() === String(agentData.email || '').toLowerCase());
-          userId = existing?.id;
+      if (!agentId) {
+        // If server reported an existing agent, try to fetch it
+        const existingId = result?.agent_id ? String(result.agent_id) : undefined;
+        if (existingId) {
+          const existing = await this.getAgentById(existingId);
+          return { data: existing.data, error: null };
         }
-      } catch (e: any) {
-        console.warn('Error checking for existing user via listUsers:', e?.message || e);
+        return { data: null, error: 'Agent creation returned no ID' };
       }
 
-      // If user does not exist, create them
-      if (!userId) {
-        const { data: newUser, error: inviteError } = await adminAuth.inviteUserByEmail(agentData.email, {
-          redirectTo: `${window.location.origin}/login`,
-          data: {
-            role: 'agent',
-            name: agentData.name,
-            phone: agentData.phone,
-            company_name: agentData.company_name
-          }
-        });
-
-        if (inviteError) {
-          console.warn('Admin invite error:', inviteError.message);
-          return { data: null, error: inviteError };
-        }
-        userId = newUser?.user?.id;
+      // Optionally update status to requested value if differs from RPC default
+      if (agentData.status === 'active') {
+        try {
+          await this.updateAgent({ id: agentId, status: 'active' });
+        } catch {}
       }
 
-      if (!userId) {
-        return { data: null, error: new Error('Failed to create or find user.') };
-      }
-
-      // Upsert profile (admin client bypasses RLS)
-      const { error: profileError } = await adminSupabase
-        .from('profiles')
-        .upsert({
-          id: userId,
-          name: agentData.name,
-          email: agentData.email,
-          phone: agentData.phone,
-          company_name: agentData.company_name,
-          role: 'agent',
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'id' });
-
-      if (profileError) {
-        console.warn('Profile upsert error:', profileError.message);
-        return { data: null, error: profileError };
-      }
-
-      // Upsert agent row (admin client)
-      // Use primary key conflict target 'id' to avoid requiring a unique index on user_id
-      const creatorLabel = (creatorProfile?.role || '').toLowerCase() === 'admin' ? 'Admin' : 'Staff';
-      const sourceDetails = creatorProfile
-        ? `Created by ${creatorLabel}: ${creatorProfile.name || creatorProfile.email || ''}`
-        : (user?.email ? `Created by: ${user.email}` : 'Created internally');
-
-      const { data: agentCore, error: adminAgentErr } = await (adminSupabase as any)
-        .from('agents' as any)
-        .upsert({
-          id: userId,
-          user_id: userId,
-          status: agentData.status || defaultStatus,
-          created_by: creatorProfile?.id || user?.id || null,
-          // Use union-safe value; carry specifics in source_details
-          source_type: 'other',
-          source_details: sourceDetails,
-        }, { onConflict: 'id' })
-        .select('id,status,created_at,updated_at,created_by,source_type,source_details')
-        .single();
-
-      if (adminAgentErr) {
-        console.warn('Agent upsert error:', adminAgentErr.message);
-        return { data: null, error: adminAgentErr };
-      }
-
-      // Generate temporary DB-backed credentials
-      let loginCreds: { username?: string; temporaryPassword?: string } = {};
-      try {
-        const { data: creds } = await this.generateCredentials(agentCore.id);
-        if (creds) {
-          loginCreds = {
-            username: creds.username,
-            temporaryPassword: creds.temporaryPassword
-          };
-        }
-      } catch (e) {
-        console.warn('Credential generation failed:', e);
-      }
-
-      // Persist staff assignments if provided
-      if (agentData.assigned_staff && agentData.assigned_staff.length > 0 && userId) {
-        const assignments = agentData.assigned_staff.map(staffId => ({
-          agent_id: userId,
-          staff_id: staffId,
-          assigned_by: creatorProfile?.id || user?.id || null,
-          notes: agentData.notes || null, // Use notes from agentData
-          assigned_at: new Date().toISOString(),
-        }));
-
-        const { error: assignmentError } = await (adminSupabase as any)
-          .from('agent_staff_assignments')
-          .insert(assignments);
-
-        if (assignmentError) {
-          console.warn('Error persisting staff assignments:', assignmentError.message);
-          // Do not block agent creation if assignment fails
+      // Persist secondary staff assignments (besides primary) if provided
+      const additionalStaff = (agentData.assigned_staff || []).filter(sid => String(sid) !== String(primaryStaffId || ''));
+      if (additionalStaff.length > 0) {
+        for (const sid of additionalStaff) {
+          try {
+            await this.addStaffAssignmentToAgent(agentId, String(sid), { isPrimary: false, notes: agentData.notes });
+          } catch {}
         }
       }
 
-      const merged: ManagedAgent = {
-        id: agentCore.id,
-        name: agentData.name,
-        email: agentData.email,
-        phone: agentData.phone,
-        company_name: agentData.company_name || '',
-        status: (agentCore.status as AgentStatus) || defaultStatus,
-        role: 'agent',
-        source_type: (agentCore as any)?.source_type || 'other',
-        source_details: (agentCore as any)?.source_details || sourceDetails,
-        created_by: (agentCore as any)?.created_by || creatorProfile?.id || user?.id || undefined,
-        assigned_staff: agentData.assigned_staff || [], // Reflect assigned staff in the returned object
-        login_credentials: loginCreds,
-        created_at: agentCore.created_at || new Date().toISOString(),
-        updated_at: agentCore.updated_at || new Date().toISOString()
-      };
-
-      return { data: merged, error: null };
+      // Return full merged agent
+      const full = await this.getAgentById(agentId);
+      return { data: full.data as any, error: null };
 
     } catch (error) {
       return { data: null, error };
@@ -1062,6 +1051,7 @@ export class AgentManagementService {
               id: profileId,
               user_id: profileId,
               agency_name: signupData.company_name,
+              agency_code: signupData.agency_code,
               business_phone: signupData.phone,
               business_address: signupData.business_address,
               specializations: Array.isArray(signupData.specializations)
@@ -1085,7 +1075,8 @@ export class AgentManagementService {
                 city: signupData.city,
                 country: signupData.country,
                 type: signupData.type,
-                agent_type: signupData.type
+                agent_type: signupData.type,
+                notes: signupData.notes
               } as any)
               .eq('id', profileId);
           }
@@ -1097,6 +1088,8 @@ export class AgentManagementService {
               email: signupData.email,
               phone: signupData.phone,
               company_name: signupData.company_name || '',
+              agency_code: signupData.agency_code || '',
+              notes: signupData.notes || '',
               status: (agentCore.status as AgentStatus) || status,
               role: 'agent',
               created_by: (agentCore as any)?.created_by || profileId!,
@@ -1131,12 +1124,14 @@ export class AgentManagementService {
           name: signupData.name,
           email: signupData.email,
           agency_name: signupData.company_name,
+          agency_code: signupData.agency_code,
           business_phone: signupData.phone,
           business_address: signupData.business_address,
           city: signupData.city,
           country: signupData.country,
           type: signupData.type,
           agent_type: signupData.type,
+          notes: signupData.notes,
           specializations: Array.isArray(signupData.specializations)
             ? signupData.specializations
             : (signupData.specializations ? [signupData.specializations] : []),
@@ -1155,6 +1150,8 @@ export class AgentManagementService {
           email: signupData.email,
           phone: signupData.phone,
           company_name: signupData.company_name,
+          agency_code: signupData.agency_code,
+          notes: signupData.notes,
           // Include additional form fields
           country: signupData.country,
           city: signupData.city,

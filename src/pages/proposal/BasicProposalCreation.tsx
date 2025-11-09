@@ -11,7 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Save, Send, Eye, FileText, Plus, Search, Calculator, Package, Trash2 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { Query } from '@/types/query';
-import { mockQueries } from '@/data/queryData';
+import ProposalService from '@/services/proposalService';
 import { useToast } from '@/hooks/use-toast';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { useInventoryData } from '@/pages/queries/hooks/useInventoryData';
@@ -54,7 +54,7 @@ const BasicProposalCreation: React.FC = () => {
           throw new Error('Query ID not provided');
         }
 
-        const queryData = mockQueries.find(q => q.id === id);
+        const queryData = await ProposalService.getQueryByIdAsync(id);
         if (!queryData) {
           throw new Error(`Query with ID ${id} not found`);
         }

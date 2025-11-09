@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Save, Send, Eye, Sparkles } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { Query } from '@/types/query';
-import { mockQueries } from '@/data/queryData';
+import ProposalService from '@/services/proposalService';
 import { useToast } from '@/hooks/use-toast';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 
@@ -26,7 +26,7 @@ const EnhancedProposalCreation: React.FC = () => {
           throw new Error('Query ID not provided');
         }
 
-        const queryData = mockQueries.find(q => q.id === id);
+        const queryData = await ProposalService.getQueryByIdAsync(id);
         if (!queryData) {
           throw new Error(`Query with ID ${id} not found`);
         }

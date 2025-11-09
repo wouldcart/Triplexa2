@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Checkbox } from '@/components/ui/checkbox';
 import { 
   DropdownMenu, 
@@ -39,6 +39,8 @@ import {
 import { Query } from '@/types/query';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useSupabaseAgentsList } from '@/hooks/useSupabaseAgentsList';
+import { findSupabaseAgentByNumericId } from '@/utils/supabaseAgentIds';
 
 type SortField = 'id' | 'agentName' | 'destination' | 'travelDates' | 'pax' | 'duration' | 'status' | 'createdAt';
 type SortDirection = 'asc' | 'desc';
@@ -63,6 +65,7 @@ const EnquiryListTable: React.FC<EnquiryListTableProps> = ({
 }) => {
   const navigate = useNavigate();
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'createdAt', direction: 'desc' });
+  const { agents: supabaseAgents } = useSupabaseAgentsList();
 
   const handleSort = (field: SortField) => {
     setSortConfig(prev => ({
@@ -340,19 +343,31 @@ const EnquiryListTable: React.FC<EnquiryListTableProps> = ({
                   </TableCell>
                   
                   <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback className="text-xs font-medium">
-                          {query.agentName.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex flex-col">
-                        <span className="font-medium text-sm">{query.agentName}</span>
-                        <span className="text-xs text-muted-foreground">
-                          ID: {query.agentId}
-                        </span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const supAgent = findSupabaseAgentByNumericId(supabaseAgents, Number(query.agentId));
+                      const displayName = supAgent?.agencyName || supAgent?.name || query.agentName;
+                      const location = [supAgent?.city, supAgent?.country].filter(Boolean).join(', ');
+                      const initialsSource = displayName || query.agentName;
+                      const initials = initialsSource.split(' ').map(n => n[0]).join('').slice(0, 2);
+                      return (
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-8 w-8">
+                            {supAgent?.profile_image && (
+                              <AvatarImage src={supAgent.profile_image} alt={displayName || 'Agent'} />
+                            )}
+                            <AvatarFallback className="text-xs font-medium">
+                              {initials}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-sm">{displayName}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {location || `ID: ${query.agentId}`}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </TableCell>
                   
                   <TableCell>

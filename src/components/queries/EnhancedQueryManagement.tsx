@@ -22,7 +22,6 @@ import {
   AlertCircle, TrendingUp, UserCheck, Settings, Calendar
 } from 'lucide-react';
 import { Query } from '@/types/query';
-import { mockQueries, getEnquirySettings } from '@/data/queryData';
 import { useToast } from '@/hooks/use-toast';
 import { useActiveStaffData } from '@/hooks/useActiveStaffData';
 import EnhancedProposalService from '@/services/enhancedProposalService';
@@ -30,8 +29,10 @@ import StaffAssignmentPanel from './components/StaffAssignmentPanel';
 import QueryFiltersComponent from './components/QueryFilters';
 import QueryPagination from './components/QueryPagination';
 import { useQueryFilters } from './hooks/useQueryFilters';
-import { useQueryPagination } from './hooks/useQueryPagination';
 import { useQuerySelection } from './hooks/useQuerySelection';
+import { useEnquiries } from '@/services/enquiriesService';
+import QueryExportControls from './components/QueryExportControls';
+import { resolveProfileNameById, resolveProfileRoleById } from '@/services/profilesHelper';
 
 interface EnhancedQueryManagementProps {
   queries?: Query[];
@@ -39,13 +40,14 @@ interface EnhancedQueryManagementProps {
 }
 
 const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
-  queries: initialQueries = [],
+  queries: _initialQueries = [],
   onQueryUpdate
 }) => {
-  const [queries, setQueries] = useState<Query[]>([]);
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -53,61 +55,20 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
   // Use active staff data from management module
   const { activeStaff } = useActiveStaffData();
 
-  // Get enquiry settings for ID format
-  const enquirySettings = getEnquirySettings();
+  // ID formatting is handled by EnqIdGenerator upstream; no local settings read here
 
-  // Load queries from localStorage on mount and when refreshTrigger changes
-  useEffect(() => {
-    const loadQueries = () => {
-      try {
-        const savedQueries = localStorage.getItem('travel_queries');
-        let allQueries: Query[] = [];
+  // Filters state (client-managed), used to drive server queries
+  const filtersCtx = useQueryFilters([]);
+  const { filters, updateFilter, clearAllFilters, activeFiltersCount } = filtersCtx;
 
-        if (savedQueries) {
-          const parsedQueries = JSON.parse(savedQueries);
-          allQueries = Array.isArray(parsedQueries) ? parsedQueries : [];
-        } else if (initialQueries.length > 0) {
-          allQueries = [...initialQueries];
-        } else {
-          allQueries = [...mockQueries];
-          localStorage.setItem('travel_queries', JSON.stringify(allQueries));
-        }
-
-        // Sort by creation date (newest first)
-        allQueries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        
-        setQueries(allQueries);
-        
-        if (onQueryUpdate) {
-          onQueryUpdate(allQueries);
-        }
-      } catch (error) {
-        console.error('Error loading queries:', error);
-        // Fall back to mock data
-        const sortedMockQueries = [...mockQueries].sort((a, b) => 
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        setQueries(sortedMockQueries);
-      }
-    };
-
-    loadQueries();
-  }, [refreshTrigger, initialQueries, onQueryUpdate]);
-
-  // Listen for storage changes to refresh data
-  useEffect(() => {
-    const handleStorageChange = () => {
-      setRefreshTrigger(prev => prev + 1);
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('enquiry-saved', handleStorageChange);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('enquiry-saved', handleStorageChange);
-    };
-  }, []);
+  // Server-side data fetch using Supabase
+  const { data, count, isLoading, error, refetch } = useEnquiries({
+    page,
+    pageSize: itemsPerPage,
+    search: filters.searchTerm || undefined,
+    filters: { status: filters.statusFilter },
+    sort: { field: 'created_at', direction: sortOrder === 'newest' ? 'desc' : 'asc' }
+  });
 
   // Format enquiry ID - display the new EnqIdGenerator format properly
   const formatEnquiryId = (originalId: string) => {
@@ -163,27 +124,56 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
     };
   };
 
-  // Use the custom hooks for filtering, pagination, and selection
-  const {
-    filters,
-    filteredQueries,
-    filterOptions,
-    updateFilter,
-    clearAllFilters,
-    activeFiltersCount
-  } = useQueryFilters(queries);
+  // Derive filter options from server data for UI dropdowns
+  const filterOptions = useMemo(() => {
+    const agents = Array.from(new Set((data || []).map(q => q.agentName).filter(Boolean))) as string[];
+    const countries = Array.from(new Set((data || []).map(q => q.destination?.country).filter(Boolean))) as string[];
+    const packageTypes = Array.from(new Set((data || []).map(q => q.packageType).filter(Boolean))) as string[];
+    const hotelCategories = Array.from(new Set((data || []).map(q => q.hotelDetails?.category).filter(Boolean))) as string[];
+    return { agents, countries, packageTypes, hotelCategories };
+  }, [data]);
 
-  const {
-    currentPage,
-    itemsPerPage,
-    totalPages,
-    startIndex,
-    endIndex,
-    paginatedQueries,
-    handlePageChange,
-    handleItemsPerPageChange,
-    totalItems
-  } = useQueryPagination({ queries: filteredQueries });
+  // Server-paginated set for current page
+  const paginatedQueries = data || [];
+  const totalItems = count || 0;
+  const totalPages = Math.max(1, Math.ceil((count || 0) / itemsPerPage));
+  const startIndex = totalItems === 0 ? 0 : (page - 1) * itemsPerPage + 1;
+  const endIndex = Math.min(page * itemsPerPage, totalItems);
+
+  // Resolve assigned staff display details from profiles using assigned_to UUID
+  const [assignedNamesMap, setAssignedNamesMap] = useState<Record<string, string>>({});
+  const [assignedRolesMap, setAssignedRolesMap] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const ids = Array.from(new Set((paginatedQueries || [])
+      .map(q => q.assignedTo)
+      .filter((id): id is string => Boolean(id))));
+    const missingNames = ids.filter(id => !(id in assignedNamesMap));
+    const missingRoles = ids.filter(id => !(id in assignedRolesMap));
+    if (missingNames.length === 0 && missingRoles.length === 0) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const nameEntries = await Promise.all(missingNames.map(async (id) => {
+          const name = await resolveProfileNameById(id);
+          return [id, name] as const;
+        }));
+        const roleEntries = await Promise.all(missingRoles.map(async (id) => {
+          const role = await resolveProfileRoleById(id);
+          return [id, role] as const;
+        }));
+        if (!mounted) return;
+        const namesUpdate: Record<string, string> = {};
+        for (const [id, name] of nameEntries) { if (name) namesUpdate[id] = name; }
+        const rolesUpdate: Record<string, string> = {};
+        for (const [id, role] of roleEntries) { if (role) rolesUpdate[id] = role; }
+        if (Object.keys(namesUpdate).length > 0) setAssignedNamesMap(prev => ({ ...prev, ...namesUpdate }));
+        if (Object.keys(rolesUpdate).length > 0) setAssignedRolesMap(prev => ({ ...prev, ...rolesUpdate }));
+      } catch {
+        // best-effort; fallbacks will handle displaying ID or activeStaff
+      }
+    })();
+    return () => { mounted = false; };
+  }, [paginatedQueries, assignedNamesMap, assignedRolesMap]);
 
   const {
     selectedQueries,
@@ -194,24 +184,24 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
     selectAllFiltered,
     clearSelection,
     selectedQueryObjects
-  } = useQuerySelection(paginatedQueries, filteredQueries);
+  } = useQuerySelection(paginatedQueries, paginatedQueries);
 
   // Analytics calculations
   const analytics = useMemo(() => {
-    const total = queries.length;
-    const newQueries = queries.filter(q => q.status === 'new').length;
-    const inProgress = queries.filter(q => q.status === 'in-progress').length;
-    const proposalsSent = queries.filter(q => q.status === 'proposal-sent').length;
-    const converted = queries.filter(q => q.status === 'converted').length;
-    
-    const conversionRate = total > 0 ? (converted / total * 100).toFixed(1) : '0';
-    const responseRate = total > 0 ? ((inProgress + proposalsSent + converted) / total * 100).toFixed(1) : '0';
-    
+    const total = totalItems;
+    const newQueries = paginatedQueries.filter(q => q.status === 'new').length;
+    const inProgress = paginatedQueries.filter(q => q.status === 'in-progress').length;
+    const proposalsSent = paginatedQueries.filter(q => q.status === 'proposal-sent').length;
+    const converted = paginatedQueries.filter(q => q.status === 'converted').length;
+
+    const conversionRate = total > 0 ? (converted / Math.max(1, paginatedQueries.length) * 100).toFixed(1) : '0';
+    const responseRate = total > 0 ? ((inProgress + proposalsSent + converted) / Math.max(1, paginatedQueries.length) * 100).toFixed(1) : '0';
+
     return {
       total, newQueries, inProgress, proposalsSent, converted,
       conversionRate, responseRate
     };
-  }, [queries]);
+  }, [paginatedQueries, totalItems]);
 
   // Bulk operations
   const handleBulkOperation = async (operation: string, data?: any) => {
@@ -292,11 +282,12 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
       {/* Header with Analytics */}
       <div className="flex flex-col lg:flex-row justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Enhanced Enquiry Management</h1>
+          <h1 className="text-2xl font-bold text-foreground">Enquiry Management</h1>
           <p className="text-muted-foreground">Advanced query management with bulk operations and analytics</p>
         </div>
         
         <div className="flex items-center gap-2">
+          <QueryExportControls search={filters.searchTerm || ''} status={filters.statusFilter || 'all'} />
           <Dialog open={analyticsOpen} onOpenChange={setAnalyticsOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="gap-2">
@@ -387,8 +378,8 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
 
       {/* Staff Assignment Panel */}
       <StaffAssignmentPanel 
-        queries={queries} 
-        onQueryUpdate={setQueries} 
+        queries={paginatedQueries} 
+        onQueryUpdate={(_updated) => refetch()} 
       />
 
       {/* Enhanced Filters */}
@@ -396,8 +387,11 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
         filters={filters}
         filterOptions={filterOptions}
         activeFiltersCount={activeFiltersCount}
+        queries={paginatedQueries}
+        sortOrder={sortOrder}
         onUpdateFilter={updateFilter}
         onClearAllFilters={clearAllFilters}
+        onSortOrderChange={setSortOrder}
       />
 
       {/* Selection Actions */}
@@ -406,7 +400,7 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">
               {selectionStatus.selectedCount} queries selected
-              {selectAllMode === 'page' && selectionStatus.selectedCount < totalItems && (
+              {selectAllMode === 'page' && selectionStatus.selectedCount < totalItems && (totalItems === paginatedQueries.length) && (
                 <>
                   {' '}from this page. 
                   <Button variant="link" className="p-0 h-auto" onClick={selectAllFiltered}>
@@ -501,6 +495,7 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
                   <TableHead className="w-[50px] text-muted-foreground">Select</TableHead>
                   <TableHead className="w-[120px] text-muted-foreground">ID</TableHead>
                   <TableHead className="text-muted-foreground">Agent</TableHead>
+                  <TableHead className="text-muted-foreground">Company</TableHead>
                   <TableHead className="text-muted-foreground">Destination</TableHead>
                   <TableHead className="text-muted-foreground">Duration & Dates</TableHead>
                   <TableHead className="text-muted-foreground">PAX</TableHead>
@@ -533,6 +528,7 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
                         </Link>
                       </TableCell>
                       <TableCell className="text-foreground">{query.agentName}</TableCell>
+                      <TableCell className="text-foreground">{query.agentCompany || ''}</TableCell>
                       <TableCell>
                         <div>
                           <span className="font-medium text-foreground">{query.destination.country}</span>
@@ -560,16 +556,25 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
                       </TableCell>
                       <TableCell>{getStatusBadge(query.status)}</TableCell>
                       <TableCell>
-                        {assignedStaff ? (
-                          <div className="flex items-center">
-                            <Avatar className="h-7 w-7 mr-2">
-                              <AvatarFallback className="bg-muted text-foreground">{assignedStaff.name.charAt(0)}</AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <div className="font-medium text-sm text-foreground">{assignedStaff.name}</div>
-                              <div className="text-xs text-muted-foreground">{assignedStaff.role}</div>
-                            </div>
-                          </div>
+                        {query.assignedTo ? (
+                          (() => {
+                            const displayName = assignedNamesMap[query.assignedTo] || assignedStaff?.name || query.assignedTo;
+                            const displayRole = assignedRolesMap[query.assignedTo] || assignedStaff?.role || '';
+                            const initial = (displayName || '?').charAt(0);
+                            return (
+                              <div className="flex items-center">
+                                <Avatar className="h-7 w-7 mr-2">
+                                  <AvatarFallback className="bg-muted text-foreground">{initial}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <div className="font-medium text-sm text-foreground">{displayName}</div>
+                                  {displayRole && (
+                                    <div className="text-xs text-muted-foreground">{displayRole}</div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()
                         ) : (
                           <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">
                             Not Assigned
@@ -626,14 +631,14 @@ const EnhancedQueryManagement: React.FC<EnhancedQueryManagementProps> = ({
 
       {/* Pagination */}
       <QueryPagination
-        currentPage={currentPage}
+        currentPage={page}
         totalPages={totalPages}
         itemsPerPage={itemsPerPage}
         totalItems={totalItems}
         startIndex={startIndex}
         endIndex={endIndex}
-        onPageChange={handlePageChange}
-        onItemsPerPageChange={handleItemsPerPageChange}
+        onPageChange={setPage}
+        onItemsPerPageChange={setItemsPerPage}
       />
     </div>
   );

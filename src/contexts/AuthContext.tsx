@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { AuthService } from '../services/authService';
 import { User } from '../types/User';
 import { supabase } from '@/lib/supabaseClient';
+import { recordStaffLogin, recordStaffLogout, isStaffCurrentlyActive } from '@/services/loginRecordService';
 import { userTrackingService } from '../services/userTrackingService';
 import { SessionManager, handleSessionError } from '../utils/sessionManager';
 import { autoReloginFlow } from '../utils/autoReloginFlow';
@@ -93,6 +94,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           if (!error && sessionUser) {
             setUser(sessionUser);
             setSession(session);
+            // Record staff login
+            if (sessionUser.role === 'staff' && sessionUser.id) {
+              try {
+                recordStaffLogin(sessionUser.id, sessionUser.name || session.user?.email || sessionUser.id);
+              } catch (e) {
+                console.warn('Staff login recording failed on SIGNED_IN:', e);
+              }
+            }
           }
         } else if (event === 'INITIAL_SESSION') {
           // Handle initial session state on subscription setup
@@ -112,6 +121,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           }
         } else if (event === 'SIGNED_OUT') {
           // User signed out
+          // Record staff logout if applicable
+          try {
+            if (user?.role === 'staff' && user?.id && isStaffCurrentlyActive(user.id)) {
+              recordStaffLogout(user.id);
+            }
+          } catch (e) {
+            console.warn('Staff logout recording failed on SIGNED_OUT:', e);
+          }
           setUser(null);
           setSession(null);
           // Avoid redundant cleanup on initial load when there was no prior session
@@ -211,6 +228,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const signOut = async () => {
     try {
       setLoading(true);
+      // Record staff logout before actual sign out
+      try {
+        if (user?.role === 'staff' && user?.id && isStaffCurrentlyActive(user.id)) {
+          recordStaffLogout(user.id);
+        }
+      } catch (e) {
+        console.warn('Staff logout recording failed during signOut:', e);
+      }
       await AuthService.signOut();
       setUser(null);
       setSession(null);

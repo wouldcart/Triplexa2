@@ -14,6 +14,8 @@ export interface ManagedAgent {
   email: string;
   phone?: string;
   company_name?: string;
+  // Agency code (optional identifier/code for agency)
+  agency_code?: string;
   // Profile extras
   profile_image?: string;
   preferred_language?: string;
@@ -23,8 +25,11 @@ export interface ManagedAgent {
   role: AgentRole;
   // Agent table extras
   type?: 'individual' | 'company';
+  // Freeform notes captured during creation/signup
+  notes?: string;
   commission_type?: 'flat' | 'percentage';
   commission_value?: string | number;
+  commission_structure?: any;
   source_type?: 'event' | 'lead' | 'referral' | 'website' | 'other';
   source_details?: string;
   created_by?: string;
@@ -46,6 +51,7 @@ export interface ManagedAgent {
   website?: string;
   partnership?: string;
   mobile_numbers?: string[];
+  documents?: string[];
 }
 
 export interface CreateAgentRequest {
@@ -53,9 +59,14 @@ export interface CreateAgentRequest {
   email: string;
   phone?: string;
   company_name?: string;
+  agency_code?: string;
   status?: AgentStatus;
   assigned_staff?: string[];
   login_credentials?: LoginCredentials;
+  // Notes used for staff assignment context
+  notes?: string;
+  // Primary staff assignment (defaults to current user if omitted)
+  primary_staff_id?: string;
 }
 
 export interface UpdateAgentRequest {
@@ -93,6 +104,7 @@ export interface AgentSignupRequest {
   email: string;                   // maps to 'email' column
   phone?: string;                  // maps to 'business_phone' column
   company_name?: string;           // maps to 'agency_name' column
+  agency_code?: string;            // maps to 'agency_code' column
   desired_username?: string;
   password?: string;
   // Additional fields for complete agent registration
@@ -101,6 +113,7 @@ export interface AgentSignupRequest {
   country?: string;                // maps to 'country' column
   type?: string;                   // maps to 'type' column
   specializations?: string[];      // maps to 'specializations' column
+  notes?: string;                  // maps to 'notes' column
   // Source tracking (captured from URL params on signup page)
   source_type?: string;
   source_details?: string;

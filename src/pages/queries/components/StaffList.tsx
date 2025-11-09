@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { StaffMember } from '@/types/assignment';
 import { Progress } from '@/components/ui/progress';
-import { getStaffOperationalCountries } from '@/services/countryMappingService';
+import { useRealTimeCountriesData } from '@/hooks/useRealTimeCountriesData';
 import { Query } from '@/types/query';
 import { useEnhancedStaffData } from '@/hooks/useEnhancedStaffData';
 import { getStoredStaff } from '@/services/staffStorageService';
@@ -29,6 +29,11 @@ const StaffList: React.FC<StaffListProps> = ({
 }) => {
   // Get enhanced staff data from the staff management system
   const { enhancedStaffMembers } = useEnhancedStaffData();
+  const { getCountryById } = useRealTimeCountriesData();
+
+  // Map stored country UUIDs to readable names using real-time countries
+  const mapIdsToCountryNames = (values: string[]): string[] =>
+    (values || []).map(v => getCountryById(v)?.name || v).filter(Boolean) as string[];
 
   // Merge staff data with operational countries from management system
   const enrichedStaff: ExtendedStaffMember[] = staff.map(staffMember => {
@@ -50,8 +55,8 @@ const StaffList: React.FC<StaffListProps> = ({
   const sortedStaff = [...enrichedStaff].sort((a, b) => {
     // If query is provided, prioritize staff with matching operational countries
     if (query) {
-      const aCountries = getStaffOperationalCountries(a.operationalCountries || []);
-      const bCountries = getStaffOperationalCountries(b.operationalCountries || []);
+      const aCountries = mapIdsToCountryNames(a.operationalCountries || []);
+      const bCountries = mapIdsToCountryNames(b.operationalCountries || []);
       const aMatches = aCountries.includes(query.destination.country);
       const bMatches = bCountries.includes(query.destination.country);
       
@@ -65,7 +70,7 @@ const StaffList: React.FC<StaffListProps> = ({
   const getCountryMatchStatus = (member: ExtendedStaffMember) => {
     if (!query) return null;
     
-    const operationalCountries = getStaffOperationalCountries(member.operationalCountries || []);
+    const operationalCountries = mapIdsToCountryNames(member.operationalCountries || []);
     const hasMatch = operationalCountries.includes(query.destination.country);
     
     return hasMatch ? 'perfect-match' : 'no-match';
@@ -84,7 +89,7 @@ const StaffList: React.FC<StaffListProps> = ({
       <CardContent>
         <div className="space-y-4">
           {sortedStaff.map((member) => {
-            const operationalCountries = getStaffOperationalCountries(member.operationalCountries || []);
+            const operationalCountries = mapIdsToCountryNames(member.operationalCountries || []);
             const countryMatchStatus = getCountryMatchStatus(member);
             
             return (

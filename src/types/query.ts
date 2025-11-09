@@ -3,6 +3,8 @@ export interface Query {
   id: string;
   agentId: number;
   agentName: string;
+  agentUuid?: string;
+  agentCompany?: string;
   destination: {
     country: string;
     cities: string[];

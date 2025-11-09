@@ -23,7 +23,8 @@ import PayrollManagement from "./hr/PayrollManagement";
 import LeaveManagement from "./hr/LeaveManagement";
 import AttendanceManagement from "./hr/AttendanceManagement";
 import SalaryStructureManager from "./hr/SalaryStructureManager";
-import PageLayout from "@/components/layout/PageLayout";
+import ActiveStaffList from "./hr/ActiveStaffList";
+// Removed PageLayout to avoid nested layouts when rendered under HRLayout
 
 const HRDashboard: React.FC = () => {
   const [analytics, setAnalytics] = useState<HRAnalytics>({
@@ -114,15 +115,7 @@ const HRDashboard: React.FC = () => {
   ]);
 
   return (
-    <PageLayout
-      title="HR Dashboard"
-      breadcrumbItems={[
-        { title: "Home", href: "/" },
-        { title: "Staff Management", href: "/management/staff" },
-        { title: "HR Dashboard", href: "/management/staff/hr-dashboard" },
-      ]}
-    >
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center">
           <div>
@@ -296,6 +289,9 @@ const HRDashboard: React.FC = () => {
           </CardContent>
         </Card>
 
+        {/* Active Staff Section */}
+        <ActiveStaffList />
+
         {/* Main HR Modules */}
         <Tabs defaultValue="payroll" className="w-full">
           <TabsList className="grid w-full grid-cols-4">
@@ -322,8 +318,7 @@ const HRDashboard: React.FC = () => {
           </TabsContent>
         </Tabs>
       </div>
-    </PageLayout>
-  );
-};
+    );
+  };
 
 export default HRDashboard;

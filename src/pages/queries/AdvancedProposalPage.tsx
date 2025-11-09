@@ -41,7 +41,7 @@ const AdvancedProposalPage: React.FC<AdvancedProposalPageProps> = ({ queryId }) 
           throw new Error('Query ID not provided');
         }
 
-        const queryData = ProposalService.getQueryById(currentQueryId);
+        const queryData = await ProposalService.getQueryByIdAsync(currentQueryId);
         if (!queryData) {
           throw new Error(`Query with ID ${currentQueryId} not found`);
         }

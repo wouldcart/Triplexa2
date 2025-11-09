@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -26,6 +26,7 @@ import {
 import { Query } from '@/types/query';
 import { format, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { resolveProfileNameById } from '@/services/profilesHelper';
 
 interface EnquiryCardProps {
   query: Query;
@@ -34,6 +35,25 @@ interface EnquiryCardProps {
 
 const EnquiryCard: React.FC<EnquiryCardProps> = ({ query, onAssignQuery }) => {
   const navigate = useNavigate();
+
+  // Resolve assigned staff display name
+  const [assignedToName, setAssignedToName] = useState<string | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (query.assignedTo) {
+        try {
+          const name = await resolveProfileNameById(query.assignedTo);
+          if (mounted) setAssignedToName(name);
+        } catch {
+          if (mounted) setAssignedToName(null);
+        }
+      } else {
+        if (mounted) setAssignedToName(null);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [query.assignedTo]);
 
   // Calculate days left until travel
   const daysLeft = differenceInDays(new Date(query.travelDates.from), new Date());
@@ -195,7 +215,7 @@ const EnquiryCard: React.FC<EnquiryCardProps> = ({ query, onAssignQuery }) => {
               {query.assignedTo && (
                 <div className="flex items-center gap-1 text-xs text-muted-foreground">
                   <UserPlus className="h-3 w-3" />
-                  <span>{query.assignedTo}</span>
+                  <span>{assignedToName || query.assignedTo}</span>
                 </div>
               )}
             </div>

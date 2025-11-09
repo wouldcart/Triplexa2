@@ -26,29 +26,32 @@ const EnhancedProposalForm: React.FC = () => {
   const [activeTab, setActiveTab] = useState('summary');
 
   useEffect(() => {
-    if (id) {
-      const queryData = ProposalService.getQueryById(id);
-      if (queryData) {
-        setQuery(queryData);
-        // Load any existing modules from localStorage
-        const savedModules = localStorage.getItem(`enhanced_proposal_modules_${id}`);
-        if (savedModules) {
-          try {
-            setSelectedModules(JSON.parse(savedModules));
-          } catch (error) {
-            console.error('Error loading saved modules:', error);
+    const loadQuery = async () => {
+      if (id) {
+        const queryData = await ProposalService.getQueryByIdAsync(id);
+        if (queryData) {
+          setQuery(queryData);
+          // Load any existing modules from localStorage
+          const savedModules = localStorage.getItem(`enhanced_proposal_modules_${id}`);
+          if (savedModules) {
+            try {
+              setSelectedModules(JSON.parse(savedModules));
+            } catch (error) {
+              console.error('Error loading saved modules:', error);
+            }
           }
+        } else {
+          toast({
+            title: "Query not found",
+            description: "The requested query could not be found.",
+            variant: "destructive"
+          });
+          navigate('/queries');
         }
-      } else {
-        toast({
-          title: "Query not found",
-          description: "The requested query could not be found.",
-          variant: "destructive"
-        });
-        navigate('/queries');
+        setLoading(false);
       }
-      setLoading(false);
-    }
+    };
+    loadQuery();
   }, [id, navigate, toast]);
 
   const handleSaveProposal = (proposalData: any) => {

@@ -81,6 +81,10 @@ export const useCountriesEnquiryIntegration = () => {
 
   // Sync enquiry configurations with active countries
   const syncEnquiryWithActiveCountries = () => {
+    // Avoid deactivating configs during initial load before active countries are available
+    if (activeCountries.length === 0) {
+      return;
+    }
     const activeCountryCodes = activeCountries.map(c => c.code);
     const currentEnquiryCountries = settings.enquirySettings.countries;
 

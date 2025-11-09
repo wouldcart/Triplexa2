@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, 
@@ -10,7 +10,9 @@ import {
   BarChart3,
   Settings,
   Home,
-  LogOut
+  LogOut,
+  User,
+  CreditCard,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +20,8 @@ import { Separator } from '@/components/ui/separator';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAccessControl } from '@/hooks/use-access-control';
+import { useTheme } from 'next-themes';
+import { AppSettingsService, SETTING_CATEGORIES } from '@/services/appSettingsService_database';
 
 export const SalesNavigation: React.FC = () => {
   const navigate = useNavigate();
@@ -25,6 +29,34 @@ export const SalesNavigation: React.FC = () => {
   const { currentUser } = useApp();
   const { signOut } = useAuth();
   const { canAccessModule, isStaff } = useAccessControl();
+  const { theme } = useTheme();
+
+  const [companyName, setCompanyName] = useState<string | null>(null);
+  const [siteTitle, setSiteTitle] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const [cn, st, cl, cdl] = await Promise.all([
+          AppSettingsService.getSettingValue(SETTING_CATEGORIES.GENERAL, 'company_name'),
+          AppSettingsService.getSettingValue(SETTING_CATEGORIES.SEO, 'site_title'),
+          AppSettingsService.getSettingValue(SETTING_CATEGORIES.BRANDING, 'company_logo'),
+          AppSettingsService.getSettingValue(SETTING_CATEGORIES.BRANDING, 'company_logo_dark'),
+        ]);
+        if (!mounted) return;
+        setCompanyName(typeof cn === 'string' ? cn.trim() : null);
+        setSiteTitle(typeof st === 'string' ? st.trim() : null);
+        setLogoUrl(typeof cl === 'string' && cl.trim().length > 0 ? cl.trim() : null);
+        setLogoDarkUrl(typeof cdl === 'string' && cdl.trim().length > 0 ? cdl.trim() : null);
+      } catch (e) {
+        console.warn('SalesNavigation branding load failed:', e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const handleLogout = async () => {
     await signOut();
@@ -94,16 +126,20 @@ export const SalesNavigation: React.FC = () => {
 
   return (
     <div className="w-64 h-screen bg-background border-r flex flex-col">
-      {/* Header */}
+      {/* Header: logo only */}
       <div className="p-4 border-b">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <DollarSign className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-lg">Sales Hub</h2>
-            <p className="text-xs text-muted-foreground">Executive Dashboard</p>
-          </div>
+        <div className="flex items-center">
+          {((theme === 'dark' ? logoDarkUrl : logoUrl) || logoUrl || logoDarkUrl) ? (
+            <img
+              src={(theme === 'dark' ? logoDarkUrl : logoUrl) || logoUrl || logoDarkUrl || undefined}
+              alt={(companyName || siteTitle || 'Company') + ' logo'}
+              className="h-8 w-auto rounded-sm"
+            />
+          ) : (
+            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+              <DollarSign className="h-5 w-5 text-primary-foreground" />
+            </div>
+          )}
         </div>
       </div>
 
@@ -160,44 +196,99 @@ export const SalesNavigation: React.FC = () => {
               <MessageSquare className="mr-2 h-4 w-4" />
               New Enquiry
             </Button>
+            <Separator className="my-3" />
+            <p className="text-xs font-medium text-muted-foreground px-3 mb-2">My</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-sm"
+              onClick={() => navigate('/profile')}
+            >
+              <User className="mr-2 h-4 w-4" />
+              My Profile
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-sm"
+              onClick={() => navigate('/management/hr/leaves')}
+            >
+              <Calendar className="mr-2 h-4 w-4" />
+              My Leaves
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-sm"
+              onClick={() => navigate('/management/hr/payroll')}
+            >
+              <CreditCard className="mr-2 h-4 w-4" />
+              My Payroll
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-sm"
+              onClick={() => {
+                const id = (currentUser as any)?.id;
+                if (id) navigate(`/management/staff/profile/${id}`);
+                else navigate('/management/staff');
+              }}
+            >
+              <Target className="mr-2 h-4 w-4" />
+              My Targets
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-sm"
+              onClick={() => navigate('/reports')}
+            >
+              <BarChart3 className="mr-2 h-4 w-4" />
+              Reports
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-sm"
+              onClick={() => navigate('/settings/account')}
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              Settings
+            </Button>
           </div>
         )}
       </div>
 
       {/* Footer with User Info and Logout */}
       <div className="relative bg-gradient-to-br from-muted/30 to-muted/50 border-t border-border/50 backdrop-blur-sm">
-        <div className="p-4 space-y-4">
-          {/* User Info */}
-          <div className="flex items-center space-x-3 group">
+        <div className="p-4">
+          {/* User Info + Inline Logout */}
+          <div className="flex items-center gap-3 group">
             <div className="relative">
-              <div className="w-11 h-11 bg-gradient-to-br from-primary to-primary/80 rounded-xl flex items-center justify-center text-primary-foreground font-semibold text-sm shadow-md ring-2 ring-primary/10 transition-all duration-200 group-hover:scale-105 group-hover:shadow-lg group-hover:ring-primary/20">
+              <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center text-primary-foreground font-semibold text-sm shadow-md ring-2 ring-primary/10 transition-all duration-200 group-hover:scale-105 group-hover:shadow-lg group-hover:ring-primary/20">
                 {currentUser?.name?.charAt(0) || 'S'}
               </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-background shadow-sm"></div>
+              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-background shadow-sm"></div>
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm truncate text-foreground group-hover:text-primary transition-colors duration-200">
                 {currentUser?.name || 'Sales Executive'}
               </p>
               <p className="text-xs text-muted-foreground truncate">{currentUser?.email}</p>
-              <Badge variant="secondary" className="mt-1.5 text-xs bg-primary/10 text-primary border-primary/20 hover:bg-primary/15 transition-colors duration-200">
-                {currentUser?.department || 'Sales'}
-              </Badge>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              onClick={handleLogout}
+              aria-label="Logout"
+              title="Logout"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
           </div>
-          
-          {/* Logout Button */}
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive transition-all duration-200 rounded-lg border border-transparent hover:border-destructive/20 group"
-            onClick={handleLogout}
-          >
-            <LogOut className="mr-3 h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-            <span className="font-medium">Logout</span>
-          </Button>
         </div>
-        
-        {/* Subtle gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-background/20 to-transparent pointer-events-none rounded-b-lg"></div>
       </div>
     </div>

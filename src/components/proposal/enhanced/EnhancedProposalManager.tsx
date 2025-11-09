@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Query } from '@/types/query';
-import { getQueryById } from '@/data/queryData';
+import ProposalService from '@/services/proposalService';
 import { useProposalBuilder } from '@/hooks/useProposalBuilder';
 import { useAutoSaveProposal } from '@/hooks/useAutoSaveProposal';
 import { EnhancedProposalManager as EPM } from '@/services/enhancedProposalManager';
@@ -58,10 +58,13 @@ const EnhancedProposalManager: React.FC<EnhancedProposalManagerProps> = ({ query
   });
 
   useEffect(() => {
-    if (currentQueryId) {
-      const queryData = getQueryById(currentQueryId);
-      setQuery(queryData || null);
-    }
+    const loadQuery = async () => {
+      if (currentQueryId) {
+        const queryData = await ProposalService.getQueryByIdAsync(currentQueryId);
+        setQuery(queryData || null);
+      }
+    };
+    loadQuery();
   }, [currentQueryId]);
 
   const handleSaveProposal = async () => {

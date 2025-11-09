@@ -32,6 +32,8 @@ import { validateEmployeeCode, isEmployeeCodeUnique } from '@/utils/employeeCode
 import { validatePasswordStrength, checkUsernameUniqueness } from '@/utils/credentialGenerator';
 import { syncStaffWithAuthSystem } from '@/services/credentialService';
 import { ensureReferralExistsForStaff } from '@/services/staffReferralService';
+import { staffWorkingHoursService } from '@/services/staffWorkingHoursService';
+import { staffTargetService } from '@/services/staffTargetService';
 
 const staffSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -217,6 +219,22 @@ const AddStaff: React.FC = () => {
     // Generate and persist staff referral link using Supabase auth user ID
     if (authUserId) {
       ensureReferralExistsForStaff(authUserId).catch((err) => console.warn('Referral generation failed:', err));
+
+      // Persist Working Hours & Shifts
+      try {
+        const upsertWH = await staffWorkingHoursService.upsertWorkingHours(authUserId, workingHours);
+        if (upsertWH.error) console.warn('Working hours upsert error:', upsertWH.error);
+      } catch (err) {
+        console.warn('Working hours upsert failed:', err);
+      }
+
+      // Persist Performance Targets
+      try {
+        const replaceTargets = await staffTargetService.replaceTargetsForStaff(authUserId, targets || []);
+        if (replaceTargets.error) console.warn('Targets replace error:', replaceTargets.error);
+      } catch (err) {
+        console.warn('Targets replace failed:', err);
+      }
     } else {
       console.warn('Referral generation skipped: missing Supabase auth user ID.');
     }

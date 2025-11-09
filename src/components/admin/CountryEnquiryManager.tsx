@@ -7,10 +7,23 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Trash2, Plus, Settings, Eye, AlertCircle } from "lucide-react";
+import { Trash2, Plus, Settings, Eye, AlertCircle, Save } from "lucide-react";
 import { CountryEnquirySettings } from "../../types/enquiry";
 import { useToast } from "@/hooks/use-toast";
 import { useCountriesEnquiryIntegration } from "../../hooks/useCountriesEnquiryIntegration";
+import { useApplicationSettings } from "../../contexts/ApplicationSettingsContext";
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableCaption } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription as AlertDialogText,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 
 const CountryEnquiryManager: React.FC = () => {
   const { toast } = useToast();
@@ -26,15 +39,19 @@ const CountryEnquiryManager: React.FC = () => {
     syncEnquiryWithActiveCountries,
     enquirySettings
   } = useCountriesEnquiryIntegration();
+  const { updateEnquirySettings, hydrated } = useApplicationSettings();
+  const [editMode, setEditMode] = useState<boolean>(false);
 
   const [isAddingCountry, setIsAddingCountry] = useState(false);
   const [selectedCountryCode, setSelectedCountryCode] = useState<string>('');
   const [newCountry, setNewCountry] = useState<Partial<CountryEnquirySettings>>({});
 
-  // Sync enquiry configs with active countries on component mount
+  // Sync enquiry configs only after hydration and active countries are available
   useEffect(() => {
-    syncEnquiryWithActiveCountries();
-  }, [syncEnquiryWithActiveCountries]);
+    if (hydrated && activeCountries.length > 0) {
+      syncEnquiryWithActiveCountries();
+    }
+  }, [hydrated, activeCountries, syncEnquiryWithActiveCountries]);
 
   const generateSampleId = (country: CountryEnquirySettings): string => {
     const year = country.yearFormat === 'YYYY' ? '2025' : 
@@ -90,6 +107,19 @@ const CountryEnquiryManager: React.FC = () => {
 
   const handleUpdateCountry = (countryCode: string, field: keyof CountryEnquirySettings, value: any) => {
     updateCountry(countryCode, { [field]: value });
+
+    // Provide feedback to indicate persistence via AppSettingsHelpers (Supabase)
+    if (field === 'isActive') {
+      toast({
+        title: 'Active Status Saved',
+        description: `Enquiry configuration for ${countryCode} is now ${value ? 'active' : 'inactive'}.`,
+      });
+    } else {
+      toast({
+        title: 'Configuration Updated',
+        description: `Saved ${String(field)} for ${countryCode}.`,
+      });
+    }
   };
 
   const handleSetDefault = (countryCode: string) => {
@@ -117,6 +147,23 @@ const CountryEnquiryManager: React.FC = () => {
     });
   };
 
+  const handleSaveAll = () => {
+    try {
+      // Force a persist of the current enquiry settings snapshot
+      updateEnquirySettings({ ...enquirySettings });
+      toast({
+        title: "Changes Saved",
+        description: "All enquiry configuration changes have been saved.",
+      });
+    } catch (error) {
+      toast({
+        title: "Save Failed",
+        description: "Could not save enquiry settings. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -124,14 +171,33 @@ const CountryEnquiryManager: React.FC = () => {
           <h2 className="text-2xl font-bold">Country Enquiry Configuration</h2>
           <p className="text-muted-foreground">Manage enquiry ID formats for different countries (synced with Countries Management)</p>
         </div>
-        <Button 
-          onClick={() => setIsAddingCountry(true)} 
-          className="flex items-center gap-2"
-          disabled={availableCountries.length === 0}
-        >
-          <Plus className="h-4 w-4" />
-          Add Country
-        </Button>
+        <div className="flex items-center gap-2">
+          <Badge variant={editMode ? 'default' : 'secondary'}>{editMode ? 'Edit mode' : 'Preview mode'}</Badge>
+          <Button onClick={() => setEditMode(!editMode)} variant="secondary" className="flex items-center gap-2">
+            {editMode ? <Eye className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
+            {editMode ? 'Exit edit' : 'Edit'}
+          </Button>
+          {editMode && (
+            <>
+              <Button 
+                onClick={handleSaveAll}
+                className="flex items-center gap-2"
+                disabled={!hydrated}
+              >
+                <Save className="h-4 w-4" />
+                Save all changes
+              </Button>
+              <Button 
+                onClick={() => setIsAddingCountry(true)} 
+                className="flex items-center gap-2"
+                disabled={availableCountries.length === 0 || !hydrated}
+              >
+                <Plus className="h-4 w-4" />
+                Add Country
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Info Alert */}
@@ -142,6 +208,54 @@ const CountryEnquiryManager: React.FC = () => {
           {availableCountries.length === 0 && " All active countries have been configured."}
         </AlertDescription>
       </Alert>
+
+      {/* Active Configurations Summary */}
+      <div>
+        <h3 className="text-sm font-medium text-muted-foreground mb-2">Active Configurations</h3>
+        {configuredCountries.some(c => c.isActive) ? (
+          <Table className="text-sm">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Country</TableHead>
+                <TableHead>Code</TableHead>
+                <TableHead>Prefix</TableHead>
+                <TableHead>Year</TableHead>
+                <TableHead>Number</TableHead>
+                <TableHead>Default</TableHead>
+                <TableHead>Sample</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {configuredCountries.filter(c => c.isActive).map(c => (
+                <TableRow key={c.countryCode}>
+                  <TableCell className="font-medium">{c.countryName}</TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">{c.countryCode}</Badge>
+                  </TableCell>
+                  <TableCell className="font-mono">{c.prefix}</TableCell>
+                  <TableCell className="font-mono">
+                    {c.yearFormat === 'none' ? '-' : c.yearFormat}
+                    {c.yearFormat !== 'none' && c.yearSeparator !== 'none' ? ` (${c.yearSeparator})` : ''}
+                  </TableCell>
+                  <TableCell className="font-mono">
+                    {c.numberLength}
+                    {c.numberSeparator !== 'none' ? ` (${c.numberSeparator})` : ''}
+                  </TableCell>
+                  <TableCell>
+                    {c.isDefault ? <Badge variant="default">Default</Badge> : '-'}
+                  </TableCell>
+                  <TableCell className="font-mono">{generateSampleId(c)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableCaption>Shows currently active enquiry configurations</TableCaption>
+          </Table>
+        ) : (
+          <Alert>
+            <AlertDescription>No active enquiry configurations found.</AlertDescription>
+          </Alert>
+        )}
+      </div>
 
       {/* Existing Countries */}
       <div className="grid gap-4">
@@ -158,14 +272,31 @@ const CountryEnquiryManager: React.FC = () => {
                   </CardTitle>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleRemoveCountry(country.countryCode, country.countryName)}
-                    disabled={configuredCountries.length <= 1}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={configuredCountries.length <= 1}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove {country.countryName}?</AlertDialogTitle>
+                        <AlertDialogText>
+                          This will remove the enquiry ID configuration for {country.countryName}. You can re-add it later from active countries.
+                        </AlertDialogText>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleRemoveCountry(country.countryCode, country.countryName)}>
+                          Confirm Remove
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </div>
               <CardDescription>
@@ -268,6 +399,7 @@ const CountryEnquiryManager: React.FC = () => {
                   <Switch
                     id={`active-${country.countryCode}`}
                     checked={country.isActive}
+                    disabled={!hydrated || !editMode}
                     onCheckedChange={(checked) => handleUpdateCountry(country.countryCode, 'isActive', checked)}
                   />
                   <Label htmlFor={`active-${country.countryCode}`}>Active</Label>
@@ -276,6 +408,7 @@ const CountryEnquiryManager: React.FC = () => {
                   <Switch
                     id={`default-${country.countryCode}`}
                     checked={country.isDefault}
+                    disabled={!hydrated || !editMode}
                     onCheckedChange={(checked) => handleSetDefault(country.countryCode)}
                   />
                   <Label htmlFor={`default-${country.countryCode}`}>Default</Label>
@@ -287,7 +420,7 @@ const CountryEnquiryManager: React.FC = () => {
       </div>
 
       {/* Add New Country Modal */}
-      {isAddingCountry && (
+      {isAddingCountry && editMode && (
         <Card>
           <CardHeader>
             <CardTitle>Add New Country</CardTitle>
@@ -366,7 +499,7 @@ const CountryEnquiryManager: React.FC = () => {
                       value={newCountry.yearSeparator || 'none'}
                       onValueChange={(value) => setNewCountry(prev => ({ ...prev, yearSeparator: value as 'none' | '/' | '-' }))}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger disabled={!hydrated}>
                         <SelectValue placeholder="None" />
                       </SelectTrigger>
                       <SelectContent>
@@ -382,7 +515,7 @@ const CountryEnquiryManager: React.FC = () => {
                       value={newCountry.numberSeparator || 'none'}
                       onValueChange={(value) => setNewCountry(prev => ({ ...prev, numberSeparator: value as 'none' | '/' | '-' }))}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger disabled={!hydrated}>
                         <SelectValue placeholder="None" />
                       </SelectTrigger>
                       <SelectContent>
@@ -439,7 +572,7 @@ const CountryEnquiryManager: React.FC = () => {
               </Button>
               <Button 
                 onClick={handleAddCountry}
-                disabled={!selectedCountryCode || !newCountry.prefix}
+                disabled={!selectedCountryCode || !newCountry.prefix || !hydrated}
               >
                 Add Country
               </Button>

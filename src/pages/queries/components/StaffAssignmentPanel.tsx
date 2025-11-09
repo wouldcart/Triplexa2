@@ -21,6 +21,7 @@ import { useActiveStaffData } from '@/hooks/useActiveStaffData';
 import { useQueryAssignment } from '@/hooks/useQueryAssignment';
 import { getBestCountryMatch, getAssignmentReason } from '@/services/countryAssignmentService';
 import { getStoredStaff } from '@/services/staffStorageService';
+import { useRealTimeCountriesData } from '@/hooks/useRealTimeCountriesData';
 
 interface StaffAssignmentPanelProps {
   queries: Query[];
@@ -31,6 +32,9 @@ const StaffAssignmentPanel: React.FC<StaffAssignmentPanelProps> = ({
   queries,
   onQueryUpdate
 }) => {
+  const { getCountryById } = useRealTimeCountriesData();
+  const mapIdsToCountryNames = (values: string[]): string[] =>
+    (values || []).map(v => getCountryById(v)?.name || v).filter(Boolean) as string[];
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentStaffId, setCurrentStaffId] = useState<number>(1);
   const [assigningQuery, setAssigningQuery] = useState<string | null>(null);
@@ -46,12 +50,23 @@ const StaffAssignmentPanel: React.FC<StaffAssignmentPanelProps> = ({
 
   const handleSelfAssign = async (queryId: string) => {
     setAssigningQuery(queryId);
-    assignQueryToStaff(queryId, currentStaffId);
+    const queryObj = queries.find(q => q.id === queryId);
+    if (!queryObj) {
+      console.warn('Query not found for self-assign:', queryId);
+      setAssigningQuery(null);
+      return;
+    }
+    assignQueryToStaff(queryObj, currentStaffId);
     setAssigningQuery(null);
   };
 
   const handleQuickAssign = async (queryId: string, staffId: number) => {
-    assignQueryToStaff(queryId, staffId);
+    const queryObj = queries.find(q => q.id === queryId);
+    if (!queryObj) {
+      console.warn('Query not found for quick-assign:', queryId);
+      return;
+    }
+    assignQueryToStaff(queryObj, staffId);
   };
 
   const handleBulkAutoAssign = () => {
@@ -73,7 +88,7 @@ const StaffAssignmentPanel: React.FC<StaffAssignmentPanelProps> = ({
 
     const reason = getAssignmentReason(bestMatch, query);
     const storedStaffData = getStoredStaff().find(s => s.id === bestMatch.id.toString());
-    const operationalCountries = storedStaffData?.operationalCountries || [];
+    const operationalCountries = mapIdsToCountryNames(storedStaffData?.operationalCountries || []);
     const hasCountryMatch = operationalCountries.includes(query.destination.country);
 
     return {
@@ -288,7 +303,7 @@ const StaffAssignmentPanel: React.FC<StaffAssignmentPanelProps> = ({
                   const isOverloaded = workloadPercentage >= 90;
                   const isBusy = workloadPercentage >= 70;
                   const storedStaffData = getStoredStaff().find(s => s.id === staff.id.toString());
-                  const operationalCountries = storedStaffData?.operationalCountries || [];
+                  const operationalCountries = mapIdsToCountryNames(storedStaffData?.operationalCountries || []);
                   
                   return (
                     <Card key={staff.id} className={`${
@@ -325,11 +340,11 @@ const StaffAssignmentPanel: React.FC<StaffAssignmentPanelProps> = ({
                           </div>
                           <Progress value={workloadPercentage} className="h-2" />
                           
-                          {/* Enhanced Expertise Display */}
+                          {/* Enhanced Expertise Display (map UUIDs to country names when applicable) */}
                           <div className="space-y-1">
                             <div className="text-xs text-muted-foreground">Expertise Areas:</div>
                             <div className="flex flex-wrap gap-1">
-                              {staff.expertise.slice(0, 2).map((exp) => (
+                              {mapIdsToCountryNames(staff.expertise).slice(0, 2).map((exp) => (
                                 <Badge key={exp} variant="secondary" className="text-xs bg-muted text-foreground">
                                   {exp}
                                 </Badge>

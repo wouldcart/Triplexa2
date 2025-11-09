@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { Query } from '@/types/query';
-import { getQueryById } from '@/data/queryData';
+import ProposalService from '@/services/proposalService';
 import { PricingService } from '@/services/pricingService';
 import { formatCurrency } from '@/lib/formatters';
 import { 
@@ -107,13 +107,16 @@ const CreateProposal: React.FC = () => {
   };
 
   useEffect(() => {
-    if (id) {
-      const queryData = getQueryById(id);
-      if (queryData) {
-        setQuery(queryData);
-        initializeProposalFromQuery(queryData);
+    const loadQuery = async () => {
+      if (id) {
+        const queryData = await ProposalService.getQueryByIdAsync(id);
+        if (queryData) {
+          setQuery(queryData);
+          initializeProposalFromQuery(queryData);
+        }
       }
-    }
+    };
+    loadQuery();
   }, [id]);
 
   useEffect(() => {

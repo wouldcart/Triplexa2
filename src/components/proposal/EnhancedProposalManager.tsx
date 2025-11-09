@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useParams } from 'react-router-dom';
 import { Query } from '@/types/query';
-import { getQueryById } from '@/data/queryData';
+import ProposalService from '@/services/proposalService';
 import { EnhancedProposalManager as EPM } from '@/services/enhancedProposalManager';
 import { useAutoSaveProposal } from '@/hooks/useAutoSaveProposal';
 import { toast } from 'sonner';
@@ -53,16 +53,19 @@ const EnhancedProposalManager: React.FC<EnhancedProposalManagerProps> = () => {
   }, [id]);
 
   useEffect(() => {
-    if (id) {
-      const queryData = getQueryById(id);
-      setQuery(queryData);
-      
-      // Load existing proposal data
-      const existingProposal = EPM.getProposal(id);
-      if (existingProposal) {
-        setProposalData(existingProposal);
+    const load = async () => {
+      if (id) {
+        const queryData = await ProposalService.getQueryByIdAsync(id);
+        setQuery(queryData);
+
+        // Load existing proposal data
+        const existingProposal = EPM.getProposal(id);
+        if (existingProposal) {
+          setProposalData(existingProposal);
+        }
       }
-    }
+    };
+    load();
   }, [id]);
 
   const handleSaveProposal = async () => {

@@ -1,35 +1,45 @@
 
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import PageLayout from '@/components/layout/PageLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { AlertCircle, ArrowRightLeft, CheckCircle, UserRound, User, MapPin, Clock, Star, TrendingUp, Award, ArrowLeft } from 'lucide-react';
-import { mockQueries } from '@/data/queryData';
+import { useEnquiries, getEnquiryById } from '@/services/enquiriesService';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useQueryAssignment } from '@/hooks/useQueryAssignment';
 import { useActiveStaffData } from '@/hooks/useActiveStaffData';
-import StaffList from './components/StaffList';
 import QueryList from './components/QueryList';
 import AssignmentRules from './components/AssignmentRules';
+import AssignmentRulesEditor from './components/AssignmentRulesEditor';
 import StaffSequence from './components/StaffSequence';
 import { Label } from '@/components/ui/label';
 import { Query } from '@/types/query';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { useRealTimeCountriesData } from '@/hooks/useRealTimeCountriesData';
 import { Separator } from '@/components/ui/separator';
+import { seedAssignmentTestData } from '@/services/testSeedService';
+import { supabase } from '@/lib/supabaseClient';
 
 const AssignQueries: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState('unassigned');
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [editRulesDialogOpen, setEditRulesDialogOpen] = useState(false);
   const { toast } = useToast();
+  const [seeding, setSeeding] = useState(false);
+  const [seedLogs, setSeedLogs] = useState<string[]>([]);
+  const [debugAssignments, setDebugAssignments] = useState<{ id: string; assignedTo?: string | null; assignedName?: string | null }[]>([]);
+  const searchParams = new URLSearchParams(location.search);
+  const isDebug = searchParams.get('debug') === '1' || searchParams.get('seedTest') === '1';
+  const autoSeed = searchParams.get('autoSeed') === '1';
   
   // Use active staff data from management module
   const { activeStaff } = useActiveStaffData();
@@ -39,6 +49,7 @@ const AssignQueries: React.FC = () => {
     isAssigning,
     selectedStaffId,
     autoAssignEnabled,
+    autoAssignHydrated,
     setAssigningQuery,
     setSelectedStaffId,
     setAutoAssignEnabled,
@@ -47,10 +58,17 @@ const AssignQueries: React.FC = () => {
     findBestStaffMatch
   } = useQueryAssignment();
 
+  // Fetch queries from Supabase-backed service
+  const { data: queries = [], isLoading, error, refetch } = useEnquiries({
+    page: 1,
+    pageSize: 50,
+    sort: { field: 'created_at', direction: 'desc' }
+  });
+
   // Process queries data
-  const unassignedQueries = mockQueries.filter(q => q.status === 'new');
-  const assignedQueries = mockQueries.filter(q => q.status === 'assigned' || q.status === 'in-progress');
-  const allQueries = [...mockQueries];
+  const unassignedQueries = (queries || []).filter(q => q.status === 'new');
+  const assignedQueries = (queries || []).filter(q => q.status === 'assigned' || q.status === 'in-progress');
+  const allQueries = queries || [];
 
   // Handle back navigation
   const handleBackClick = () => {
@@ -67,7 +85,7 @@ const AssignQueries: React.FC = () => {
   // Complete the assignment
   const completeAssignment = () => {
     if (selectedStaffId && assigningQuery) {
-      assignQueryToStaff(assigningQuery.id, selectedStaffId);
+      assignQueryToStaff(assigningQuery, selectedStaffId);
       setAssignDialogOpen(false);
     }
   };
@@ -95,6 +113,10 @@ const AssignQueries: React.FC = () => {
 
     autoAssignQueries(unassignedQueries);
   };
+
+  // Map potential country IDs to readable names for display
+  const { getCountryById } = useRealTimeCountriesData();
+  const toCountryName = (value: string) => getCountryById(value)?.name || value;
 
   // Get recommended staff for current query
   const getRecommendedStaff = (query: Query | null) => {
@@ -126,6 +148,61 @@ const AssignQueries: React.FC = () => {
     return { status: 'available', color: 'text-green-600', bgColor: 'bg-green-50' };
   };
 
+  // Auto-run seeding when autoSeed param is set
+  useEffect(() => {
+    if (isDebug && autoSeed && !seeding) {
+      (async () => {
+        try {
+          setSeeding(true);
+          const { logs } = await seedAssignmentTestData();
+          setSeedLogs(logs);
+          toast({ title: 'Seed complete', description: 'Test data created and auto-assigned.' });
+          // Fetch seeded enquiry assignments and resolve names
+          const ids = ['ENQ_REL_UAE', 'ENQ_BALANCE_TH', 'ENQ_RR_TH_1', 'ENQ_RR_TH_2'];
+          const entries = await Promise.all(ids.map(async (id) => {
+            const { data } = await getEnquiryById(id);
+            return data;
+          }));
+          const assignedIds = entries
+            .map(e => (e?.assignedTo ? String(e.assignedTo) : null))
+            .filter(Boolean) as string[];
+          let nameMap = new Map<string, string>();
+          if (assignedIds.length > 0) {
+            const { data: staffRows } = await (supabase as any)
+              .from('staff')
+              .select('id,name')
+              .in('id', assignedIds);
+            (staffRows || []).forEach((r: any) => {
+              if (r?.id) nameMap.set(String(r.id), String(r.name || 'Staff'));
+            });
+            // Fallback to profiles
+            const missing = assignedIds.filter(id => !nameMap.has(id));
+            if (missing.length > 0) {
+              const { data: profRows } = await (supabase as any)
+                .from('profiles')
+                .select('id,name,full_name,username')
+                .in('id', missing);
+              (profRows || []).forEach((r: any) => {
+                if (r?.id) nameMap.set(String(r.id), String(r.full_name || r.name || r.username || 'User'));
+              });
+            }
+          }
+          const snapshots = ids.map((id, idx) => {
+            const e = entries[idx];
+            const assignedTo = e?.assignedTo ? String(e.assignedTo) : null;
+            const assignedName = assignedTo ? (nameMap.get(assignedTo) || null) : null;
+            return { id, assignedTo, assignedName };
+          });
+          setDebugAssignments(snapshots);
+          refetch();
+        } finally {
+          setSeeding(false);
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDebug, autoSeed]);
+
   return (
     <PageLayout>
       <div className="space-y-4 md:space-y-6 p-2 md:p-4 lg:p-6">
@@ -155,11 +232,12 @@ const AssignQueries: React.FC = () => {
             <div className="flex items-center space-x-2">
               <Switch
                 id="auto-assign"
-                checked={autoAssignEnabled}
+                checked={!!autoAssignEnabled}
+                disabled={!autoAssignHydrated}
                 onCheckedChange={setAutoAssignEnabled}
               />
               <Label htmlFor="auto-assign" className="cursor-pointer text-sm">
-                Auto Assignment <span className="hidden sm:inline">{autoAssignEnabled ? 'Enabled' : 'Disabled'}</span>
+                Auto Assignment <span className="hidden sm:inline">{!autoAssignHydrated ? 'Loading…' : (autoAssignEnabled ? 'Enabled' : 'Disabled')}</span>
               </Label>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -172,7 +250,7 @@ const AssignQueries: React.FC = () => {
                 variant="default" 
                 size="sm"
                 onClick={handleAutoAssign}
-                disabled={!autoAssignEnabled || unassignedQueries.length === 0}
+                disabled={!autoAssignHydrated || autoAssignEnabled !== true || unassignedQueries.length === 0}
               >
                 <ArrowRightLeft className="mr-2 h-4 w-4" />
                 <span className="hidden sm:inline">Auto Assign</span>
@@ -181,6 +259,60 @@ const AssignQueries: React.FC = () => {
                   <span className="ml-1">({unassignedQueries.length})</span>
                 )}
               </Button>
+              {isDebug && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={seeding}
+                  onClick={async () => {
+                    setSeeding(true);
+                    setSeedLogs([]);
+                    const { logs } = await seedAssignmentTestData();
+                    setSeedLogs(logs);
+                    setSeeding(false);
+                    toast({ title: 'Seed complete', description: 'Test data created and auto-assigned.' });
+                    // Fetch and show assignments
+                    const ids = ['ENQ_REL_UAE', 'ENQ_BALANCE_TH', 'ENQ_RR_TH_1', 'ENQ_RR_TH_2'];
+                    const entries = await Promise.all(ids.map(async (id) => {
+                      const { data } = await getEnquiryById(id);
+                      return data;
+                    }));
+                    const assignedIds = entries
+                      .map(e => (e?.assignedTo ? String(e.assignedTo) : null))
+                      .filter(Boolean) as string[];
+                    let nameMap = new Map<string, string>();
+                    if (assignedIds.length > 0) {
+                      const { data: staffRows } = await (supabase as any)
+                        .from('staff')
+                        .select('id,name')
+                        .in('id', assignedIds);
+                      (staffRows || []).forEach((r: any) => {
+                        if (r?.id) nameMap.set(String(r.id), String(r.name || 'Staff'));
+                      });
+                      const missing = assignedIds.filter(id => !nameMap.has(id));
+                      if (missing.length > 0) {
+                        const { data: profRows } = await (supabase as any)
+                          .from('profiles')
+                          .select('id,name,full_name,username')
+                          .in('id', missing);
+                        (profRows || []).forEach((r: any) => {
+                          if (r?.id) nameMap.set(String(r.id), String(r.full_name || r.name || r.username || 'User'));
+                        });
+                      }
+                    }
+                    const snapshots = ids.map((id, idx) => {
+                      const e = entries[idx];
+                      const assignedTo = e?.assignedTo ? String(e.assignedTo) : null;
+                      const assignedName = assignedTo ? (nameMap.get(assignedTo) || null) : null;
+                      return { id, assignedTo, assignedName };
+                    });
+                    setDebugAssignments(snapshots);
+                    refetch();
+                  }}
+                >
+                  {seeding ? 'Seeding…' : 'Seed Assignment Test'}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -233,10 +365,10 @@ const AssignQueries: React.FC = () => {
           </Card>
         </div>
 
-        {/* Main Content Grid - Responsive */}
-        <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
+        {/* Main Content - Responsive */}
+        <div className="grid grid-cols-1 gap-4 md:gap-6">
           {/* Main Content - Queries */}
-          <Card className="lg:col-span-2">
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <MapPin className="h-5 w-5" />
@@ -244,6 +376,28 @@ const AssignQueries: React.FC = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {isDebug && seedLogs.length > 0 && (
+                <div className="mb-4 p-3 rounded-md border text-sm bg-muted/30">
+                  <div className="font-semibold mb-2">Seed Logs</div>
+                  <ul className="list-disc list-inside space-y-1">
+                    {seedLogs.map((l, idx) => (
+                      <li key={`seed-log-${idx}`}>{l}</li>
+                    ))}
+                  </ul>
+                  {debugAssignments.length > 0 && (
+                    <div className="mt-3">
+                      <div className="font-semibold mb-1">Assignments</div>
+                      <ul className="list-disc list-inside space-y-1">
+                        {debugAssignments.map((a) => (
+                          <li key={`seed-assignment-${a.id}`}>
+                            {a.id}: {a.assignedName || a.assignedTo || 'unassigned'}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="mb-4 grid w-full grid-cols-3">
                   <TabsTrigger value="unassigned" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
@@ -295,14 +449,7 @@ const AssignQueries: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Sidebar - Staff List */}
-          <div className="space-y-4 md:space-y-6">
-            <StaffList 
-              staff={activeStaff}
-              selectedStaffId={selectedStaffId}
-              onSelectStaff={setSelectedStaffId}
-            />
-          </div>
+          {/* Sidebar - Staff List removed as requested */}
         </div>
 
         {/* Assignment Rules and Staff Sequence - Mobile Stacked */}
@@ -535,11 +682,11 @@ const AssignQueries: React.FC = () => {
                             className="h-2"
                           />
                           <div className="flex flex-wrap gap-1 mt-2">
-                            {selectedStaff.expertise.slice(0, 3).map((exp, i) => (
-                              <Badge key={`expertise-${i}-${exp}`} variant="outline" className="text-xs">
-                                {exp}
-                              </Badge>
-                            ))}
+                      {selectedStaff.expertise.slice(0, 3).map((exp, i) => (
+                        <Badge key={`expertise-${i}-${exp}`} variant="outline" className="text-xs">
+                          {toCountryName(exp)}
+                        </Badge>
+                      ))}
                             {selectedStaff.expertise.length > 3 && (
                               <Badge variant="outline" className="text-xs">
                                 +{selectedStaff.expertise.length - 3} more
@@ -650,24 +797,13 @@ const AssignQueries: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Rules Dialog - Placeholder for future implementation */}
+      {/* Edit Rules Dialog - Full CRUD editor connected to Supabase */}
       <Dialog open={editRulesDialogOpen} onOpenChange={setEditRulesDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Edit Assignment Rules</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
-            <p>This feature would allow detailed configuration of assignment rules, including:</p>
-            <ul className="list-disc pl-5 mt-2 space-y-1">
-              <li>Setting rule priorities</li>
-              <li>Configuring rule conditions</li>
-              <li>Creating new custom rules</li>
-              <li>Setting automation preferences</li>
-            </ul>
-            <div className="mt-4 flex justify-end">
-              <Button onClick={() => setEditRulesDialogOpen(false)}>Close</Button>
-            </div>
-          </div>
+          <AssignmentRulesEditor onClose={() => setEditRulesDialogOpen(false)} />
         </DialogContent>
       </Dialog>
     </PageLayout>

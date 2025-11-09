@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Query } from '@/types/query';
-import { getQueryById } from '@/data/queryData';
+import ProposalService from '@/services/proposalService';
 import { useProposalBuilder } from '@/hooks/useProposalBuilder';
 import EnhancedProposalService from '@/services/enhancedProposalService';
 
@@ -60,21 +60,24 @@ const ComprehensiveProposalManager: React.FC = () => {
   } = useProposalBuilder(id);
 
   useEffect(() => {
-    if (id) {
-      const queryData = getQueryById(id);
-      if (queryData) {
-        setQuery(queryData);
-        loadExistingProposalData();
-      } else {
-        toast({
-          title: "Query not found",
-          description: "The requested query could not be found.",
-          variant: "destructive"
-        });
-        navigate('/queries');
+    const loadQuery = async () => {
+      if (id) {
+        const queryData = await ProposalService.getQueryByIdAsync(id);
+        if (queryData) {
+          setQuery(queryData);
+          loadExistingProposalData();
+        } else {
+          toast({
+            title: "Query not found",
+            description: "The requested query could not be found.",
+            variant: "destructive"
+          });
+          navigate('/queries');
+        }
+        setLoading(false);
       }
-      setLoading(false);
-    }
+    };
+    loadQuery();
   }, [id, navigate, toast]);
 
   const loadExistingProposalData = () => {

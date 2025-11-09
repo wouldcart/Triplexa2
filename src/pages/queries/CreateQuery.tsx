@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -19,20 +20,26 @@ import { AgentSelector } from '@/components/queries/AgentSelector';
 import { CountryCitySelector } from './components/CountryCitySelector';
 import { CityNightAllocator } from '@/components/proposal/CityNightAllocator';
 import { Query } from '@/types/query';
-import ProposalService from '@/services/proposalService';
+import { createEnquiry } from '@/services/enquiriesService';
+import { EnqIdGenerator } from '@/utils/enqIdGenerator';
+import { getCountryCodeByName } from '@/utils/countryUtils';
+import { findSupabaseAgentByNumericId } from '@/utils/supabaseAgentIds';
 import { useAgentData } from '@/hooks/useAgentData';
+import { useSupabaseAgentsList } from '@/hooks/useSupabaseAgentsList';
+import { toNumericAgentId } from '@/utils/supabaseAgentIds';
 
 const CreateQuery: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { getAgentById } = useAgentData();
+  const { agents } = useSupabaseAgentsList();
 
   // Form state
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [selectedAgentName, setSelectedAgentName] = useState('');
   const [destination, setDestination] = useState({ country: '', cities: [] as string[] });
   const [paxDetails, setPaxDetails] = useState({ adults: 2, children: 0, infants: 0 });
-  const [travelDates, setTravelDates] = useState({ from: null as Date | null, to: null as Date | null });
+  const [travelDates, setTravelDates] = useState({ from: null as Date | null, to: null as Date | null, isEstimated: false });
   const [packageType, setPackageType] = useState('full-package');
   const [specialRequests, setSpecialRequests] = useState(['']);
   const [budget, setBudget] = useState({ min: 0, max: 0, currency: 'USD' });
@@ -41,7 +48,7 @@ const CreateQuery: React.FC = () => {
   const [hotelDetails, setHotelDetails] = useState({ rooms: 1, category: 'standard' });
   const [inclusions, setInclusions] = useState({
     sightseeing: true,
-    transfers: 'airport',
+    transfers: '',
     mealPlan: 'breakfast',
     transportTypes: [] as string[]
   });
@@ -67,7 +74,7 @@ const CreateQuery: React.FC = () => {
     return { days: 0, nights: 0 };
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!selectedAgentId || !destination.country || !travelDates.from || !travelDates.to) {
@@ -81,8 +88,22 @@ const CreateQuery: React.FC = () => {
 
     const tripDuration = calculateTripDuration();
     
-    const queryData: Omit<Query, 'id' | 'createdAt' | 'updatedAt'> = {
-      agentId: parseInt(selectedAgentId),
+    // Prepare enquiry ID based on destination country
+    const selectedCountryCode = getCountryCodeByName(destination.country);
+    try {
+      await EnqIdGenerator.prepareConfig(selectedCountryCode || undefined);
+    } catch {}
+    const enquiryId = EnqIdGenerator.generateEnqId(selectedCountryCode || undefined);
+    
+    // Resolve Supabase agent UUID from numeric selection
+    const numericAgentId = Number.parseInt(selectedAgentId);
+    const supabaseAgent = findSupabaseAgentByNumericId(agents, numericAgentId);
+    const agentUuid = supabaseAgent?.id;
+    
+    const queryData: Omit<Query, 'createdAt' | 'updatedAt'> = {
+      id: enquiryId,
+      agentId: numericAgentId,
+      agentUuid: agentUuid,
       agentName: selectedAgentName,
       destination: {
         country: destination.country,
@@ -92,7 +113,7 @@ const CreateQuery: React.FC = () => {
       travelDates: {
         from: travelDates.from!.toISOString(),
         to: travelDates.to!.toISOString(),
-        isEstimated: false
+        isEstimated: !!travelDates.isEstimated
       },
       tripDuration,
       packageType,
@@ -109,7 +130,9 @@ const CreateQuery: React.FC = () => {
     };
 
     try {
-      const newQuery = ProposalService.createQuery(queryData);
+      const { data: created, error } = await createEnquiry(queryData as Query);
+      if (error) throw error;
+      const newQuery = created || (queryData as Query);
       toast({
         title: "Query Created",
         description: `Enquiry ${newQuery.id} has been created successfully.`,
@@ -127,9 +150,22 @@ const CreateQuery: React.FC = () => {
 
   const handleAgentChange = (agentId: string, agentName: string) => {
     setSelectedAgentId(agentId);
-    const agent = getAgentById(parseInt(agentId));
-    if (agent) {
-      setSelectedAgentName(agent.name);
+    // Prefer the provided name; if missing, resolve from Supabase; otherwise fall back to local data
+    if (agentName && agentName.trim().length > 0) {
+      setSelectedAgentName(agentName);
+      return;
+    }
+
+    const numeric = Number.parseInt(agentId || '');
+    const supabaseAgent = agents.find(a => toNumericAgentId(a.id) === numeric);
+    if (supabaseAgent) {
+      setSelectedAgentName(supabaseAgent.name);
+      return;
+    }
+
+    const localAgent = getAgentById(numeric);
+    if (localAgent) {
+      setSelectedAgentName(localAgent.name);
     }
   };
 
@@ -146,12 +182,17 @@ const CreateQuery: React.FC = () => {
   };
 
   const handleTransportTypeChange = (transportType: string, checked: boolean) => {
-    setInclusions(prev => ({
-      ...prev,
-      transportTypes: checked 
+    setInclusions(prev => {
+      const nextTransportTypes = checked
         ? [...prev.transportTypes, transportType]
-        : prev.transportTypes.filter(type => type !== transportType)
-    }));
+        : prev.transportTypes.filter(type => type !== transportType);
+      const transfersText = nextTransportTypes.length === 0 ? '' : nextTransportTypes.join(',');
+      return {
+        ...prev,
+        transportTypes: nextTransportTypes,
+        transfers: transfersText,
+      };
+    });
   };
 
   const toggleManualDuration = () => {
@@ -371,6 +412,15 @@ const CreateQuery: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Date Estimated Toggle */}
+                  <div className="flex items-center gap-3 mt-2">
+                    <Switch
+                      checked={!!travelDates.isEstimated}
+                      onCheckedChange={(checked) => setTravelDates(prev => ({ ...prev, isEstimated: !!checked }))}
+                    />
+                    <Label className="text-sm text-gray-700 dark:text-gray-300">Dates are estimated</Label>
+                  </div>
+
                   {duration.days > 0 && (
                     <div className="p-3 bg-gradient-to-br from-primary/5 to-accent/5 dark:from-primary/10 dark:to-accent/10 rounded-md border border-primary/20 dark:border-primary/30">
                       <div className="flex items-center justify-between mb-2">
@@ -435,7 +485,7 @@ const CreateQuery: React.FC = () => {
                      travelDates: {
                        from: travelDates.from.toISOString(),
                        to: travelDates.to.toISOString(),
-                       isEstimated: false
+                       isEstimated: !!travelDates.isEstimated
                      },
                      tripDuration: duration
                    } as Query}
