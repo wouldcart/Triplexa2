@@ -16,6 +16,8 @@ import {
   Plus, Edit, Eye, Copy, Trash2, AlertCircle, 
   Loader2, RefreshCw, Save, Calendar, Send, MessageSquare
 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { createWorkflowEvent } from '@/services/workflowEventsService';
 
 interface ProposalActionsProps {
   query: Query;
@@ -35,6 +37,7 @@ interface DraftProposal {
 const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStateChange }) => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
   
   const [proposals, setProposals] = useState<ProposalData[]>([]);
   const [drafts, setDrafts] = useState<DraftProposal[]>([]);
@@ -254,6 +257,25 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
   }, [query.id]);
 
   const handleCreateNewProposal = () => {
+    try {
+      // Log UI engagement: Create New Proposal clicked
+      void createWorkflowEvent({
+        enquiryBusinessId: query.id,
+        eventType: 'ui_engagement',
+        userId: user?.id || null,
+        userName: user?.name || null,
+        userRole: user?.role || null,
+        details: 'Create New Proposal clicked',
+        metadata: {
+          action: 'create_new_proposal',
+          source: 'ProposalActions',
+          routeTo: `/queries/advanced-proposal/${encodeURIComponent(query.id)}`,
+        }
+      });
+    } catch (e) {
+      // Non-blocking: do not interrupt navigation if logging fails
+      console.warn('Failed to log Create New Proposal click:', e);
+    }
     navigate(`/queries/advanced-proposal/${encodeURIComponent(query.id)}`);
   };
 

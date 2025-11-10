@@ -48,12 +48,12 @@ async function resolveUserNameWithSource(userId: string): Promise<{ name: string
     // Fallback to profiles
     const { data: profRow, error: profErr } = await sb
       .from('profiles')
-      .select('full_name,name,username,email')
+      .select('name,username,email')
       .eq('id', userId)
       .limit(1)
       .maybeSingle();
     if (!profErr && profRow) {
-      const name = (profRow as any)?.full_name || (profRow as any)?.name || (profRow as any)?.username || (profRow as any)?.email || null;
+      const name = (profRow as any)?.name || (profRow as any)?.username || (profRow as any)?.email || null;
       return { name, source: 'profiles' };
     }
   } catch {}

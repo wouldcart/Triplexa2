@@ -974,7 +974,7 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
       {/* Full Width Content Layout */}
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
         {/* Main Content - Takes up more space */}
-        <div className="xl:col-span-3 space-y-6">
+        <div className="xl:col-span-4 space-y-6">
           {/* Auto Day Generator */}
           {query && <AutoDayGenerator query={query} currentDayCount={days.length} onGenerateDays={count => addMultipleDays(count)} onGenerateDaysFromCityAllocations={generateDaysFromCityAllocations} onAddSingleDay={addDay} />}
 

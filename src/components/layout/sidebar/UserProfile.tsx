@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { LogOut, User as UserIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -42,11 +41,34 @@ const UserProfile: React.FC<UserProfileProps> = ({ sidebarOpen }) => {
   if (sidebarOpen) {
     return (
       <div className="p-2 border-t border-gray-200 dark:border-gray-700">
-        <div className="flex items-center space-x-2 mb-2">
-          <div className="h-8 w-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-medium text-xs">
-            {currentUser?.name?.charAt(0).toUpperCase() || 'U'}
-          </div>
-          <div className="flex-1 min-w-0">
+        <div className="grid grid-cols-[auto,1fr,auto] items-center gap-2">
+          {/* Left: Avatar (links to profile) */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleProfileClick}
+            className="h-8 w-8 p-0 relative rounded-full"
+            title="View Profile"
+            aria-label="View Profile"
+          >
+            {currentUser?.avatar ? (
+              <img
+                src={currentUser.avatar}
+                alt={currentUser?.name || 'User'}
+                className="h-8 w-8 rounded-full object-cover"
+              />
+            ) : (
+              <div className="h-8 w-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-medium text-xs">
+                {currentUser?.name?.charAt(0).toUpperCase() || 'U'}
+              </div>
+            )}
+            {currentUser?.status === 'active' && (
+              <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-gray-800" />
+            )}
+          </Button>
+
+          {/* Middle: Name, Email, Role */}
+          <div className="min-w-0">
             <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
               {currentUser?.name || 'User'}
             </p>
@@ -54,32 +76,22 @@ const UserProfile: React.FC<UserProfileProps> = ({ sidebarOpen }) => {
               {currentUser?.email || 'user@example.com'}
             </p>
             {currentUser?.role && (
-              <Badge className={`text-xs mt-0.5 px-1.5 py-0 ${getRoleColor(currentUser.role)}`}>
+              <Badge className={`text-[10px] mt-0.5 px-1 py-0 ${getRoleColor(currentUser.role)}`}>
                 {formatRole(currentUser.role)}
               </Badge>
             )}
           </div>
-        </div>
-        
-        <div className="flex space-x-1">
+
+          {/* Right: Logout icon */}
           <Button
             variant="ghost"
-            size="sm"
-            onClick={handleProfileClick}
-            className="flex-1 h-6 text-xs px-2"
-            title="View Profile"
-          >
-            <UserIcon className="h-3 w-3 mr-1" />
-            Profile
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
+            size="icon"
             onClick={handleLogout}
-            className="h-6 px-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            className="h-8 w-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             title="Logout"
+            aria-label="Logout"
           >
-            <LogOut className="h-3 w-3" />
+            <LogOut className="h-4 w-4" />
           </Button>
         </div>
       </div>

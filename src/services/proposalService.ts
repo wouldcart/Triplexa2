@@ -5,6 +5,7 @@ import { EnqIdGenerator } from '@/utils/enqIdGenerator';
 import { initialCountries } from '@/pages/inventory/countries/data/countryData';
 import { getCountryByName } from '@/services/countryMappingService';
 import { getEnquiryById } from '@/services/enquiriesService';
+import EnhancedService from './enhancedProposalService';
 
 export interface ProposalData {
   id: string;
@@ -164,7 +165,6 @@ class ProposalService {
       
       // Use enhanced service for new proposals
       if (!proposalData.id && proposalData.queryId) {
-        const EnhancedService = require('./enhancedProposalService').default;
         return EnhancedService.createProposal(proposalData.queryId, proposalData);
       }
       
@@ -289,7 +289,6 @@ class ProposalService {
 
   public migrateToEnhancedService(): void {
     try {
-      const EnhancedService = require('./enhancedProposalService').default;
       const existingProposals = this.getAllProposals();
       
       console.log(`Migrating ${existingProposals.length} proposals to enhanced service`);

@@ -119,7 +119,21 @@ export const useTransportData = ({ itemsPerPage = 10 }: UseTransportDataProps = 
           const startCode = row.start_location_code || row.start_location || '';
           const endCode = row.end_location_code || row.end_location || '';
           const code = row.route_code || [startCode, endCode].filter(Boolean).join('-');
-          const transportEntries = Array.isArray(row.transport_entries) ? row.transport_entries : [];
+          const vehicleTypesRaw = Array.isArray(row.vehicle_types)
+            ? row.vehicle_types
+            : Array.isArray(row.transport_types)
+              ? row.transport_types
+              : Array.isArray(row.transport_entries)
+                ? row.transport_entries
+                : [];
+          const normalizedTypes = vehicleTypesRaw.map((t: any, i: number) => ({
+            id: String(i + 1),
+            type: t.type || t.name || t.vehicle_type || 'Standard',
+            seatingCapacity: t.seatingCapacity ?? t.seating_capacity ?? t.capacity ?? 0,
+            luggageCapacity: t.luggageCapacity ?? t.luggage_capacity ?? 0,
+            duration: t.duration ?? '',
+            price: typeof t.price === 'number' ? t.price : Number(t.price) || 0,
+          }));
           return {
             id: row.id,
             code,
@@ -130,14 +144,7 @@ export const useTransportData = ({ itemsPerPage = 10 }: UseTransportDataProps = 
             startLocationFullName: row.start_location || startCode || '',
             endLocation: endCode,
             endLocationFullName: row.end_location || endCode || '',
-            transportTypes: transportEntries.map((t: any, i: number) => ({
-              id: String(i + 1),
-              type: t.type,
-              seatingCapacity: t.seating_capacity ?? 0,
-              luggageCapacity: t.luggage_capacity ?? 0,
-              duration: t.duration ?? '',
-              price: t.price ?? 0,
-            })),
+            transportTypes: normalizedTypes,
             enableSightseeing: false,
             status: row.status || 'active',
             price: 0,

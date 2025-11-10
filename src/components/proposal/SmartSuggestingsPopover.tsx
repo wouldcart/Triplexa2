@@ -242,21 +242,24 @@ export const SmartSuggestionsPopover: React.FC<SmartSuggestionsPopoverProps> = (
   };
 
   const getSelectedVehicleType = (route: any) => {
-    return selectedVehicleTypes[route.id] || (route.transportTypes?.[0]?.type) || 'Standard';
+    const firstType = Array.isArray(route.transportTypes) && route.transportTypes.length > 0
+      ? route.transportTypes[0]?.type
+      : undefined;
+    return selectedVehicleTypes[route.id] || firstType || 'Standard';
   };
 
   const getVehicleTypePrice = (route: any, vehicleType: string) => {
-    if (route.transportTypes) {
+    if (Array.isArray(route.transportTypes) && route.transportTypes.length > 0) {
       const vehicleTypeData = route.transportTypes.find((vt: any) => vt.type === vehicleType);
-      return vehicleTypeData?.price || 50;
+      return vehicleTypeData?.price ?? route.price ?? 50;
     }
-    return route.price || 50;
+    return route.price ?? 50;
   };
 
   const getVehicleTypeCapacity = (route: any, vehicleType: string) => {
-    if (route.transportTypes) {
+    if (Array.isArray(route.transportTypes) && route.transportTypes.length > 0) {
       const vehicleTypeData = route.transportTypes.find((vt: any) => vt.type === vehicleType);
-      return vehicleTypeData?.seatingCapacity || 4;
+      return vehicleTypeData?.seatingCapacity ?? 4;
     }
     return 4;
   };

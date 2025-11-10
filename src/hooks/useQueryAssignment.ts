@@ -140,21 +140,26 @@ export const useQueryAssignment = () => {
   };
 
   // Assign a query to staff (manual)
-  const assignQueryToStaff = async (query: Query, staffId: number) => {
+  const assignQueryToStaff = async (query: Query, staffId: number, assignedBy?: string) => {
     setIsAssigning(true);
     try {
       const staff = activeStaff.find(s => s.id === staffId) || enhancedStaff.find(s => s.id === staffId);
       if (!staff) throw new Error('Staff not found');
-      const staffIdentifier = (staff as any).uuid || staff.name;
-      const reason = getAssignmentReason(staff, query);
+      // Always use the Supabase UUID when available to avoid collisions
+      const staffIdentifier = String((staff as any)?.uuid ?? staff.id);
+      // Prefix reason to track whether the user selected the recommended staff or made a manual selection
+      const recommended = findBestStaffMatchService(query, enhancedStaff);
+      const selectionPrefix = recommended && recommended.id === staff.id ? 'Recommended' : 'Manual Selection';
+      const reason = `${selectionPrefix}  ${getAssignmentReason(staff, query)}`;
 
-      const { error } = await assignEnquiry(query.id, String(staffIdentifier), undefined, reason, false);
+      const safeReason = `${selectionPrefix} - ${getAssignmentReason(staff, query)}`;
+      const { error } = await assignEnquiry(query.id, staffIdentifier, assignedBy, safeReason, false);
       if (error) throw error;
 
       const agent = getAgentById(Number(query.agentId) || 0);
       toast({
         title: 'Query Assigned Successfully',
-        description: `Query ${query.id} assigned to ${staff.name} (${reason})${agent ? ` for agent ${agent.name}` : ''}`,
+        description: `Query ${query.id} assigned to ${staff.name} (${safeReason})${agent ? ` for agent ${agent.name}` : ''}`,
       });
     } catch (e: any) {
       toast({

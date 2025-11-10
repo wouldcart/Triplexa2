@@ -1,4 +1,4 @@
-import { adminSupabase } from '@/lib/supabaseClient';
+import { adminSupabase as supabaseAdmin } from '@/lib/supabaseClient';
 import type { Tables, TablesInsert, TablesUpdate, Json } from '@/integrations/supabase/types';
 import { userTrackingService } from './userTrackingService';
 import { locationResolutionService, resolveTransportRouteLocations } from './locationResolutionService';
@@ -8,7 +8,7 @@ export const listTransportRoutes = async (filters?: {
   country?: string;
   transferType?: string;
 }) => {
-  let query = adminSupabase
+  let query = supabaseAdmin
     .from('transport_routes')
     .select('*')
     // Prefer ordering by start_location to support live schema
@@ -471,13 +471,15 @@ export const deleteTransportRoute = async (id: string) => {
 
 // Basic mapping to proposal TransportRoute type
 export function mapRouteRowToProposalRoute(row: Tables<'transport_routes'>) {
-  // Attempt to derive a price/duration from transport_entries JSON if present
   let price = 0;
   let duration = 'N/A';
-  const entries = (row as any).transport_entries as Json | null;
-  if (Array.isArray(entries) && entries.length > 0) {
-    const first: any = entries[0];
-    price = typeof first?.price === 'number' ? first.price : 0;
+  const vt = (row as any).vehicle_types as Json | null;
+  const te = (row as any).transport_entries as Json | null;
+  const source = Array.isArray(vt) && vt.length > 0 ? vt : Array.isArray(te) ? te : [];
+  if (Array.isArray(source) && source.length > 0) {
+    const first: any = source[0];
+    const p = typeof first?.price === 'number' ? first.price : Number(first?.price);
+    price = isNaN(p) ? 0 : p;
     duration = typeof first?.duration === 'string' ? first.duration : duration;
   }
 

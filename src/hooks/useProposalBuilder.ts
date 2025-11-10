@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ItineraryDay } from '@/components/proposal/DayByDayItineraryBuilder';
 import ProposalService from '@/services/proposalService';
+import SupabaseProposalService from '@/services/supabaseProposalService';
 import { Query } from '@/types/query';
 import { calculateTripDuration } from '@/utils/currencyUtils';
 import { saveAccommodationData, loadAccommodationData, AccommodationOption } from '@/utils/accommodationUtils';
@@ -642,6 +643,21 @@ export const useProposalBuilder = (queryId?: string, options?: UseProposalBuilde
         saveAccommodationData(queryId, allAccommodations, days);
       }
       
+      // Supabase: upsert draft row for server-side persistence (best-effort)
+      try {
+        const query: Query | null = await ProposalService.getQueryByIdAsync(queryId);
+        if (query) {
+          await SupabaseProposalService.upsertDraftProposal({
+            query,
+            days,
+            totalCost,
+            draftType: finalDraftType,
+          });
+        }
+      } catch (e) {
+        console.warn('Supabase draft upsert failed:', e);
+      }
+      
       return draftId;
     } finally {
       setLoading(false);
@@ -706,13 +722,25 @@ export const useProposalBuilder = (queryId?: string, options?: UseProposalBuilde
 
       const proposalId = ProposalService.saveProposal(proposalData);
       
+      // Supabase: create server-side proposal record (best-effort)
+      try {
+        await SupabaseProposalService.createProposal({
+          query,
+          days,
+          totalCost,
+          draftType,
+        });
+      } catch (e) {
+        console.warn('Supabase proposal creation failed:', e);
+      }
+      
       // Keep draft after successful proposal creation (don't clear)
       
       return proposalId;
     } finally {
       setLoading(false);
     }
-  }, [queryId, days, totalCost]);
+  }, [queryId, days, totalCost, draftType]);
 
   const saveAccommodations = useCallback((accommodations: AccommodationOption[]) => {
     if (!queryId) return;

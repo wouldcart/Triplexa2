@@ -31,6 +31,8 @@ import { toast } from "@/hooks/use-toast";
 import { AppSettingsService, SETTING_CATEGORIES } from '@/services/appSettingsService_database';
 import { LogoutButton } from '@/components/common/LogoutButton';
 import { useAuth } from '@/contexts/AuthContext';
+import mockQueries from '@/data/queryData';
+import { searchEnquiriesBySuffix } from '@/services/enquiriesService';
 
 interface HeaderProps {
   variant?: 'default' | 'hr';
@@ -41,15 +43,54 @@ const Header: React.FC<HeaderProps> = ({ variant = 'default' }) => {
   const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState<string>("");
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [siteTitle, setSiteTitle] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [supabaseStatus, setSupabaseStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [enquiryMatches, setEnquiryMatches] = useState<Array<{ enquiry_id: string; country_name: string; cities: any[]; agent_id: string | null; agent_name: string; agency_name: string }>>([]);
+  const [matchesLoading, setMatchesLoading] = useState<boolean>(false);
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const { signOut } = useAuth();
+  
+  const normalizeEnquiryId = (s: string) => s.trim().toUpperCase();
+  const isEnquiryId = (s: string) => /^ENQ\d{5,}$/.test(normalizeEnquiryId(s));
+  const isLastFourDigits = (s: string) => /^\d{4}$/.test(s.trim());
+  const findMatchingEnquiriesBySuffixFallback = (suffix: string) => {
+    const last4 = suffix.trim();
+    try {
+      return mockQueries
+        .filter(q => typeof q.id === 'string' && q.id.toUpperCase().startsWith('ENQ') && q.id.endsWith(last4))
+        .map(q => ({
+          enquiry_id: String(q.id),
+          country_name: String(q.destination?.country || ''),
+          cities: Array.isArray(q.destination?.cities) ? q.destination!.cities : [],
+          agent_id: q.agentId != null ? String(q.agentId) : null,
+          agent_name: String(q.agentName || ''),
+          agency_name: ''
+        }));
+    } catch {
+      return [] as Array<{ enquiry_id: string; country_name: string; cities: any[]; agent_id: string | null; agent_name: string; agency_name: string }>;
+    }
+  };
+  const goToEnquiry = (id: string) => {
+    const enq = normalizeEnquiryId(id);
+    navigate(`/queries/${encodeURIComponent(enq)}`);
+    setOpen(false);
+    setCommandQuery("");
+  };
+
+  const formatCities = (cities: any[]) => {
+    try {
+      const arr = Array.isArray(cities) ? cities : [];
+      return arr.map(String).filter(Boolean).slice(0, 4).join(', ');
+    } catch {
+      return '';
+    }
+  };
   
   // Mock notifications data
   const [notifications, setNotifications] = useState([
@@ -189,6 +230,42 @@ const Header: React.FC<HeaderProps> = ({ variant = 'default' }) => {
     }
     return () => { mounted = false; };
   }, [isOnline]);
+
+  // Live suggestions for last-4-digit enquiry search with Supabase (fallback to mock data)
+  useEffect(() => {
+    const q = commandQuery.trim();
+    if (!isLastFourDigits(q)) {
+      setEnquiryMatches([]);
+      setMatchesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setMatchesLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const { data, error } = await searchEnquiriesBySuffix(q, 50);
+        if (!cancelled) {
+          if (error) {
+            const fallback = findMatchingEnquiriesBySuffixFallback(q);
+            setEnquiryMatches(fallback);
+          } else {
+            setEnquiryMatches(Array.isArray(data) ? data : []);
+          }
+        }
+      } catch {
+        const fallback = findMatchingEnquiriesBySuffixFallback(q);
+        if (!cancelled) setEnquiryMatches(fallback);
+      } finally {
+        if (!cancelled) setMatchesLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [commandQuery]);
 
   // Load company_name, site_title and company_logo from App Settings (DB-backed with localStorage fallback)
   useEffect(() => {
@@ -350,9 +427,7 @@ const Header: React.FC<HeaderProps> = ({ variant = 'default' }) => {
           </>
         ) : (
           <>
-            <div className="hidden md:block max-w-[240px] truncate text-xs sm:text-sm font-semibold text-gray-900 dark:text-white">
-              {companyName || siteTitle || translate('Travel Management System') || 'Travel Management System'}
-            </div>
+            {/* Removed header brand text to clean up header */}
             <div className="relative flex-1 max-w-xs sm:max-w-sm md:max-w-md">
               <Search className="absolute left-2 top-1/2 h-3 w-3 sm:h-4 sm:w-4 -translate-y-1/2 text-muted-foreground" />
               <input
@@ -551,12 +626,81 @@ const Header: React.FC<HeaderProps> = ({ variant = 'default' }) => {
 
       <CommandDialog open={open} onOpenChange={setOpen}>
         {variant === 'hr' ? (
-          <CommandInput placeholder={`${translate('Search HR actions')}...` || `Search HR actions...`} />
+          <CommandInput 
+            placeholder={`${translate('Search HR actions')}...` || `Search HR actions...`} 
+            value={commandQuery}
+            onValueChange={setCommandQuery}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                if (isEnquiryId(commandQuery)) {
+                  e.preventDefault();
+                  goToEnquiry(commandQuery);
+                } else if (isLastFourDigits(commandQuery)) {
+                  if (enquiryMatches.length === 1) {
+                    e.preventDefault();
+                    goToEnquiry(enquiryMatches[0].enquiry_id);
+                  }
+                }
+              }
+            }}
+          />
         ) : (
-          <CommandInput placeholder={`${translate('search')} ${translate('for sightseeings, bookings, agents, hotels or enquiry numbers')}...` || `${translate('search')} for sightseeings, bookings, agents, hotels or enquiry numbers...`} />
+          <CommandInput 
+            placeholder={`${translate('search')} ${translate('for sightseeings, bookings, agents, hotels or enquiry numbers')}...` || `${translate('search')} for sightseeings, bookings, agents, hotels or enquiry numbers...`} 
+            value={commandQuery}
+            onValueChange={setCommandQuery}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                if (isEnquiryId(commandQuery)) {
+                  e.preventDefault();
+                  goToEnquiry(commandQuery);
+                } else if (isLastFourDigits(commandQuery)) {
+                  if (enquiryMatches.length === 1) {
+                    e.preventDefault();
+                    goToEnquiry(enquiryMatches[0].enquiry_id);
+                  }
+                }
+              }
+            }}
+          />
         )}
         <CommandList>
           <CommandEmpty>{translate('No results found') || 'No results found'}.</CommandEmpty>
+          {isEnquiryId(commandQuery) && (
+            <CommandGroup heading={translate('Direct Navigation') || 'Direct Navigation'}>
+              <CommandItem onSelect={() => goToEnquiry(commandQuery)}>
+                <span className="font-medium mr-2">{translate('Go to Enquiry') || 'Go to Enquiry'}</span>
+                <span>{normalizeEnquiryId(commandQuery)}</span>
+              </CommandItem>
+            </CommandGroup>
+          )}
+          {isLastFourDigits(commandQuery) && (
+            <>
+              {matchesLoading && (
+                <CommandGroup heading={translate('Matching Enquiries') || 'Matching Enquiries'}>
+                  <CommandItem disabled>
+                    <span className="text-xs text-muted-foreground">{translate('Searching...') || 'Searching...'}</span>
+                  </CommandItem>
+                </CommandGroup>
+              )}
+              {!matchesLoading && enquiryMatches.length > 0 && (
+                <CommandGroup heading={translate('Matching Enquiries') || 'Matching Enquiries'}>
+                  {enquiryMatches.map((m) => (
+                    <CommandItem key={m.enquiry_id} onSelect={() => goToEnquiry(m.enquiry_id)}>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{m.enquiry_id}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {m.country_name || ''}
+                          {formatCities(m.cities) ? ` • ${formatCities(m.cities)}` : ''}
+                          {(m.agent_name || m.agency_name) ? ` • ${m.agent_name || m.agency_name}` : ''}
+                        </span>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
+            </>
+          )}
           {(variant === 'hr' ? hrSearchResults : searchResults).map((group) => (
             <CommandGroup key={group.heading} heading={group.heading}>
               {group.items.map((item) => (

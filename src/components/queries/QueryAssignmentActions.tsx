@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +33,8 @@ import { useApp } from "@/contexts/AppContext";
 import { useStaffNotifications } from "@/contexts/StaffNotificationContext";
 import { staffNotificationService } from "@/services/staffNotificationService";
 import { toast } from "sonner";
+import { resolveProfileNameById } from "@/services/profilesHelper";
+import { useRealTimeCountriesData } from "@/hooks/useRealTimeCountriesData";
 
 interface QueryAssignmentActionsProps {
   query: Query;
@@ -53,6 +55,28 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
   const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [assignedToName, setAssignedToName] = useState<string | null>(null);
+  const { getCountryById } = useRealTimeCountriesData();
+
+  const toCountryName = (value: string) => getCountryById(value)?.name || value;
+
+  // Resolve assigned-to name from profiles/staff/agents
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        if (query?.assignedTo) {
+          const name = await resolveProfileNameById(query.assignedTo);
+          if (mounted) setAssignedToName(name || null);
+        } else {
+          if (mounted) setAssignedToName(null);
+        }
+      } catch {
+        if (mounted) setAssignedToName(null);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [query?.assignedTo]);
 
   // Check if current user can self-assign
   const canSelfAssign = currentUser?.role === "staff" && 
@@ -67,13 +91,15 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
   const bestMatch = findBestStaffMatch(query);
   const applicableRule = getApplicableRule(query);
 
-  const handleSelfAssign = () => {
+  const handleSelfAssign = async () => {
     if (!currentStaffMember || !currentUser) {
       toast.error("Unable to find your staff profile");
       return;
     }
 
-    assignQueryToStaff(query, currentStaffMember.id);
+    await assignQueryToStaff(query, currentStaffMember.id, currentUser.id);
+    // Optimistically update displayed name to avoid showing raw ID before subscription refresh
+    setAssignedToName(currentStaffMember.name);
     
     // Create assignment notification
     const notification = staffNotificationService.createAssignmentNotification(
@@ -86,7 +112,7 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
     toast.success("Query assigned to you successfully!");
   };
 
-  const handleStaffAssign = () => {
+  const handleStaffAssign = async () => {
     if (!selectedStaffId || !currentUser) {
       toast.error("Please select a staff member");
       return;
@@ -98,7 +124,9 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
       return;
     }
 
-    assignQueryToStaff(query, parseInt(selectedStaffId));
+    await assignQueryToStaff(query, parseInt(selectedStaffId), currentUser.id);
+    // Optimistically update displayed name to ensure correct name appears immediately
+    setAssignedToName(selectedStaff.name);
     
     // Create assignment notification for the assigned staff member
     const notification = staffNotificationService.createAssignmentNotification(
@@ -141,7 +169,7 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
         </p>
         <div className="flex items-center gap-2 mt-1">
           <Badge variant="outline" className="text-xs">
-            {bestMatch.expertise.slice(0, 2).join(", ")}
+            {bestMatch.expertise.slice(0, 2).map(toCountryName).join(", ")}
           </Badge>
           <span className="text-xs text-muted-foreground">
             Current load: {bestMatch.assigned}/{bestMatch.workloadCapacity}
@@ -170,9 +198,105 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Assigned to:</span>
-              <span className="text-sm font-medium">Staff Member</span>
+              <span className="text-sm font-medium">
+                {assignedToName || '—'}
+              </span>
+            </div>
+            <div className="flex items-center justify-end pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAssignDialog(true)}
+                disabled={isAssigning}
+              >
+                {isAssigning ? 'Reassigning…' : 'Reassign'}
+              </Button>
             </div>
           </div>
+          {/* Reassign Dialog */}
+          <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Reassign Query to Staff</DialogTitle>
+                <DialogDescription>
+                  Select a staff member to reassign this query.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {getAssignmentRecommendation()}
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Select Staff Member</label>
+                  <Select value={selectedStaffId} onValueChange={setSelectedStaffId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose staff member..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeStaff
+                        .filter(staff => staff.active && staff.assigned < staff.workloadCapacity && staff.role !== 'super_admin')
+                        .map(staff => (
+                          <SelectItem key={staff.id} value={staff.id.toString()}>
+                            <div className="flex items-center justify-between w-full">
+                              <div>
+                                <span className="font-medium">{staff.name}</span>
+                                <span className="text-sm text-muted-foreground ml-2">
+                                  ({staff.role})
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {staff.assigned}/{staff.workloadCapacity}
+                                </Badge>
+                                {staff.id === bestMatch?.id && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    Recommended
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedStaffId && (
+                  <div className="p-3 bg-muted/50 rounded-lg">
+                    <div className="text-sm">
+                      <strong>Staff Details:</strong>
+                      {(() => {
+                        const selectedStaff = activeStaff.find(s => s.id.toString() === selectedStaffId);
+                        return selectedStaff ? (
+                          <div className="mt-1 space-y-1">
+                            <p>
+                              Expertise: {selectedStaff.expertise.slice(0, 3).map(exp => toCountryName(exp)).join(", ")}
+                            </p>
+                            <p>Current Load: {selectedStaff.assigned}/{selectedStaff.workloadCapacity}</p>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAssignDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleStaffAssign}
+                  disabled={!selectedStaffId || isAssigning}
+                >
+                  {isAssigning ? "Reassigning..." : "Reassign"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </CardContent>
       </Card>
     );
@@ -240,7 +364,7 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
                     </SelectTrigger>
                     <SelectContent>
                       {activeStaff
-                        .filter(staff => staff.active && staff.assigned < staff.workloadCapacity)
+                        .filter(staff => staff.active && staff.assigned < staff.workloadCapacity && staff.role !== 'super_admin')
                         .map(staff => (
                           <SelectItem key={staff.id} value={staff.id.toString()}>
                             <div className="flex items-center justify-between w-full">
@@ -275,7 +399,9 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
                         const selectedStaff = activeStaff.find(s => s.id.toString() === selectedStaffId);
                         return selectedStaff ? (
                           <div className="mt-1 space-y-1">
-                            <p>Expertise: {selectedStaff.expertise.slice(0, 3).join(", ")}</p>
+                            <p>
+                              Expertise: {selectedStaff.expertise.slice(0, 3).map(toCountryName).join(", ")}
+                            </p>
                             <p>Current Load: {selectedStaff.assigned}/{selectedStaff.workloadCapacity}</p>
                           </div>
                         ) : null;
@@ -283,6 +409,16 @@ export const QueryAssignmentActions: React.FC<QueryAssignmentActionsProps> = ({
                     </div>
                   </div>
                 )}
+
+                {/* Notes Preview */}
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <div className="text-sm">
+                    <strong>Notes Preview:</strong>
+                    <p className="mt-1 text-muted-foreground whitespace-pre-wrap">
+                      {query.notes && query.notes.trim().length > 0 ? query.notes : 'No notes provided'}
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <DialogFooter>

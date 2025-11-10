@@ -678,15 +678,7 @@ export async function updateEnquiry(id: string, patch: Partial<Query>) {
           .limit(1)
           .maybeSingle();
         let staffFound = res.data;
-        if (!staffFound?.id) {
-          res = await sb
-            .from('staff_profiles')
-            .select('id,full_name')
-            .ilike('full_name', patch.assignedTo)
-            .limit(1)
-            .maybeSingle();
-          staffFound = res.data;
-        }
+        // No full_name column; rely on name match only
         resolvedStaffId = staffFound?.id || null;
       }
     }
@@ -869,6 +861,77 @@ export async function getEnquiryById(id: string) {
   return { data: enriched, error: null };
 }
 
+// Search enquiries by last digits of `enquiry_id` and enrich with agent details
+export async function searchEnquiriesBySuffix(suffix: string, limit: number = 50) {
+  try {
+    const trimmed = String(suffix || '').trim();
+    if (!/^\d{1,10}$/.test(trimmed)) {
+      return { data: [], error: null };
+    }
+
+    // Find enquiries where business ID ends with the provided digits
+    const { data, error } = await (sb
+      .from('enquiries')
+      .select('id,enquiry_id,country_name,cities,agent_id')
+      .like('enquiry_id', `%${trimmed}`)
+      .order('enquiry_id', { ascending: false })
+      .limit(limit)
+    );
+    if (error) return { data: [], error };
+    const rows = Array.isArray(data) ? data : [];
+
+    // Collect unique agent IDs for enrichment
+    const agentIds = Array.from(
+      new Set(
+        rows
+          .map((r: any) => (r?.agent_id ? String(r.agent_id) : null))
+          .filter((id: string | null): id is string => !!id)
+      )
+    );
+
+    let agentsMap = new Map<string, { name?: string; agency_name?: string }>();
+    if (agentIds.length > 0) {
+      try {
+        const { data: agentsData, error: agentsErr } = await sb
+          .from('agents' as any)
+          .select('id,name,agency_name')
+          .in('id', agentIds);
+        if (!agentsErr && Array.isArray(agentsData)) {
+          (agentsData as any[]).forEach((a: any) => {
+            agentsMap.set(String(a.id), {
+              name: (a as any)?.name,
+              agency_name: (a as any)?.agency_name,
+            });
+          });
+        }
+      } catch {}
+    }
+
+    const suggestions = rows.map((r: any) => {
+      const agentInfo = agentsMap.get(String(r?.agent_id));
+      return {
+        enquiry_id: String((r as any)?.enquiry_id || ''),
+        country_name: String((r as any)?.country_name || ''),
+        cities: Array.isArray((r as any)?.cities) ? (r as any)?.cities : [],
+        agent_id: (r as any)?.agent_id ? String((r as any)?.agent_id) : null,
+        agent_name: agentInfo?.name || '',
+        agency_name: agentInfo?.agency_name || ''
+      } as {
+        enquiry_id: string;
+        country_name: string;
+        cities: any[];
+        agent_id: string | null;
+        agent_name: string;
+        agency_name: string;
+      };
+    });
+
+    return { data: suggestions, error: null };
+  } catch (e: any) {
+    return { data: [], error: e };
+  }
+}
+
 // Assignment helper: updates assigned_to and records assignment history
 export async function assignEnquiry(
   enquiryBusinessId: string,
@@ -907,12 +970,12 @@ export async function assignEnquiry(
       if (!previousAssignedName) {
         const { data: prevProfile, error: prevProfErr } = await sb
           .from('profiles')
-          .select('full_name,name,username,email')
+          .select('name,username,email')
           .eq('id', previousAssignedId)
           .limit(1)
           .maybeSingle();
         if (!prevProfErr && prevProfile) {
-          previousAssignedName = (prevProfile as any)?.full_name || (prevProfile as any)?.name || (prevProfile as any)?.username || (prevProfile as any)?.email || null;
+          previousAssignedName = (prevProfile as any)?.name || (prevProfile as any)?.username || (prevProfile as any)?.email || null;
           previousAssignedNameSource = 'profiles';
         }
       }
@@ -952,21 +1015,43 @@ export async function assignEnquiry(
     // Resolve by name: prefer staff, then profiles
     let res = await sb
       .from('staff' as any)
-      .select('id,name')
+      .select('id,name,role')
       .ilike('name', staffIdOrName)
       .limit(1)
       .maybeSingle();
     let staffFound = res.data;
+    // Block assignment to super admins
+    if (staffFound?.role === 'super_admin') {
+      return { error: new Error('Cannot assign to super admin accounts') };
+    }
     if (!staffFound?.id) {
+      // Try profiles by name
       res = await sb
         .from('profiles')
-        .select('id,full_name,name,username')
-        .ilike('full_name', staffIdOrName)
+        .select('id,name,username,role')
+        .ilike('name', staffIdOrName)
         .limit(1)
         .maybeSingle();
       staffFound = res.data;
+      // Block assignment to super admins
+      if ((staffFound as any)?.role === 'super_admin') {
+        return { error: new Error('Cannot assign to super admin accounts') };
+      }
+      if (!staffFound?.id) {
+        // Fallback: match by username
+        res = await sb
+          .from('profiles')
+          .select('id,name,username,role')
+          .ilike('username', staffIdOrName)
+          .limit(1)
+          .maybeSingle();
+        staffFound = res.data;
+        if ((staffFound as any)?.role === 'super_admin') {
+          return { error: new Error('Cannot assign to super admin accounts') };
+        }
+      }
       if (staffFound?.id) {
-        staffAssignedName = (staffFound as any)?.full_name || (staffFound as any)?.name || (staffFound as any)?.username || null;
+        staffAssignedName = (staffFound as any)?.name || (staffFound as any)?.username || null;
         assignedToNameSource = 'profiles';
       }
     }
@@ -983,23 +1068,29 @@ export async function assignEnquiry(
     try {
       const { data: staffRow, error: staffErr } = await sb
         .from('staff' as any)
-        .select('name,email')
+        .select('name,email,role')
         .eq('id', staffProfileId)
         .limit(1)
         .maybeSingle();
       if (!staffErr && staffRow) {
+        if ((staffRow as any)?.role === 'super_admin') {
+          return { error: new Error('Cannot assign to super admin accounts') };
+        }
         staffAssignedName = (staffRow as any)?.name || (staffRow as any)?.email || null;
         assignedToNameSource = 'staff';
       }
       if (!staffAssignedName) {
         const { data: profRow, error: profErr } = await sb
           .from('profiles')
-          .select('full_name,name,username,email')
+          .select('name,username,email,role')
           .eq('id', staffProfileId)
           .limit(1)
           .maybeSingle();
         if (!profErr && profRow) {
-          staffAssignedName = (profRow as any)?.full_name || (profRow as any)?.name || (profRow as any)?.username || (profRow as any)?.email || null;
+          if ((profRow as any)?.role === 'super_admin') {
+            return { error: new Error('Cannot assign to super admin accounts') };
+          }
+          staffAssignedName = (profRow as any)?.name || (profRow as any)?.username || (profRow as any)?.email || null;
           assignedToNameSource = 'profiles';
         }
       }

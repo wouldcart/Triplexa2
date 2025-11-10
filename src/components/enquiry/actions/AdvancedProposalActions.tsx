@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
@@ -26,7 +27,7 @@ import {
   Users
 } from 'lucide-react';
 import { Query } from '@/types/query';
-import { useAgentData } from '@/hooks/useAgentData';
+import { useSupabaseAgentContact } from '@/hooks/useSupabaseAgentContact';
 import { toast } from 'sonner';
 import ProposalPreview from './ProposalPreview';
 import GenerateProposalDialog from './GenerateProposalDialog';
@@ -53,6 +54,9 @@ interface AgentContactDetails {
   company: string;
   address: string;
   additionalNotes: string;
+  alternateEmail?: string;
+  mobileNumbers?: string[];
+  profileImage?: string;
 }
 
 const AdvancedProposalActions: React.FC<AdvancedProposalActionsProps> = ({
@@ -60,7 +64,7 @@ const AdvancedProposalActions: React.FC<AdvancedProposalActionsProps> = ({
   proposalData,
   onStatusUpdate
 }) => {
-  const { getAgentById } = useAgentData();
+  const { contact: supabaseContact } = useSupabaseAgentContact(query);
   const [showAdvancedPreview, setShowAdvancedPreview] = useState(false);
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [showContactEdit, setShowContactEdit] = useState(false);
@@ -81,50 +85,46 @@ const AdvancedProposalActions: React.FC<AdvancedProposalActionsProps> = ({
     phone: '',
     company: '',
     address: '',
-    additionalNotes: ''
+    additionalNotes: '',
+    alternateEmail: undefined,
+    mobileNumbers: undefined,
+    profileImage: undefined,
   });
 
   useEffect(() => {
-    loadAgentData();
-  }, [query.agentId]);
-
-  const loadAgentData = () => {
-    const agent = getAgentById(query.agentId);
-    
-    if (agent) {
-      setAgentDetails({
-        name: agent.name || query.agentName,
-        email: agent.email || '',
-        phone: agent.contact?.phone || '',
-        company: agent.type === 'company' ? agent.name : '',
-        address: agent.city || '',
-        additionalNotes: ''
-      });
-    } else if (query.agentName) {
-      setAgentDetails({
-        name: query.agentName,
+    // Merge Supabase contact info with any locally saved edits
+    try {
+      const savedDetails = localStorage.getItem(`agent_contact_${query.agentId}`);
+      const parsed = savedDetails ? JSON.parse(savedDetails) : null;
+      const base = supabaseContact || {
+        name: query.agentName || '',
         email: '',
         phone: '',
         company: '',
         address: '',
-        additionalNotes: `Agent ID: ${query.agentId} from enquiry ${query.id}`
-      });
-    }
-    
-    try {
-      const savedDetails = localStorage.getItem(`agent_contact_${query.agentId}`);
-      if (savedDetails) {
-        const parsed = JSON.parse(savedDetails);
-        setAgentDetails(prev => ({
-          ...prev,
-          ...parsed,
-          name: query.agentName || prev.name
-        }));
-      }
+        alternateEmail: undefined,
+        mobileNumbers: undefined,
+        profileImage: undefined,
+      };
+      setAgentDetails(prev => ({
+        name: (parsed?.name ?? base.name) || '',
+        email: (parsed?.email ?? base.email) || '',
+        phone: (parsed?.phone ?? base.phone) || '',
+        company: (parsed?.company ?? base.company) || '',
+        address: (parsed?.address ?? base.address) || '',
+        additionalNotes: prev.additionalNotes || `Agent ID: ${query.agentId} from enquiry ${query.id}`,
+        alternateEmail: parsed?.alternateEmail ?? base.alternateEmail,
+        mobileNumbers: parsed?.mobileNumbers ?? base.mobileNumbers,
+        profileImage: parsed?.profileImage ?? base.profileImage,
+      }));
     } catch (error) {
-      console.error('Error loading saved agent contact details:', error);
+      // Minimal fallback to ensure name is present
+      setAgentDetails(prev => ({
+        ...prev,
+        name: query.agentName || prev.name,
+      }));
     }
-  };
+  }, [supabaseContact, query.agentId, query.agentName, query.id]);
 
   const validateProposal = () => {
     const errors = [];
@@ -409,10 +409,18 @@ Generated: ${new Date().toLocaleString()}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <User className="h-4 w-4" />
-                Agent Contact
-              </CardTitle>
+              <div className="flex items-center gap-3">
+                <CardTitle className="flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  Agent Contact
+                </CardTitle>
+                {agentDetails.profileImage && (
+                  <Avatar>
+                    <AvatarImage src={agentDetails.profileImage} alt={agentDetails.name || 'Agent'} />
+                    <AvatarFallback>{(agentDetails.name || 'A').slice(0,1)}</AvatarFallback>
+                  </Avatar>
+                )}
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -437,8 +445,24 @@ Generated: ${new Date().toLocaleString()}
                 <div className="text-muted-foreground">{agentDetails.email || 'Not provided'}</div>
               </div>
               <div>
+                <div className="font-medium">Alternate Email</div>
+                <div className="text-muted-foreground">{agentDetails.alternateEmail || '—'}</div>
+              </div>
+              <div>
                 <div className="font-medium">Phone</div>
                 <div className="text-muted-foreground">{agentDetails.phone || 'Not provided'}</div>
+              </div>
+              <div>
+                <div className="font-medium">Additional Numbers</div>
+                <div className="flex flex-wrap gap-1">
+                  {(agentDetails.mobileNumbers || []).length > 0 ? (
+                    (agentDetails.mobileNumbers || []).map((n, i) => (
+                      <Badge key={i} variant="secondary">{n}</Badge>
+                    ))
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </div>
               </div>
             </div>
             

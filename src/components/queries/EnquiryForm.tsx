@@ -287,6 +287,7 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
       package: formData.packageType || 'Full Package',
       hotel: `${formData.hotelDetails?.rooms || 1} room, ${formData.hotelDetails?.category || 'standard'}`,
       contact: formData.communicationPreference || 'Email',
+      notes: (formData.notes || '').trim(),
       inclusions: {
         sightseeing: formData.inclusions?.sightseeing !== false,
         transfers: formData.inclusions?.transfers || 'Airport',
@@ -852,6 +853,20 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
                         <div className="space-y-2">
                           <h4 className="text-sm font-medium">Communication:</h4>
                           <Badge variant="outline" className="text-xs">{preview.contact}</Badge>
+                        </div>
+
+                        <Separator />
+
+                        {/* Notes Preview */}
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-medium">Notes</h4>
+                          {preview.notes ? (
+                            <div className="text-xs text-muted-foreground whitespace-pre-wrap border rounded-md p-2 bg-muted/30">
+                              {preview.notes}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-muted-foreground italic">No notes provided.</div>
+                          )}
                         </div>
                       </>
                     );

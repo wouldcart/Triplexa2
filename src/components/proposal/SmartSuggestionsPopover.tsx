@@ -64,8 +64,8 @@ export const SmartSuggestionsPopover: React.FC<SmartSuggestionsPopoverProps> = (
     [key: string]: number;
   }>({});
   const [editingItem, setEditingItem] = useState<string | null>(null);
-  const [selectedVehicleTypes, setSelectedVehicleTypes] = useState<{
-    [key: string]: string;
+  const [selectedVehicleIndices, setSelectedVehicleIndices] = useState<{
+    [key: string]: number;
   }>({});
   const [multiVehicleSelections, setMultiVehicleSelections] = useState<{
     [key: string]: {
@@ -240,28 +240,32 @@ export const SmartSuggestionsPopover: React.FC<SmartSuggestionsPopoverProps> = (
   const cancelEditing = () => {
     setEditingItem(null);
   };
-  const handleVehicleTypeChange = (routeId: string, vehicleType: string) => {
-    setSelectedVehicleTypes(prev => ({
+  const handleVehicleTypeChange = (routeId: string, index: number) => {
+    setSelectedVehicleIndices(prev => ({
       ...prev,
-      [routeId]: vehicleType
+      [routeId]: index
     }));
   };
-  const getSelectedVehicleType = (route: any) => {
-    return selectedVehicleTypes[route.id] || route.transportTypes?.[0]?.type || 'Standard';
+  const getSelectedVehicleIndex = (route: any) => {
+    const types = Array.isArray(route.transportTypes) && route.transportTypes.length > 0
+      ? route.transportTypes
+      : [{ type: 'Standard', price: route.price ?? 50, seatingCapacity: 4 }];
+    const idx = selectedVehicleIndices[route.id];
+    return typeof idx === 'number' && idx >= 0 && idx < types.length ? idx : 0;
   };
-  const getVehicleTypePrice = (route: any, vehicleType: string) => {
-    if (route.transportTypes) {
-      const vehicleTypeData = route.transportTypes.find((vt: any) => vt.type === vehicleType);
-      return vehicleTypeData?.price || 50;
-    }
-    return route.price || 50;
+  const getVehicleTypePriceByIndex = (route: any, index: number) => {
+    const types = Array.isArray(route.transportTypes) && route.transportTypes.length > 0
+      ? route.transportTypes
+      : [{ type: 'Standard', price: route.price ?? 50, seatingCapacity: 4 }];
+    const vt = types[index];
+    return (vt?.price ?? route.price ?? 50);
   };
-  const getVehicleTypeCapacity = (route: any, vehicleType: string) => {
-    if (route.transportTypes) {
-      const vehicleTypeData = route.transportTypes.find((vt: any) => vt.type === vehicleType);
-      return vehicleTypeData?.seatingCapacity || 4;
-    }
-    return 4;
+  const getVehicleTypeCapacityByIndex = (route: any, index: number) => {
+    const types = Array.isArray(route.transportTypes) && route.transportTypes.length > 0
+      ? route.transportTypes
+      : [{ type: 'Standard', price: route.price ?? 50, seatingCapacity: 4 }];
+    const vt = types[index];
+    return (vt?.seatingCapacity ?? 4);
   };
 
   // Multi-vehicle selection helper functions
@@ -1186,12 +1190,14 @@ export const SmartSuggestionsPopover: React.FC<SmartSuggestionsPopoverProps> = (
                   </p>
                 </div> : relevantTransportRoutes.map((transport: any) => {
               const routeCode = transport.code || transport.routeCode || transport.id || 'N/A';
-              const availableVehicleTypes = transport.transportTypes || [{
-                id: '1',
-                type: 'Standard',
-                price: transport.price || 50,
-                seatingCapacity: 4
-              }];
+              const availableVehicleTypes = (Array.isArray(transport.transportTypes) && transport.transportTypes.length > 0)
+                ? transport.transportTypes
+                : [{
+                    id: '1',
+                    type: 'Standard',
+                    price: transport.price ?? 50,
+                    seatingCapacity: 4
+                  }];
               return <Card key={transport.id} className="hover:shadow-md transition-all border border-blue-200 dark:border-blue-800 bg-card dark:bg-card">
                       <CardContent className="p-3">
                         <div className="space-y-3">
@@ -1283,11 +1289,14 @@ export const SmartSuggestionsPopover: React.FC<SmartSuggestionsPopoverProps> = (
                                 
                                 {(() => {
                             const manualSelection = getMultiVehicleSelection(`${transport.id}_manual`);
-                            const availableVehicleTypes = transport.transportTypes || [{
-                              type: 'Standard',
-                              price: transport.price || 50,
-                              seatingCapacity: 4
-                            }];
+                            const availableVehicleTypes = (Array.isArray(transport.transportTypes) && transport.transportTypes.length > 0)
+                              ? transport.transportTypes
+                              : [{
+                                  id: '1',
+                                  type: 'Standard',
+                                  price: transport.price ?? 50,
+                                  seatingCapacity: 4
+                                }];
                             return <div className="space-y-3">
                                       {availableVehicleTypes.map((vehicleType: any, vIdx: number) => {
                                 const currentQuantity = manualSelection?.vehicles.find(v => v.type === vehicleType.type)?.quantity || 0;
@@ -1394,15 +1403,15 @@ export const SmartSuggestionsPopover: React.FC<SmartSuggestionsPopoverProps> = (
                             <div className="space-y-2">
                               <div className="text-xs font-medium text-muted-foreground">Single Vehicle Options:</div>
                               {availableVehicleTypes.map((vehicleType: any, idx: number) => {
-                          const itemId = `transport_${transport.id}_${vehicleType.type}_${idx}`;
+                          const itemId = `transport_${transport.id}_${idx}`;
                           const currentPrice = getEditablePrice(itemId, vehicleType.price);
                           const isEditing = editingItem === itemId;
                           const capacity = vehicleType.seatingCapacity || 4;
-                          const isSelected = getSelectedVehicleType(transport) === vehicleType.type && !getMultiVehicleSelection(transport.id);
+                          const isSelected = getSelectedVehicleIndex(transport) === idx && !getMultiVehicleSelection(transport.id);
                           const canAccommodateAll = capacity >= totalPax;
                           return <div key={`single-vehicle-${transport.id}-${vehicleType.type}-${idx}`} className={`p-3 rounded-lg border cursor-pointer transition-all ${isSelected ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' : canAccommodateAll ? 'border-border hover:border-blue-300 dark:hover:border-blue-600' : 'border-red-200 bg-red-50 dark:bg-red-950/10 opacity-60'}`} onClick={() => {
                             if (canAccommodateAll) {
-                              handleVehicleTypeChange(transport.id, vehicleType.type);
+                              handleVehicleTypeChange(transport.id, idx);
                               setMultiVehicleSelections(prev => {
                                 const newState = {
                                   ...prev
@@ -1497,16 +1506,25 @@ export const SmartSuggestionsPopover: React.FC<SmartSuggestionsPopoverProps> = (
                         };
                         onAddTransport(enhancedTransport, multiVehicleSelection.totalPrice);
                       } else {
-                        // Handle single vehicle selection
-                        const selectedVehicleType = getSelectedVehicleType(transport);
-                        const selectedVehicleData = availableVehicleTypes.find((vt: any) => vt.type === selectedVehicleType) || availableVehicleTypes[0];
-                        const itemId = `transport_${transport.id}_${selectedVehicleData.type}_0`;
+                        // Handle single vehicle selection by index
+                        const selectedIndex = getSelectedVehicleIndex(transport);
+                        const selectedVehicleData = (
+                          Array.isArray(availableVehicleTypes) && availableVehicleTypes.length > 0
+                            ? availableVehicleTypes[selectedIndex] ?? availableVehicleTypes[0]
+                            : {
+                                id: '1',
+                                type: 'Standard',
+                                price: getVehicleTypePriceByIndex(transport, 0),
+                                seatingCapacity: getVehicleTypeCapacityByIndex(transport, 0)
+                              }
+                        );
+                        const itemId = `transport_${transport.id}_${selectedIndex}`;
                         const price = getEditablePrice(itemId, selectedVehicleData.price);
                         const enhancedTransport = {
                           ...transport,
                           isMultiVehicle: false,
-                          selectedVehicleType,
-                          vehicleType: selectedVehicleType,
+                          selectedVehicleIndex: selectedIndex,
+                          vehicleType: selectedVehicleData.type,
                           customizedPrice: price
                         };
                         onAddTransport(enhancedTransport, price);
@@ -1514,12 +1532,12 @@ export const SmartSuggestionsPopover: React.FC<SmartSuggestionsPopoverProps> = (
                     }} className="w-full" disabled={(() => {
                       const manualSelection = getMultiVehicleSelection(`${transport.id}_manual`);
                       const multiVehicleSelection = getMultiVehicleSelection(transport.id);
-                      const selectedVehicleType = getSelectedVehicleType(transport);
+                      const selectedIndex = getSelectedVehicleIndex(transport);
                       if (manualSelection) return false; // Manual selection is always valid
                       if (multiVehicleSelection) return false; // Smart multi-vehicle selection is valid
 
                       // Check if single vehicle can accommodate all passengers
-                      const capacity = getVehicleTypeCapacity(transport, selectedVehicleType);
+                      const capacity = getVehicleTypeCapacityByIndex(transport, selectedIndex);
                       return capacity < totalPax;
                     })()}>
                             <Plus className="h-3 w-3 mr-2" />
@@ -1531,9 +1549,9 @@ export const SmartSuggestionsPopover: React.FC<SmartSuggestionsPopoverProps> = (
                         } else if (multiVehicleSelection) {
                           return `Add Multi-Vehicle (${currency.symbol}${multiVehicleSelection.totalPrice})`;
                         } else {
-                          const selectedVehicleType = getSelectedVehicleType(transport);
-                          const price = getEditablePrice(`transport_${transport.id}_${selectedVehicleType}_0`, getVehicleTypePrice(transport, selectedVehicleType));
-                          const capacity = getVehicleTypeCapacity(transport, selectedVehicleType);
+                          const selectedIndex = getSelectedVehicleIndex(transport);
+                          const price = getEditablePrice(`transport_${transport.id}_${selectedIndex}`, getVehicleTypePriceByIndex(transport, selectedIndex));
+                          const capacity = getVehicleTypeCapacityByIndex(transport, selectedIndex);
                           if (capacity < totalPax) {
                             return `Insufficient Capacity (${capacity}/${totalPax} seats)`;
                           }

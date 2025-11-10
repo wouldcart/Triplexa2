@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,8 @@ import GenerationProgressDialog from '@/components/proposal/enhanced/GenerationP
 import { useProposalValidation } from '@/hooks/useProposalValidation';
 import { useProposalGeneration } from '@/hooks/useProposalGeneration';
 import { TabErrorBoundary } from '@/components/common/TabErrorBoundary';
+import { useAuth } from '@/contexts/AuthContext';
+import { createWorkflowEvent } from '@/services/workflowEventsService';
 
 // Activity type mapping functions - fixed to handle the correct type mappings
 const mapBuilderActivityTypeToCore = (builderType: 'sightseeing' | 'transport' | 'meal' | 'accommodation' | 'activity'): CoreItineraryActivity['type'] => {
@@ -195,6 +197,7 @@ const AdvancedProposalCreation: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
   
   const [query, setQuery] = useState<Query | null>(null);
   const [loading, setLoading] = useState(true);
@@ -213,6 +216,36 @@ const AdvancedProposalCreation: React.FC = () => {
   const [showValidationDialog, setShowValidationDialog] = useState(false);
   const [showProgressDialog, setShowProgressDialog] = useState(false);
   const [skippedRules, setSkippedRules] = useState<string[]>([]);
+  const recentLogsRef = useRef<Map<string, number>>(new Map());
+
+  // Log tab engagement whenever active tab changes (including initial mount)
+  useEffect(() => {
+    if (!query?.id) return;
+    try {
+      const tabLabel = activeTab === 'itinerary' ? 'Day Wise Itinerary' : 'Proposal Management';
+      const key = `ui_engagement:tab_view:${query.id}:${activeTab}`;
+      const now = Date.now();
+      const last = recentLogsRef.current.get(key);
+      // Guard against duplicate logs (e.g., React StrictMode double-invokes effects in dev)
+      if (last && now - last < 1000) return;
+      recentLogsRef.current.set(key, now);
+      void createWorkflowEvent({
+        enquiryBusinessId: query.id,
+        eventType: 'ui_engagement',
+        userId: user?.id || null,
+        userName: user?.name || null,
+        userRole: user?.role || null,
+        details: `Tab viewed: ${tabLabel}`,
+        metadata: {
+          action: 'tab_view',
+          tab: activeTab,
+          source: 'AdvancedProposalCreation'
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to log tab engagement:', e);
+    }
+  }, [activeTab, query?.id]);
 
   // Enhanced useProposalBuilder with URL parameter support
   const {

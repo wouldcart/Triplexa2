@@ -14,7 +14,8 @@ import {
   Calendar,
   Download,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Eye
 } from 'lucide-react';
 import { WorkflowEvent, Query } from '@/types/query';
 import { listWorkflowEventsByEnquiryBusinessId } from '@/services/workflowEventsService';
@@ -94,6 +95,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ query }) => {
       if (prevId && !prevHasName && !resolvedAssignedNames[prevId]) {
         missingIds.add(prevId);
       }
+
+      const assignedById = String(meta.assignedBy || '').trim();
+      if (assignedById && !resolvedAssignedNames[assignedById]) {
+        missingIds.add(assignedById);
+      }
     });
 
     if (missingIds.size === 0) return;
@@ -132,6 +138,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ query }) => {
         return Calendar;
       case 'comment_added':
         return MessageSquare;
+      case 'ui_engagement':
+        return Eye;
       default:
         return Clock;
     }
@@ -151,6 +159,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ query }) => {
         return 'text-indigo-500 bg-indigo-50 border-indigo-200';
       case 'comment_added':
         return 'text-gray-500 bg-gray-50 border-gray-200';
+      case 'ui_engagement':
+        return 'text-teal-500 bg-teal-50 border-teal-200';
       default:
         return 'text-gray-500 bg-gray-50 border-gray-200';
     }
@@ -332,16 +342,28 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ query }) => {
                           <div className="mt-4 p-3 bg-muted/30 rounded-lg border">
                             <h5 className="font-medium text-sm mb-2">Event Details</h5>
                             <div className="space-y-1 text-sm">
-                              {Object.entries(event.metadata!).map(([key, value]) => (
-                                <div key={key} className="flex justify-between">
-                                  <span className="text-muted-foreground capitalize">
-                                    {key.replace(/([A-Z])/g, ' $1').trim()}:
-                                  </span>
-                                  <span className="font-medium">
-                                    {typeof value === 'string' ? value : JSON.stringify(value)}
-                                  </span>
-                                </div>
-                              ))}
+                              {Object.entries(event.metadata!).map(([key, value]) => {
+                                const displayKey = key.replace(/([A-Z])/g, ' $1').trim();
+                                let displayValue = typeof value === 'string' ? value : JSON.stringify(value);
+
+                                if (key === 'assignedTo' || key === 'assignedBy' || key === 'previousAssignedId') {
+                                  const resolvedName = resolvedAssignedNames[value as string];
+                                  if (resolvedName) {
+                                    displayValue = resolvedName;
+                                  }
+                                }
+
+                                return (
+                                  <div key={key} className="flex justify-between">
+                                    <span className="text-muted-foreground capitalize">
+                                      {displayKey}:
+                                    </span>
+                                    <span className="font-medium">
+                                      {displayValue}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         )}

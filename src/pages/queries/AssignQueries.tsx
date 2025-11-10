@@ -180,10 +180,10 @@ const AssignQueries: React.FC = () => {
             if (missing.length > 0) {
               const { data: profRows } = await (supabase as any)
                 .from('profiles')
-                .select('id,name,full_name,username')
+                .select('id,name,username')
                 .in('id', missing);
               (profRows || []).forEach((r: any) => {
-                if (r?.id) nameMap.set(String(r.id), String(r.full_name || r.name || r.username || 'User'));
+                if (r?.id) nameMap.set(String(r.id), String(r.name || r.username || 'User'));
               });
             }
           }
@@ -293,10 +293,10 @@ const AssignQueries: React.FC = () => {
                       if (missing.length > 0) {
                         const { data: profRows } = await (supabase as any)
                           .from('profiles')
-                          .select('id,name,full_name,username')
+                          .select('id,name,username')
                           .in('id', missing);
                         (profRows || []).forEach((r: any) => {
-                          if (r?.id) nameMap.set(String(r.id), String(r.full_name || r.name || r.username || 'User'));
+                          if (r?.id) nameMap.set(String(r.id), String(r.name || r.username || 'User'));
                         });
                       }
                     }
@@ -526,9 +526,16 @@ const AssignQueries: React.FC = () => {
                   {activeStaff.filter(s => s.active).map((member) => {
                     const workloadStatus = getWorkloadStatus(member);
                     const expertiseMatch = getExpertiseMatch(member, assigningQuery);
+                    const isSuperAdmin = (member.role || '').toLowerCase() === 'super_admin';
+                    const roleLabel = isSuperAdmin ? 'Super Admin' : (member.role || 'Staff').replace(/\b\w/g, (c) => c.toUpperCase());
                     
                     return (
-                      <SelectItem key={`staff-${member.id}`} value={member.id.toString()}>
+                      <SelectItem
+                        key={`staff-${member.id}`}
+                        value={member.id.toString()}
+                        disabled={isSuperAdmin}
+                        className={isSuperAdmin ? 'opacity-60 cursor-not-allowed' : ''}
+                      >
                         <div className="flex items-center justify-between w-full">
                           <div className="flex items-center gap-2">
                             <Avatar className="h-6 w-6">
@@ -536,6 +543,18 @@ const AssignQueries: React.FC = () => {
                             </Avatar>
                             <div>
                               <span className="font-medium">{member.name}</span>
+                              <Badge
+                                variant="outline"
+                                className={`ml-2 text-xs ${
+                                  isSuperAdmin
+                                    ? 'bg-red-50 text-red-700 border-red-200'
+                                    : (member.role || '').toLowerCase() === 'manager'
+                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                      : 'bg-gray-50 text-gray-700 border-gray-200'
+                                }`}
+                              >
+                                {roleLabel}
+                              </Badge>
                               <span className="text-xs text-muted-foreground ml-2">
                                 {member.assigned}/{member.workloadCapacity} assigned
                               </span>
@@ -582,13 +601,14 @@ const AssignQueries: React.FC = () => {
                         <p className="text-sm text-green-600 dark:text-green-400">{recommendedStaff.role}</p>
                       </div>
                     </div>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="border-green-300 text-green-700 hover:bg-green-100 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900/20"
                       onClick={() => setSelectedStaffId(recommendedStaff.id)}
+                      disabled={(recommendedStaff.role || '').toLowerCase() === 'super_admin'}
                     >
-                      Select Recommended
+                      {(recommendedStaff.role || '').toLowerCase() === 'super_admin' ? 'Unavailable (Super Admin)' : 'Select Recommended'}
                     </Button>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">

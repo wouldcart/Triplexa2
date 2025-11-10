@@ -14,12 +14,12 @@ export async function resolveProfileNameById(id?: string | null): Promise<string
   try {
     const { data, error } = await sb
       .from('staff_profiles')
-      .select('name,full_name')
+      .select('name')
       .eq('id', id)
       .limit(1)
       .maybeSingle();
     if (!error && data) {
-      const name = (data.full_name as string) || (data.name as string) || null;
+      const name = (data.name as string) || null;
       if (name) { nameCache.set(id, name); return name; }
     }
   } catch {}
@@ -28,12 +28,12 @@ export async function resolveProfileNameById(id?: string | null): Promise<string
   try {
     const { data, error } = await sb
       .from('profiles')
-      .select('full_name,username,email')
+      .select('name,username,email')
       .eq('id', id)
       .limit(1)
       .maybeSingle();
     if (!error && data) {
-      const name = (data.full_name as string) || (data.username as string) || (data.email as string) || null;
+      const name = (data.name as string) || (data.username as string) || (data.email as string) || null;
       if (name) { nameCache.set(id, name); return name; }
     }
   } catch {}

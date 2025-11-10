@@ -103,7 +103,7 @@ export interface NotificationPreferences {
 
 export interface WorkflowEvent {
   id: string;
-  type: 'created' | 'assigned' | 'status_changed' | 'proposal_created' | 'follow_up' | 'comment_added';
+  type: 'created' | 'assigned' | 'status_changed' | 'proposal_created' | 'follow_up' | 'comment_added' | 'ui_engagement';
   timestamp: string;
   userId: string;
   userName: string;
