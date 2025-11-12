@@ -1039,7 +1039,7 @@ const ApiSettings: React.FC = () => {
                     onClick={async () => {
                       setTestingSmartId(api.id);
                       try {
-                        const res = await fetch('http://localhost:3006/api/test-ai', {
+                        const res = await fetch('http://localhost:3004/api/test-ai', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ prompt: 'System test: reply with READY.' }),
