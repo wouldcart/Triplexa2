@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,19 +7,24 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { EnhancedPricingService } from '@/services/enhancedPricingService';
 import { CountryPricingRule } from '@/types/countryPricing';
 import { Plus, Edit, Trash2, Globe, DollarSign } from 'lucide-react';
 import CountryPricingEditDialog from './CountryPricingEditDialog';
+import { PricingConfigurationService } from '@/integrations/supabase/services/pricingConfigurationService';
+import { CountriesService, CountryListItem } from '@/integrations/supabase/services/countriesService';
+import { CountryPricingRulesSupabase, toUI } from '@/integrations/supabase/services/countryPricingRulesService';
 
 interface CountryPricingManagerProps {
   onUpdate?: () => void;
 }
 
 const CountryPricingManager: React.FC<CountryPricingManagerProps> = ({ onUpdate }) => {
-  const [settings, setSettings] = useState(EnhancedPricingService.getEnhancedSettings());
   const [isCreating, setIsCreating] = useState(false);
   const [editingRule, setEditingRule] = useState<CountryPricingRule | null>(null);
+  const [rules, setRules] = useState<CountryPricingRule[]>([]);
+  const [availableCountries, setAvailableCountries] = useState<CountryListItem[]>([]);
+  const [isCountryPricingEnabled, setIsCountryPricingEnabled] = useState<boolean>(false);
+  const [configId, setConfigId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const [newRule, setNewRule] = useState<Partial<CountryPricingRule>>({
@@ -32,91 +37,154 @@ const CountryPricingManager: React.FC<CountryPricingManagerProps> = ({ onUpdate 
     isActive: true,
     region: '',
     tier: 'standard',
-    conversionMargin: 2
+    conversionMargin: 2,
   });
 
-  const availableCountries = EnhancedPricingService.getAvailableCountries();
   const unConfiguredCountries = availableCountries.filter(
-    country => !settings.countryRules.some(rule => rule.countryCode === country.code)
+    (country) => !rules.some((rule) => rule.countryCode === country.code)
   );
 
+  // Hydrate from Supabase: configuration, countries, and rules
+  useEffect(() => {
+    (async () => {
+      try {
+        const countries = await CountriesService.listActiveCountries();
+        setAvailableCountries(countries);
+
+        const config = await PricingConfigurationService.getDefaultConfiguration();
+        if (!config?.id) {
+          console.warn('Default pricing configuration not found. Country pricing manager will be disabled.');
+          setIsCountryPricingEnabled(false);
+          setConfigId(null);
+          setRules([]);
+          return;
+        }
+        setConfigId(config.id);
+        setIsCountryPricingEnabled(!!config.enable_country_based_pricing);
+
+        const rows = await CountryPricingRulesSupabase.listByConfig(config.id);
+        setRules(rows.map(toUI));
+      } catch (err) {
+        console.warn('Failed to hydrate country pricing rules from Supabase', err);
+      }
+    })();
+  }, []);
+
   const handleCountrySelect = (countryCode: string) => {
-    const country = availableCountries.find(c => c.code === countryCode);
+    const country = availableCountries.find((c) => c.code === countryCode);
     if (country) {
-      setNewRule(prev => ({
+      setNewRule((prev) => ({
         ...prev,
         countryCode: country.code,
         countryName: country.name,
         currency: country.currency,
-        currencySymbol: country.currencySymbol,
-        region: country.region
+        currencySymbol: country.currency_symbol,
+        region: country.region,
       }));
     }
   };
 
-  const handleCreateRule = () => {
+  const handleCreateRule = async () => {
     if (!newRule.countryCode || !newRule.defaultMarkup) {
       toast({
-        title: "Validation Error",
-        description: "Please select a country and set markup value.",
-        variant: "destructive"
+        title: 'Validation Error',
+        description: 'Please select a country and set markup value.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!configId) {
+      toast({
+        title: 'Configuration Missing',
+        description: 'No default pricing configuration found. Please seed configuration first.',
+        variant: 'destructive',
       });
       return;
     }
 
-    EnhancedPricingService.createCountryRule(newRule as Omit<CountryPricingRule, 'id' | 'createdAt' | 'updatedAt'>);
-    setSettings(EnhancedPricingService.getEnhancedSettings());
-    setIsCreating(false);
-    setNewRule({
-      countryCode: '',
-      countryName: '',
-      currency: '',
-      currencySymbol: '',
-      defaultMarkup: 8,
-      markupType: 'percentage',
-      isActive: true,
-      region: '',
-      tier: 'standard',
-      conversionMargin: 2
-    });
-
-    toast({
-      title: "Country Rule Created",
-      description: `Pricing rule for ${newRule.countryName} has been created.`
-    });
-
-    onUpdate?.();
+    try {
+      const row = await CountryPricingRulesSupabase.create(configId, newRule);
+      setRules((prev) => [...prev, toUI(row)]);
+      setIsCreating(false);
+      setNewRule({
+        countryCode: '',
+        countryName: '',
+        currency: '',
+        currencySymbol: '',
+        defaultMarkup: 8,
+        markupType: 'percentage',
+        isActive: true,
+        region: '',
+        tier: 'standard',
+        conversionMargin: 2,
+      });
+      toast({
+        title: 'Country Rule Created',
+        description: `Pricing rule for ${newRule.countryName} has been created.`,
+      });
+      onUpdate?.();
+    } catch (err) {
+      console.warn('Failed to persist country pricing rule to Supabase.', err);
+      toast({
+        title: 'Create Failed',
+        description: 'Unable to create country pricing rule. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
-  const handleUpdateRule = (ruleId: string, updates: Partial<CountryPricingRule>) => {
-    EnhancedPricingService.updateCountryRule(ruleId, updates);
-    setSettings(EnhancedPricingService.getEnhancedSettings());
-    setEditingRule(null);
-
-    toast({
-      title: "Rule Updated",
-      description: "Country pricing rule has been updated successfully."
-    });
-
-    onUpdate?.();
+  const handleUpdateRule = async (ruleId: string, updates: Partial<CountryPricingRule>) => {
+    try {
+      const updated = await CountryPricingRulesSupabase.update(ruleId, updates);
+      setRules((prev) => prev.map((r) => (r.id === ruleId ? toUI(updated) : r)));
+      setEditingRule(null);
+      toast({
+        title: 'Rule Updated',
+        description: 'Country pricing rule has been updated successfully.',
+      });
+      onUpdate?.();
+    } catch (err) {
+      console.warn('Failed updating country rule in Supabase', err);
+      toast({
+        title: 'Update Failed',
+        description: 'Unable to update country rule. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
-  const handleDeleteRule = (ruleId: string) => {
-    EnhancedPricingService.deleteCountryRule(ruleId);
-    setSettings(EnhancedPricingService.getEnhancedSettings());
-
-    toast({
-      title: "Rule Deleted",
-      description: "Country pricing rule has been deleted."
-    });
-
-    onUpdate?.();
+  const handleDeleteRule = async (ruleId: string) => {
+    try {
+      await CountryPricingRulesSupabase.delete(ruleId);
+      setRules((prev) => prev.filter((r) => r.id !== ruleId));
+      toast({
+        title: 'Rule Deleted',
+        description: 'Country pricing rule has been deleted.',
+      });
+      onUpdate?.();
+    } catch (err) {
+      console.warn('Supabase delete failed for country rule', err);
+      toast({
+        title: 'Delete Failed',
+        description: 'Unable to delete country rule. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
-  const toggleRuleStatus = (ruleId: string) => {
-    const rule = settings.countryRules.find(r => r.id === ruleId);
-    if (rule) {
-      handleUpdateRule(ruleId, { isActive: !rule.isActive });
+  const toggleRuleStatus = async (ruleId: string) => {
+    const rule = rules.find((r) => r.id === ruleId);
+    if (!rule) return;
+    try {
+      const updated = await CountryPricingRulesSupabase.toggleStatus(ruleId, !rule.isActive);
+      setRules((prev) => prev.map((r) => (r.id === ruleId ? toUI(updated) : r)));
+    } catch (err) {
+      console.warn('Failed to toggle rule status', err);
+      toast({
+        title: 'Toggle Failed',
+        description: 'Unable to toggle rule status. Please try again.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -145,11 +213,23 @@ const CountryPricingManager: React.FC<CountryPricingManagerProps> = ({ onUpdate 
         <div className="flex items-center gap-4">
           <div className="flex items-center space-x-2">
             <Switch
-              checked={settings.enableCountryBasedPricing}
-              onCheckedChange={(checked) => {
-                EnhancedPricingService.updateEnhancedSettings({ enableCountryBasedPricing: checked });
-                setSettings(EnhancedPricingService.getEnhancedSettings());
-                onUpdate?.();
+              checked={isCountryPricingEnabled}
+              onCheckedChange={async (checked) => {
+                try {
+                  const updated = await PricingConfigurationService.upsertConfiguration({
+                    country_code: 'US',
+                    enable_country_based_pricing: checked,
+                  });
+                  setIsCountryPricingEnabled(!!updated.enable_country_based_pricing);
+                  onUpdate?.();
+                } catch (err) {
+                  console.warn('Failed to update enable_country_based_pricing', err);
+                  toast({
+                    title: 'Update Failed',
+                    description: 'Unable to update country-based pricing setting.',
+                    variant: 'destructive',
+                  });
+                }
               }}
             />
             <Label>Enable Country-Based Pricing</Label>
@@ -161,7 +241,7 @@ const CountryPricingManager: React.FC<CountryPricingManagerProps> = ({ onUpdate 
         </div>
       </div>
 
-      {!settings.enableCountryBasedPricing && (
+      {!isCountryPricingEnabled && (
         <div className="p-4 bg-yellow-50 border border-yellow-200 rounded">
           <p className="text-sm text-yellow-800">
             Country-based pricing is currently disabled. Enable it to configure country-specific pricing rules.
@@ -258,7 +338,7 @@ const CountryPricingManager: React.FC<CountryPricingManagerProps> = ({ onUpdate 
 
       {/* Existing Rules */}
       <div className="grid gap-4">
-        {settings.countryRules.map((rule) => (
+        {rules.map((rule) => (
           <Card key={rule.id} className="bg-background">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -331,7 +411,7 @@ const CountryPricingManager: React.FC<CountryPricingManagerProps> = ({ onUpdate 
         ))}
       </div>
 
-      {settings.countryRules.length === 0 && (
+      {rules.length === 0 && (
         <div className="text-center py-8 text-muted-foreground">
           <DollarSign className="h-12 w-12 mx-auto mb-2 opacity-50" />
           <p>No country pricing rules configured</p>

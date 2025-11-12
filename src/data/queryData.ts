@@ -1220,6 +1220,55 @@ export const mockQueries: Query[] = [
       mealPlan: 'all-meals'
     }
   }
+  ,
+  // Test seed IDs for offline preview without Supabase
+  {
+    id: 'ENQ_REL_UAE',
+    agentId: 200,
+    agentName: 'Seed Agent',
+    destination: {
+      country: 'UAE',
+      cities: ['Dubai']
+    },
+    paxDetails: {
+      adults: 2,
+      children: 0,
+      infants: 0
+    },
+    travelDates: {
+      from: '2025-02-10',
+      to: '2025-02-15',
+      isEstimated: true
+    },
+    tripDuration: {
+      nights: 5,
+      days: 6
+    },
+    packageType: 'full-package',
+    specialRequests: [],
+    budget: {
+      min: 1000,
+      max: 2000,
+      currency: 'USD'
+    },
+    status: 'new',
+    assignedTo: null,
+    createdAt: '2025-01-25T10:00:00Z',
+    updatedAt: '2025-01-25T10:00:00Z',
+    priority: 'normal',
+    notes: '',
+    communicationPreference: 'email',
+    hotelDetails: {
+      rooms: 1,
+      category: 'standard'
+    },
+    inclusions: {
+      sightseeing: true,
+      transfers: 'private',
+      mealPlan: 'breakfast'
+    },
+    cityAllocations: []
+  }
 ];
 
 // Destinations for dropdowns

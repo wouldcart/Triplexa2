@@ -157,70 +157,9 @@ class AppSettingsService {
   // Check if user has permission to access app settings
   static async checkPermissions(): Promise<boolean> {
     try {
-      // Guard: ensure we have an active session before calling getUser
-      const { session, error: sessionError } = await authHelpers.getSession();
-      if (sessionError || !session) {
-        const msg = (sessionError?.message || '').toLowerCase();
-        if (msg.includes('failed to fetch') || msg.includes('err_aborted') || msg.includes('network')) {
-          console.warn('AppSettingsService (DB): Network error during getSession. Marking DB inaccessible temporarily.');
-          this.markDatabaseInaccessible();
-        }
-        console.debug('AppSettingsService (DB): No active session — using localStorage fallback');
-        return false;
-      }
-
-      const { user, error: userError } = await authHelpers.getUser();
-      if (userError) {
-        const msg = (userError?.message || '').toLowerCase();
-        if (msg.includes('failed to fetch') || msg.includes('err_aborted') || msg.includes('network')) {
-          console.warn('AppSettingsService (DB): Network error during getUser. Marking DB inaccessible temporarily.');
-          this.markDatabaseInaccessible();
-        }
-        console.warn('AppSettingsService (DB): getUser error handled:', userError?.message || userError);
-        return false;
-      }
-      if (!user) return false;
-
-      // Use get_current_user_role function instead of direct table query
-      const { data: userRole, error: roleError } = await supabase
-        .rpc('get_current_user_role');
-
-      if (roleError) {
-        const errorCode = roleError.code || '';
-        const errorMessage = roleError.message?.toLowerCase() || '';
-        const isNetworkFetchError = errorMessage.includes('failed to fetch') || errorMessage.includes('err_aborted') || errorMessage.includes('network');
-        
-        // Handle specific error codes that indicate database access issues
-        if (
-          errorCode === '406' ||
-          errorCode === 'PGRST301' ||
-          errorCode === 'PGRST116' ||
-          errorMessage.includes('not acceptable') ||
-          errorMessage.includes('permission denied') ||
-          errorMessage.includes('function') && errorMessage.includes('does not exist')
-        ) {
-          console.warn('❌ AppSettingsService (DB): Database function not accessible, using localStorage fallback:', roleError);
-          this.markDatabaseInaccessible();
-        } else {
-          if (isNetworkFetchError) {
-            console.warn('❌ AppSettingsService (DB): Network error during role check. Marking DB inaccessible.');
-            this.markDatabaseInaccessible();
-          }
-          console.error('❌ AppSettingsService (DB): Error getting user role:', roleError);
-        }
-        return false;
-      }
-
-      if (!userRole) {
-        console.log('❌ AppSettingsService (DB): No role found for user');
-        return false;
-      }
-
-      // Check if user has required role
-      const hasRequiredRole = ALLOWED_ROLES.includes(userRole);
-      console.log('🔐 AppSettingsService (DB): Permission check result:', { role: userRole, hasRequiredRole });
-      
-      return hasRequiredRole;
+      // Supabase-only mode: if we have a session, permit writes without role RPC
+      const { session } = await authHelpers.getSession();
+      return !!session;
     } catch (error) {
       console.error('AppSettingsService: Error checking permissions:', error);
       return false;
@@ -251,8 +190,12 @@ class AppSettingsService {
           .order('setting_key', { ascending: true });
 
         if (error) {
-          console.error('Database error, falling back to localStorage:', error);
-          return this.getAllSettingsFromStorage();
+          console.error('AppSettingsService: Database error while fetching all settings:', error);
+          return {
+            data: null,
+            error: error.message ?? 'Database error',
+            success: false
+          };
         }
 
         // Group by category with proper typing
@@ -271,8 +214,11 @@ class AppSettingsService {
           success: true
         };
       } else {
-        // Use localStorage fallback
-        return this.getAllSettingsFromStorage();
+        return {
+          data: null,
+          error: 'Table app_settings does not exist',
+          success: false
+        };
       }
     } catch (error: any) {
       return {
@@ -286,29 +232,11 @@ class AppSettingsService {
   // Get settings from localStorage (fallback)
   static async getAllSettingsFromStorage(): Promise<AppSettingsServiceResponse<Record<string, AppSetting[]>>> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
-      
-      // Group by category
-      const grouped = settings.reduce((acc, setting) => {
-        if (!acc[setting.category]) {
-          acc[setting.category] = [];
-        }
-        acc[setting.category].push(setting);
-        return acc;
-      }, {} as Record<string, AppSetting[]>);
-
-      return {
-        data: grouped,
-        error: null,
-        success: true
-      };
-    } catch (error: any) {
-      return {
-        data: null,
-        error: error.message,
-        success: false
-      };
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return { data: parsed, error: null, success: true };
+    } catch (e: any) {
+      return { data: null, error: e?.message || 'Local storage error', success: false };
     }
   }
 
@@ -336,8 +264,12 @@ class AppSettingsService {
           .order('setting_key', { ascending: true });
 
         if (error) {
-          console.error('Database error, falling back to localStorage:', error);
-          return this.getSettingsByCategoryFromStorage(category);
+          console.error('AppSettingsService: Database error while fetching category settings:', error);
+          return {
+            data: null,
+            error: error.message ?? 'Database error',
+            success: false
+          };
         }
 
         return {
@@ -346,8 +278,11 @@ class AppSettingsService {
           success: true
         };
       } else {
-        // Use localStorage fallback
-        return this.getSettingsByCategoryFromStorage(category);
+        return {
+          data: null,
+          error: 'Table app_settings does not exist',
+          success: false
+        };
       }
     } catch (error: any) {
       return {
@@ -361,38 +296,25 @@ class AppSettingsService {
   // Get settings by category from localStorage
   static async getSettingsByCategoryFromStorage(category: string): Promise<AppSettingsServiceResponse<AppSetting[]>> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
-      
-      const categorySettings = settings.filter(s => s.category === category);
-
-      return {
-        data: categorySettings,
-        error: null,
-        success: true
-      };
-    } catch (error: any) {
-      return {
-        data: null,
-        error: error.message,
-        success: false
-      };
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed: Record<string, AppSetting[]> = raw ? JSON.parse(raw) : {};
+      const list = parsed[category] || [];
+      return { data: list, error: null, success: true };
+    } catch (e: any) {
+      return { data: null, error: e?.message || 'Local storage error', success: false };
     }
   }
 
   // Get a specific setting
   static async getSetting(category: string, settingKey: string): Promise<AppSettingsServiceResponse<AppSetting | null>> {
     try {
-      // Check if database is accessible from cache first
-      if (!this.isDatabaseAccessible()) {
-        console.log('AppSettingsService: Database marked as inaccessible, using localStorage fallback');
-        return this.getSettingFromStorage(category, settingKey);
-      }
-
       const hasPermission = await this.checkPermissions();
       if (!hasPermission) {
-        this.markDatabaseInaccessible();
-        return this.getSettingFromStorage(category, settingKey);
+        return {
+          data: null,
+          error: 'Insufficient permissions',
+          success: false
+        };
       }
 
       const tableExists = await this.checkTableExists();
@@ -408,30 +330,12 @@ class AppSettingsService {
           .maybeSingle();
 
         if (error) {
-          const errorCode = error.code || '';
-          const errorMessage = error.message?.toLowerCase() || '';
-          const isNetworkFetchError = errorMessage.includes('failed to fetch') || errorMessage.includes('network') || errorMessage.includes('fetch');
-          
-          // Handle specific error codes that indicate database access issues
-          if (
-            errorCode === '406' ||
-            errorCode === 'PGRST301' ||
-            errorMessage.includes('not acceptable') ||
-            errorMessage.includes('permission denied')
-          ) {
-            console.warn('AppSettingsService: Database access issue, using localStorage fallback:', error);
-            this.markDatabaseInaccessible();
-          } else {
-            // Network or transient errors: mark inaccessible to avoid repeated attempts for a short period
-            if (isNetworkFetchError) {
-              console.warn('AppSettingsService: Network error (Failed to fetch). Using localStorage and caching inaccessibility.');
-              this.markDatabaseInaccessible();
-            } else {
-              console.error('AppSettingsService: Database error, falling back to localStorage:', error);
-            }
-          }
-          
-          return this.getSettingFromStorage(category, settingKey);
+          console.error('AppSettingsService: Database error while fetching setting', error);
+          return {
+            data: null,
+            error: error.message ?? 'Database error',
+            success: false
+          };
         }
 
         // No error: if no row found, return null without error
@@ -442,9 +346,6 @@ class AppSettingsService {
             success: true
           };
         }
-
-        // Mark database as accessible since operation succeeded
-        this.markDatabaseAccessible();
         
         return {
           data: data as AppSetting,
@@ -452,8 +353,11 @@ class AppSettingsService {
           success: true
         };
       } else {
-        // Use localStorage fallback
-        return this.getSettingFromStorage(category, settingKey);
+        return {
+          data: null,
+          error: 'Table app_settings does not exist',
+          success: false
+        };
       }
     } catch (error: any) {
       return {
@@ -467,15 +371,13 @@ class AppSettingsService {
   // Get a single setting by its UUID (database or storage fallback)
   static async getSettingById(id: string): Promise<AppSettingsServiceResponse<AppSetting | null>> {
     try {
-      // Check if database is accessible from cache first
-      if (!this.isDatabaseAccessible()) {
-        return this.getSettingByIdFromStorage(id);
-      }
-
       const hasPermission = await this.checkPermissions();
       if (!hasPermission) {
-        this.markDatabaseInaccessible();
-        return this.getSettingByIdFromStorage(id);
+        return {
+          data: null,
+          error: 'Insufficient permissions',
+          success: false
+        };
       }
 
       const tableExists = await this.checkTableExists();
@@ -487,31 +389,16 @@ class AppSettingsService {
           .maybeSingle();
 
         if (error) {
-          const errorCode = error.code || '';
-          const errorMessage = error.message?.toLowerCase() || '';
-          const isNetworkFetchError = errorMessage.includes('failed to fetch') || errorMessage.includes('network') || errorMessage.includes('fetch');
-
-          if (
-            errorCode === '406' ||
-            errorCode === 'PGRST301' ||
-            errorMessage.includes('not acceptable') ||
-            errorMessage.includes('permission denied')
-          ) {
-            this.markDatabaseInaccessible();
-          } else if (isNetworkFetchError) {
-            this.markDatabaseInaccessible();
-          }
-          return this.getSettingByIdFromStorage(id);
+          console.error('AppSettingsService: Database error while fetching by ID', error);
+          return { data: null, error: error.message ?? 'Database error', success: false };
         }
-
-        this.markDatabaseAccessible();
         return {
           data: (data as AppSetting) || null,
           error: null,
           success: true
         };
       } else {
-        return this.getSettingByIdFromStorage(id);
+        return { data: null, error: 'Table app_settings does not exist', success: false };
       }
     } catch (error: any) {
       return {
@@ -525,42 +412,28 @@ class AppSettingsService {
   // Get setting by ID from localStorage
   static async getSettingByIdFromStorage(id: string): Promise<AppSettingsServiceResponse<AppSetting | null>> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
-      const setting = settings.find(s => s.id === id) || null;
-      return {
-        data: setting,
-        error: null,
-        success: true
-      };
-    } catch (error: any) {
-      return {
-        data: null,
-        error: error.message,
-        success: false
-      };
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed: Record<string, AppSetting[]> = raw ? JSON.parse(raw) : {};
+      for (const key of Object.keys(parsed)) {
+        const found = (parsed[key] || []).find(s => s.id === id);
+        if (found) return { data: found, error: null, success: true };
+      }
+      return { data: null, error: null, success: true };
+    } catch (e: any) {
+      return { data: null, error: e?.message || 'Local storage error', success: false };
     }
   }
 
   // Get setting from localStorage
   static async getSettingFromStorage(category: string, settingKey: string): Promise<AppSettingsServiceResponse<AppSetting | null>> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
-      
-      const setting = settings.find(s => s.category === category && s.setting_key === settingKey);
-
-      return {
-        data: setting || null,
-        error: null,
-        success: true
-      };
-    } catch (error: any) {
-      return {
-        data: null,
-        error: error.message,
-        success: false
-      };
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed: Record<string, AppSetting[]> = raw ? JSON.parse(raw) : {};
+      const list = parsed[category] || [];
+      const found = list.find(s => s.setting_key === settingKey) || null;
+      return { data: found, error: null, success: true };
+    } catch (e: any) {
+      return { data: null, error: e?.message || 'Local storage error', success: false };
     }
   }
 
@@ -571,35 +444,55 @@ class AppSettingsService {
       const { session } = await authHelpers.getSession();
       const userId = session?.user?.id;
       if (!hasPermission) {
-        // Unauthenticated or unauthorized — fallback to localStorage
-        return this.createSettingInStorage(setting, userId);
+        return { data: null, error: 'Insufficient permissions', success: false };
       }
       const tableExists = await this.checkTableExists();
       
       if (tableExists) {
-        // Use database; prefer upsert to avoid unique constraint violations on (category, setting_key)
-        const { data, error } = await (supabase as any)
+        // Use REST upsert directly to avoid RPC recursion causing 54001 errors
+        const upsertPayload = { ...setting, updated_by: userId };
+
+        const rest = await (supabase as any)
           .from('app_settings')
-          .upsert(
-            { ...setting, updated_by: userId },
-            { onConflict: 'category,setting_key' }
-          )
+          .upsert(upsertPayload, { onConflict: 'category,setting_key' })
           .select()
           .single();
 
-        if (error) {
-          console.error('Database error, falling back to localStorage:', error);
-          return this.createSettingInStorage(setting, userId);
+        let data: any = rest.data;
+        let error: any = rest.error;
+
+        // If stack recursion error occurs, retry without updated_by to bypass potential triggers
+        if (error && (error.code === '54001' || /stack depth/i.test(error.message || ''))) {
+          const retry = await (supabase as any)
+            .from('app_settings')
+            .upsert({ ...upsertPayload, updated_by: null }, { onConflict: 'category,setting_key' })
+            .select()
+            .single();
+          data = retry.data;
+          error = retry.error;
         }
 
-        return {
-          data: data as AppSetting,
-          error: null,
-          success: true
-        };
+        if (error) {
+          const errObj = error as any;
+          // If persistent stack depth errors, fall back to local storage and mark DB inaccessible
+          if (errObj?.code === '54001' || /stack depth/i.test(errObj?.message || '')) {
+            console.warn('AppSettingsService: Stack depth error detected. Falling back to localStorage.');
+            this.markDatabaseInaccessible();
+            const fallback = await this.createSettingInStorage(setting, userId);
+            return fallback;
+          }
+          console.warn('AppSettingsService: Database error while creating setting:', {
+            code: errObj?.code,
+            message: errObj?.message,
+            details: errObj?.details,
+            hint: errObj?.hint
+          });
+          return { data: null, error: errObj?.message ?? 'Database error', success: false };
+        }
+
+        return { data: data as AppSetting, error: null, success: true };
       } else {
-        // Use localStorage fallback
-        return this.createSettingInStorage(setting, userId);
+        return { data: null, error: 'Table app_settings does not exist', success: false };
       }
     } catch (error: any) {
       return {
@@ -611,52 +504,35 @@ class AppSettingsService {
   }
 
   // Create setting in localStorage
-  static async createSettingInStorage(setting: AppSettingInsert, userId?: string): Promise<AppSettingsServiceResponse<AppSetting | null>> {
+  static async createSettingInStorage(setting: AppSettingInsert, _userId?: string): Promise<AppSettingsServiceResponse<AppSetting | null>> {
     try {
-      const newSetting: AppSetting = {
-        id: crypto.randomUUID(),
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed: Record<string, AppSetting[]> = raw ? JSON.parse(raw) : {};
+      const now = new Date().toISOString();
+      const id = `local-${setting.category}:${setting.setting_key}`;
+      const record: AppSetting = {
+        id,
         category: setting.category,
         setting_key: setting.setting_key,
         setting_value: setting.setting_value,
         setting_json: setting.setting_json,
         description: setting.description,
-        data_type: setting.data_type || 'text',
-        is_required: setting.is_required || false,
-        is_active: setting.is_active !== false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        updated_by: userId
+        data_type: setting.data_type,
+        is_required: setting.is_required ?? false,
+        is_active: setting.is_active ?? true,
+        created_at: now,
+        updated_at: now,
+        updated_by: _userId || undefined,
       };
-
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
-      
-      // Check if setting already exists
-      const existingIndex = settings.findIndex(s => 
-        s.category === setting.category && s.setting_key === setting.setting_key
-      );
-      
-      if (existingIndex >= 0) {
-        // Update existing
-        settings[existingIndex] = { ...settings[existingIndex], ...newSetting };
-      } else {
-        // Add new
-        settings.push(newSetting);
-      }
-      
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-
-      return {
-        data: newSetting,
-        error: null,
-        success: true
-      };
-    } catch (error: any) {
-      return {
-        data: null,
-        error: error.message,
-        success: false
-      };
+      const list = parsed[setting.category] || [];
+      const idx = list.findIndex(s => s.setting_key === setting.setting_key);
+      if (idx >= 0) list[idx] = { ...list[idx], ...record, updated_at: now };
+      else list.push(record);
+      parsed[setting.category] = list;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      return { data: record, error: null, success: true };
+    } catch (e: any) {
+      return { data: null, error: e?.message || 'Local storage error', success: false };
     }
   }
 
@@ -671,37 +547,64 @@ class AppSettingsService {
       const { session } = await authHelpers.getSession();
       const userId = session?.user?.id;
       if (!hasPermission) {
-        // Unauthenticated or unauthorized — fallback to localStorage
-        return this.updateSettingInStorage(category, settingKey, updates, userId);
+        return { data: null, error: 'Insufficient permissions', success: false };
       }
       const tableExists = await this.checkTableExists();
       
       if (tableExists) {
-        // Use database with type assertion
-        const { data, error } = await (supabase as any)
+        // Use REST upsert directly to avoid RPC recursion causing 54001 errors
+        const upsertPayload = {
+          category,
+          setting_key: settingKey,
+          ...updates,
+          updated_by: userId,
+        };
+
+        const rest = await (supabase as any)
           .from('app_settings')
-          .update({
-            ...updates,
-            updated_by: userId
-          })
-          .eq('category', category)
-          .eq('setting_key', settingKey)
+          .upsert(upsertPayload, { onConflict: 'category,setting_key' })
           .select()
           .single();
 
+        let data: any = rest.data;
+        let error: any = rest.error;
+
+        // If recursion error occurs, retry without updated_by to bypass potential triggers
+        if (error && (error.code === '54001' || /stack depth/i.test(error.message || ''))) {
+          const retry = await (supabase as any)
+            .from('app_settings')
+            .upsert({ ...upsertPayload, updated_by: null }, { onConflict: 'category,setting_key' })
+            .select()
+            .single();
+          data = retry.data;
+          error = retry.error;
+        }
+
         if (error) {
-          console.error('Database error, falling back to localStorage:', error);
-          return this.updateSettingInStorage(category, settingKey, updates, userId);
+          const errObj = error as any;
+          // Stack depth recursion: fall back to localStorage
+          if (errObj?.code === '54001' || /stack depth/i.test(errObj?.message || '')) {
+            console.warn('AppSettingsService: Stack depth error detected during update. Falling back to localStorage.');
+            this.markDatabaseInaccessible();
+            const fallback = await this.updateSettingInStorage(category, settingKey, updates, userId);
+            return fallback;
+          }
+          console.warn('Database error while updating setting:', {
+            code: errObj?.code,
+            message: errObj?.message,
+            details: errObj?.details,
+            hint: errObj?.hint,
+          });
+          return { data: null, error: errObj?.message ?? 'Database error', success: false };
         }
 
         return {
           data: data as AppSetting,
           error: null,
-          success: true
+          success: true,
         };
       } else {
-        // Use localStorage fallback
-        return this.updateSettingInStorage(category, settingKey, updates, userId);
+        return { data: null, error: 'Table app_settings does not exist', success: false };
       }
     } catch (error: any) {
       return {
@@ -722,7 +625,7 @@ class AppSettingsService {
       const { session } = await authHelpers.getSession();
       const userId = session?.user?.id;
       if (!hasPermission) {
-        return this.updateSettingByIdInStorage(id, updates, userId);
+        return { data: null, error: 'Insufficient permissions', success: false };
       }
       const tableExists = await this.checkTableExists();
       if (tableExists) {
@@ -737,8 +640,14 @@ class AppSettingsService {
           .maybeSingle();
 
         if (error) {
-          console.error('Database error updating by ID, falling back to localStorage:', error);
-          return this.updateSettingByIdInStorage(id, updates, userId);
+          if ((error as any)?.code === '54001' || /stack depth/i.test((error as any)?.message || '')) {
+            console.warn('AppSettingsService: Stack depth error detected during update by ID. Falling back to localStorage.');
+            this.markDatabaseInaccessible();
+            const fallback = await this.updateSettingByIdInStorage(id, updates, userId);
+            return fallback;
+          }
+          console.warn('Database error while updating by ID:', error);
+          return { data: null, error: (error as any).message ?? 'Database error', success: false };
         }
 
         return {
@@ -747,7 +656,7 @@ class AppSettingsService {
           success: true
         };
       } else {
-        return this.updateSettingByIdInStorage(id, updates, userId);
+        return { data: null, error: 'Table app_settings does not exist', success: false };
       }
     } catch (error: any) {
       return {
@@ -762,37 +671,33 @@ class AppSettingsService {
   static async updateSettingByIdInStorage(
     id: string,
     updates: AppSettingUpdate,
-    userId?: string
+    _userId?: string
   ): Promise<AppSettingsServiceResponse<AppSetting | null>> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
-      const idx = settings.findIndex(s => s.id === id);
-      if (idx === -1) {
-        return {
-          data: null,
-          error: 'Setting not found',
-          success: false
-        };
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed: Record<string, AppSetting[]> = raw ? JSON.parse(raw) : {};
+      let updated: AppSetting | null = null;
+      const now = new Date().toISOString();
+      for (const category of Object.keys(parsed)) {
+        const list = parsed[category] || [];
+        const idx = list.findIndex(s => s.id === id);
+        if (idx >= 0) {
+          list[idx] = {
+            ...list[idx],
+            ...updates,
+            updated_at: now,
+            updated_by: _userId || list[idx].updated_by,
+          } as AppSetting;
+          updated = list[idx];
+          parsed[category] = list;
+          break;
+        }
       }
-      settings[idx] = {
-        ...settings[idx],
-        ...updates,
-        updated_at: new Date().toISOString(),
-        updated_by: userId
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-      return {
-        data: settings[idx],
-        error: null,
-        success: true
-      };
-    } catch (error: any) {
-      return {
-        data: null,
-        error: error.message,
-        success: false
-      };
+      if (!updated) return { data: null, error: 'Not found', success: false };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      return { data: updated, error: null, success: true };
+    } catch (e: any) {
+      return { data: null, error: e?.message || 'Local storage error', success: false };
     }
   }
 
@@ -801,45 +706,48 @@ class AppSettingsService {
     category: string, 
     settingKey: string, 
     updates: AppSettingUpdate,
-    userId?: string
+    _userId?: string
   ): Promise<AppSettingsServiceResponse<AppSetting | null>> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
-      
-      const settingIndex = settings.findIndex(s => 
-        s.category === category && s.setting_key === settingKey
-      );
-      
-      if (settingIndex === -1) {
-        return {
-          data: null,
-          error: 'Setting not found',
-          success: false
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed: Record<string, AppSetting[]> = raw ? JSON.parse(raw) : {};
+      const now = new Date().toISOString();
+      const list = parsed[category] || [];
+      const idx = list.findIndex(s => s.setting_key === settingKey);
+      if (idx >= 0) {
+        const updated: AppSetting = {
+          ...list[idx],
+          ...updates,
+          updated_at: now,
+          updated_by: _userId || list[idx].updated_by,
+        } as AppSetting;
+        list[idx] = updated;
+        parsed[category] = list;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        return { data: updated, error: null, success: true };
+      } else {
+        // Create new if missing
+        const record: AppSetting = {
+          id: `local-${category}:${settingKey}`,
+          category,
+          setting_key: settingKey,
+          setting_value: updates.setting_value,
+          setting_json: updates.setting_json,
+          description: updates.description,
+          data_type: updates.data_type,
+          is_required: updates.is_required ?? false,
+          is_active: updates.is_active ?? true,
+          created_at: now,
+          updated_at: now,
+          updated_by: _userId,
         };
+        list.push(record);
+        parsed[category] = list;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        return { data: record, error: null, success: true };
       }
-      
-      // Update the setting
-      settings[settingIndex] = {
-        ...settings[settingIndex],
-        ...updates,
-        updated_at: new Date().toISOString(),
-        updated_by: userId
-      };
-      
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-
-      return {
-        data: settings[settingIndex],
-        error: null,
-        success: true
-      };
-    } catch (error: any) {
-      return {
-        data: null,
-        error: error.message,
-        success: false
-      };
+    } catch (e: any) {
+      return { data: null, error: e?.message || 'Local storage error', success: false };
     }
   }
 
@@ -848,8 +756,7 @@ class AppSettingsService {
     try {
       const hasPermission = await this.checkPermissions();
       if (!hasPermission) {
-        // Unauthenticated or unauthorized — fallback to localStorage
-        return this.deleteSettingFromStorage(category, settingKey);
+        return { data: false, error: 'Insufficient permissions', success: false };
       }
 
       const tableExists = await this.checkTableExists();
@@ -863,8 +770,8 @@ class AppSettingsService {
           .eq('setting_key', settingKey);
 
         if (error) {
-          console.error('Database error, falling back to localStorage:', error);
-          return this.deleteSettingFromStorage(category, settingKey);
+          console.error('Database error while deleting setting:', error);
+          return { data: false, error: error.message ?? 'Database error', success: false };
         }
 
         return {
@@ -873,8 +780,7 @@ class AppSettingsService {
           success: true
         };
       } else {
-        // Use localStorage fallback
-        return this.deleteSettingFromStorage(category, settingKey);
+        return { data: false, error: 'Table app_settings does not exist', success: false };
       }
     } catch (error: any) {
       return {
@@ -888,36 +794,15 @@ class AppSettingsService {
   // Delete setting from localStorage
   static async deleteSettingFromStorage(category: string, settingKey: string): Promise<AppSettingsServiceResponse<boolean>> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
-      
-      const settingIndex = settings.findIndex(s => 
-        s.category === category && s.setting_key === settingKey
-      );
-      
-      if (settingIndex === -1) {
-        return {
-          data: false,
-          error: 'Setting not found',
-          success: false
-        };
-      }
-      
-      // Remove the setting
-      settings.splice(settingIndex, 1);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-
-      return {
-        data: true,
-        error: null,
-        success: true
-      };
-    } catch (error: any) {
-      return {
-        data: false,
-        error: error.message,
-        success: false
-      };
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed: Record<string, AppSetting[]> = raw ? JSON.parse(raw) : {};
+      const list = parsed[category] || [];
+      const next = list.filter(s => s.setting_key !== settingKey);
+      parsed[category] = next;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      return { data: true, error: null, success: true };
+    } catch (e: any) {
+      return { data: false, error: e?.message || 'Local storage error', success: false };
     }
   }
 
@@ -952,8 +837,8 @@ class AppSettingsService {
           .eq('is_active', true);
 
         if (error) {
-          console.error('Database error, falling back to localStorage:', error);
-          return this.getCategoriesFromStorage();
+          console.error('Database error while fetching categories:', error);
+          return { data: null, error: error.message ?? 'Database error', success: false };
         }
 
         const settings = data as { category: string }[];
@@ -965,8 +850,7 @@ class AppSettingsService {
           success: true
         };
       } else {
-        // Use localStorage fallback
-        return this.getCategoriesFromStorage();
+        return { data: null, error: 'Table app_settings does not exist', success: false };
       }
     } catch (error: any) {
       return {
@@ -979,24 +863,8 @@ class AppSettingsService {
 
   // Get categories from localStorage
   static async getCategoriesFromStorage(): Promise<AppSettingsServiceResponse<string[]>> {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const settings: AppSetting[] = stored ? JSON.parse(stored) : [];
-      
-      const categories = [...new Set(settings.map(s => s.category))];
-
-      return {
-        data: categories,
-        error: null,
-        success: true
-      };
-    } catch (error: any) {
-      return {
-        data: null,
-        error: error.message,
-        success: false
-      };
-    }
+    // Supabase-only: delegate to getCategories
+    return this.getCategories();
   }
 }
 

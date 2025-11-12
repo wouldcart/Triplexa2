@@ -98,48 +98,12 @@ export const ContentSettings: React.FC = () => {
         setting_value: settings.terms_last_updated,
         description: 'Last updated date for Terms of Service (ISO)'
       });
-      // Keep localStorage in sync for public pages that avoid Supabase
-      const termsStorage = await AppSettingsService.getSettingFromStorage(SETTING_CATEGORIES.CONTENT, 'terms_last_updated');
-      if (termsStorage.success && termsStorage.data) {
-        await AppSettingsService.updateSettingInStorage(
-          SETTING_CATEGORIES.CONTENT,
-          'terms_last_updated',
-          { setting_value: settings.terms_last_updated }
-        );
-      } else {
-        await AppSettingsService.createSettingInStorage({
-          category: SETTING_CATEGORIES.CONTENT,
-          setting_key: 'terms_last_updated',
-          setting_value: settings.terms_last_updated,
-          description: 'Last updated date for Terms of Service (ISO)',
-          data_type: 'date',
-          is_active: true
-        });
-      }
       await AppSettingsHelpers.upsertSetting({
         category: SETTING_CATEGORIES.CONTENT,
         setting_key: 'privacy_last_updated',
         setting_value: settings.privacy_last_updated,
         description: 'Last updated date for Privacy Policy (ISO)'
       });
-      // Keep localStorage in sync for public pages that avoid Supabase
-      const privacyStorage = await AppSettingsService.getSettingFromStorage(SETTING_CATEGORIES.CONTENT, 'privacy_last_updated');
-      if (privacyStorage.success && privacyStorage.data) {
-        await AppSettingsService.updateSettingInStorage(
-          SETTING_CATEGORIES.CONTENT,
-          'privacy_last_updated',
-          { setting_value: settings.privacy_last_updated }
-        );
-      } else {
-        await AppSettingsService.createSettingInStorage({
-          category: SETTING_CATEGORIES.CONTENT,
-          setting_key: 'privacy_last_updated',
-          setting_value: settings.privacy_last_updated,
-          description: 'Last updated date for Privacy Policy (ISO)',
-          data_type: 'date',
-          is_active: true
-        });
-      }
 
       setOriginal(settings);
       setHasChanges(false);

@@ -5,6 +5,14 @@ import SupabaseProposalService from '@/services/supabaseProposalService';
 
 interface ProposalPersistenceData {
   itineraryData: ItineraryDay[];
+  // Optional enhancements stored within itinerary_data JSONB
+  sightseeingOptions?: Array<{
+    option_label: string;
+    activities: Array<{ name: string; cost: number; type: string; description?: string }>;
+  }>;
+  citySelection?: string | null;
+  // Raw/other keys from itinerary_data to preserve unknown fields during merge
+  itineraryOther?: Record<string, any>;
   accommodationData: {
     selectedAccommodations: AccommodationOption[];
     markupData: EnhancedMarkupData | null;
@@ -30,6 +38,16 @@ interface ProposalPersistenceData {
     childMarkup: number;
     childDiscountPercent: number;
   };
+  // Preserve full pricing_data for safe merges
+  pricingData?: Record<string, any> | null;
+  // Optional transport options stored under pricing_data
+  transportOptions?: Array<{
+    option_label: string;
+    vehicle_type: string;
+    capacity: number;
+    cost: number;
+    remarks?: string;
+  }>;
   lastSaved: string;
   queryId: string;
   draftType?: 'daywise' | 'enhanced';
@@ -39,6 +57,9 @@ interface ProposalPersistenceData {
 export const useProposalPersistence = (queryId: string, draftType: 'daywise' | 'enhanced' = 'daywise') => {
   const [data, setData] = useState<ProposalPersistenceData>({
     itineraryData: [],
+    sightseeingOptions: [],
+    citySelection: null,
+    itineraryOther: {},
     accommodationData: {
       selectedAccommodations: [],
       markupData: null
@@ -64,6 +85,8 @@ export const useProposalPersistence = (queryId: string, draftType: 'daywise' | '
       childMarkup: 10,
       childDiscountPercent: 25
     },
+    pricingData: null,
+    transportOptions: [],
     lastSaved: '',
     queryId,
     draftType,
@@ -78,8 +101,28 @@ export const useProposalPersistence = (queryId: string, draftType: 'daywise' | '
       const proposalId = `DRAFT-${queryId}-${draftType}`;
       const { data: row, error } = await SupabaseProposalService.getDraftByProposalId(proposalId);
       if (!error && row) {
+        const itineraryRaw = row?.itinerary_data || {};
+        const itineraryData = Array.isArray(itineraryRaw)
+          ? itineraryRaw
+          : Array.isArray(itineraryRaw?.days)
+            ? itineraryRaw.days
+            : [];
+        const sightseeingOptions = Array.isArray(itineraryRaw?.sightseeing_options)
+          ? itineraryRaw.sightseeing_options
+          : [];
+        const citySelection = itineraryRaw?.city_selection ?? null;
+        const itineraryOther = Array.isArray(itineraryRaw) ? {} : Object.fromEntries(
+          Object.entries(itineraryRaw || {}).filter(([k]) => !['days', 'sightseeing_options', 'city_selection'].includes(k))
+        );
+
+        const pricingRaw = row?.pricing_data || {};
+        const transportOptions = Array.isArray(pricingRaw?.transport_options) ? pricingRaw.transport_options : [];
+
         const remoteData = {
-          itineraryData: Array.isArray(row.itinerary_data) ? row.itinerary_data : [],
+          itineraryData,
+          sightseeingOptions,
+          citySelection,
+          itineraryOther,
           accommodationData: {
             selectedAccommodations: Array.isArray(row?.accommodation_data?.selectedAccommodations)
               ? row.accommodation_data.selectedAccommodations
@@ -99,11 +142,13 @@ export const useProposalPersistence = (queryId: string, draftType: 'daywise' | '
             to: '', subject: '', message: '', agentName: '', agentPhone: '', agentEmail: ''
           },
           pricingConfig: {
-            mode: (row?.pricing_data?.mode ?? 'separate') as 'combined' | 'separate',
-            adultMarkup: row?.pricing_data?.adultMarkup ?? 15,
-            childMarkup: row?.pricing_data?.childMarkup ?? 10,
-            childDiscountPercent: row?.pricing_data?.childDiscountPercent ?? 25
+            mode: (pricingRaw?.mode ?? 'separate') as 'combined' | 'separate',
+            adultMarkup: pricingRaw?.adultMarkup ?? 15,
+            childMarkup: pricingRaw?.childMarkup ?? 10,
+            childDiscountPercent: pricingRaw?.childDiscountPercent ?? 25
           },
+          pricingData: pricingRaw || null,
+          transportOptions,
           lastSaved: row?.last_saved || new Date().toISOString(),
           queryId,
           draftType,
@@ -187,10 +232,41 @@ export const useProposalPersistence = (queryId: string, draftType: 'daywise' | '
 
       // Prepare Supabase patch for remote persistence
       const supabasePatch: any = {};
-      if (updates.itineraryData !== undefined) supabasePatch.itinerary_data = updates.itineraryData;
-      if (updates.accommodationData !== undefined) supabasePatch.accommodation_data = updates.accommodationData;
-      if (updates.pricingConfig !== undefined) supabasePatch.pricing_data = updates.pricingConfig;
-      if (updates.emailData !== undefined) supabasePatch.email_data = updates.emailData;
+      // Itinerary JSONB merge-builder
+      const itineraryRelatedUpdate = (
+        updates.itineraryData !== undefined ||
+        updates.sightseeingOptions !== undefined ||
+        updates.citySelection !== undefined
+      );
+      if (itineraryRelatedUpdate && nextData) {
+        supabasePatch.itinerary_data = {
+          ...(nextData.itineraryOther || {}),
+          days: nextData.itineraryData || [],
+          sightseeing_options: nextData.sightseeingOptions || [],
+          city_selection: nextData.citySelection ?? null,
+        };
+      }
+
+      // Accommodation JSONB
+      if (updates.accommodationData !== undefined && nextData) {
+        supabasePatch.accommodation_data = nextData.accommodationData;
+      }
+
+      // Pricing JSONB merge-builder
+      const pricingRelatedUpdate = (
+        updates.pricingConfig !== undefined ||
+        updates.transportOptions !== undefined
+      );
+      if (pricingRelatedUpdate && nextData) {
+        supabasePatch.pricing_data = {
+          ...(nextData.pricingData || {}),
+          ...nextData.pricingConfig,
+          transport_options: nextData.transportOptions || [],
+        };
+      }
+
+      // Email JSONB
+      if (updates.emailData !== undefined && nextData) supabasePatch.email_data = nextData.emailData;
       if (updates.termsConditions !== undefined) {
         supabasePatch.terms = updates.termsConditions.paymentTerms || '';
         supabasePatch.inclusions = updates.termsConditions.inclusions || [];
@@ -223,6 +299,14 @@ export const useProposalPersistence = (queryId: string, draftType: 'daywise' | '
     return saveData({ itineraryData });
   }, [saveData]);
 
+  const updateSightseeingOptions = useCallback((sightseeingOptions: NonNullable<ProposalPersistenceData['sightseeingOptions']>) => {
+    return saveData({ sightseeingOptions });
+  }, [saveData]);
+
+  const updateCitySelection = useCallback((citySelection: string | null) => {
+    return saveData({ citySelection });
+  }, [saveData]);
+
   const updateTermsConditions = useCallback((termsConditions: typeof data.termsConditions) => {
     return saveData({ termsConditions });
   }, [saveData]);
@@ -233,6 +317,10 @@ export const useProposalPersistence = (queryId: string, draftType: 'daywise' | '
 
   const updatePricingConfig = useCallback((pricingConfig: typeof data.pricingConfig) => {
     return saveData({ pricingConfig });
+  }, [saveData]);
+
+  const updateTransportOptions = useCallback((transportOptions: NonNullable<ProposalPersistenceData['transportOptions']>) => {
+    return saveData({ transportOptions });
   }, [saveData]);
 
   const updateAccommodationData = useCallback((accommodationData: typeof data.accommodationData) => {
@@ -247,10 +335,13 @@ export const useProposalPersistence = (queryId: string, draftType: 'daywise' | '
   return {
     data,
     updateItineraryData,
+    updateSightseeingOptions,
+    updateCitySelection,
     updateAccommodationData,
     updateTermsConditions,
     updateEmailData,
     updatePricingConfig,
+    updateTransportOptions,
     saveData,
     loadData
   };

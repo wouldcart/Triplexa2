@@ -26,6 +26,7 @@ import {
   ensureThreeAccommodationOptions,
   ComprehensiveProposalData
 } from '@/utils/enhancedItineraryUtils';
+import { useProposalPersistence } from '@/hooks/useProposalPersistence';
 
 interface EnhancedAccommodationPlanningProps {
   selectedAccommodations: Array<{
@@ -94,6 +95,10 @@ const EnhancedAccommodationPlanning: React.FC<EnhancedAccommodationPlanningProps
     option: 1
   });
   const [enhancedData, setEnhancedData] = useState<ComprehensiveProposalData | null>(null);
+
+  // Persistence for enhanced planning
+  const queryIdToUse = queryId || '';
+  const persistence = useProposalPersistence(queryIdToUse, 'enhanced');
 
   const accommodationTypes = [
     { value: 'hotel', label: 'Hotel', icon: Hotel },
@@ -291,6 +296,39 @@ const EnhancedAccommodationPlanning: React.FC<EnhancedAccommodationPlanningProps
 
     // Also remove from original selected accommodations if it exists there
     onRemoveAccommodation(id);
+
+    // Persist updated accommodations to Supabase (proposals.accommodation_data)
+    try {
+      const allOptionsAfterRemoval: AccommodationOptionSet = {
+        option1: optionKey === 'option1' ? updated : accommodationOptions.option1,
+        option2: optionKey === 'option2' ? updated : accommodationOptions.option2,
+        option3: optionKey === 'option3' ? updated : accommodationOptions.option3,
+      };
+
+      const selectedAccommodations = [
+        ...allOptionsAfterRemoval.option1,
+        ...allOptionsAfterRemoval.option2,
+        ...allOptionsAfterRemoval.option3,
+      ].map(acc => ({
+        id: acc.id,
+        hotelName: acc.name || 'Hotel Selection',
+        roomType: acc.roomType,
+        nights: acc.nights,
+        pricePerNight: acc.pricePerNight ?? ((acc.totalPrice || 0) / Math.max(acc.nights || 1, 1)),
+        numberOfRooms: 1,
+        totalPrice: acc.totalPrice ?? ((acc.pricePerNight || 0) * Math.max(acc.nights || 1, 1)),
+        type: (acc.option === 1 ? 'standard' : acc.option === 2 ? 'optional' : 'alternative') as 'standard' | 'optional' | 'alternative',
+        dayId: (acc.dayIds && acc.dayIds[0]) ? acc.dayIds[0] : '1',
+        city: acc.city || ''
+      }));
+
+      persistence.updateAccommodationData({
+        selectedAccommodations,
+        markupData: persistence.data.accommodationData.markupData
+      });
+    } catch (e) {
+      console.warn('Failed to persist accommodation removal to Supabase:', e);
+    }
     
     toast({
       title: "Accommodation Removed",

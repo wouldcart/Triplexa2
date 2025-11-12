@@ -81,6 +81,7 @@ const EnhancedHotelModuleTab: React.FC<EnhancedHotelModuleTabProps> = ({
           availableHotels={hotels}
           onUpdateAccommodation={handleUpdateAccommodation}
           onRemoveAccommodation={handleRemoveAccommodation}
+          queryId={query?.id}
         />
       </TabsContent>
     </Tabs>

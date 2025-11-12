@@ -28,22 +28,12 @@ const Terms = () => {
     const key = 'terms_last_updated';
     (async () => {
       try {
-        // Read from local storage only to avoid Supabase calls on public pages
-        const res = await AppSettingsService.getSettingFromStorage(SETTING_CATEGORIES.CONTENT, key);
-        let value = (res.success && res.data) ? (res.data.setting_value || (res.data.setting_json as string | null)) : null;
-        if (!value) {
-          // Seed a default ISO date in local storage for first run
-          value = new Date().toISOString();
-          await AppSettingsService.createSettingInStorage({
-            category: SETTING_CATEGORIES.CONTENT,
-            setting_key: key,
-            setting_value: value,
-            description: 'Last updated date for Terms & Conditions',
-            data_type: 'date',
-            is_active: true
-          });
-        }
-        if (isMounted) setLastUpdated(value);
+        // Supabase-only read; do not write from public page
+        const res = await AppSettingsService.getSetting(SETTING_CATEGORIES.CONTENT, key);
+        const value = (res.success && res.data)
+          ? (res.data.setting_value || (res.data.setting_json as string | null))
+          : null;
+        if (isMounted) setLastUpdated(value || new Date().toISOString());
       } catch {
         // Fallback: current date
         if (isMounted) setLastUpdated(new Date().toISOString());

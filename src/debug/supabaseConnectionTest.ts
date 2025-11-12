@@ -1,5 +1,5 @@
 // Debug test for Supabase connection and 406 error
-import { supabase, adminSupabase } from '@/lib/supabaseClient';
+import { supabase, adminSupabase, isAdminClientConfigured } from '@/lib/supabaseClient';
 
 export const testSupabaseConnection = async () => {
   console.log('🔍 Testing Supabase Connection...');
@@ -28,21 +28,26 @@ export const testSupabaseConnection = async () => {
     console.error('❌ Regular client exception:', err);
   }
 
-  // Test 3: Test admin client connection
-  try {
-    console.log('🔗 Testing admin client connection...');
-    const { data, error } = await adminSupabase
-      .from('app_settings')
-      .select('*')
-      .limit(1);
-    
-    if (error) {
-      console.error('❌ Admin client error:', error);
-    } else {
-      console.log('✅ Admin client success:', data);
+  // Test 3: Test admin client connection (server-only)
+  const IS_BROWSER = typeof window !== 'undefined';
+  if (!IS_BROWSER && isAdminClientConfigured) {
+    try {
+      console.log('🔗 Testing admin client connection...');
+      const { data, error } = await adminSupabase
+        .from('app_settings')
+        .select('*')
+        .limit(1);
+      
+      if (error) {
+        console.error('❌ Admin client error:', error);
+      } else {
+        console.log('✅ Admin client success:', data);
+      }
+    } catch (err) {
+      console.error('❌ Admin client exception:', err);
     }
-  } catch (err) {
-    console.error('❌ Admin client exception:', err);
+  } else {
+    console.log('ℹ️ Skipping admin client test in browser or when not configured.');
   }
 
   // Test 4: Test specific brand_tagline query

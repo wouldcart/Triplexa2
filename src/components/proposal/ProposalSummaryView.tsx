@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { MapPin, Clock, Users, DollarSign, Car, Hotel, Camera, Utensils } from 'lucide-react';
 import { Query } from '@/types/query';
 import { formatCurrency } from '@/utils/currencyUtils';
+import { useProposalPersistence } from '@/hooks/useProposalPersistence';
 
 interface ProposalDay {
   id: string;
@@ -63,6 +64,12 @@ export const ProposalSummaryView: React.FC<ProposalSummaryViewProps> = ({
     return includedMeals.length > 0 ? includedMeals.join(', ') : 'No meals included';
   };
 
+  // Load optional selections from persistence and skip empty sections automatically
+  const { data } = useProposalPersistence(query.id, 'daywise');
+  const sightseeingOptions = Array.isArray(data?.sightseeingOptions) ? data.sightseeingOptions : [];
+  const transportOptions = Array.isArray(data?.transportOptions) ? data.transportOptions : [];
+  const selectedCity = data?.citySelection || null;
+
   return (
     <div className="space-y-6">
       {/* Header Summary */}
@@ -115,8 +122,76 @@ export const ProposalSummaryView: React.FC<ProposalSummaryViewProps> = ({
               </div>
             </div>
           </div>
+      </CardContent>
+    </Card>
+
+    {/* Optional Options Summary */}
+    {(selectedCity || (sightseeingOptions.length > 0) || (transportOptions.length > 0)) && (
+      <Card className="glass-effect shadow-soft">
+        <CardHeader>
+          <CardTitle className="text-responsive-lg">Optional Selections</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {selectedCity && (
+              <div className="space-y-1">
+                <h4 className="text-responsive font-medium flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-primary shrink-0" />
+                  Preferred City
+                </h4>
+                <div className="p-3 glass-effect rounded-lg text-responsive">{selectedCity}</div>
+              </div>
+            )}
+            {sightseeingOptions.length > 0 && (
+              <div className="space-y-1">
+                <h4 className="text-responsive font-medium flex items-center gap-2">
+                  <Camera className="h-4 w-4 text-primary shrink-0" />
+                  Sightseeing Options
+                </h4>
+                <div className="space-y-2">
+                  {sightseeingOptions.map((opt, idx) => {
+                    const total = (opt.activities || []).reduce((sum, a) => sum + (Number(a.cost) || 0), 0);
+                    return (
+                      <div key={idx} className="p-3 glass-effect rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium text-responsive line-clamp-1">{opt.option_label || `Option ${idx + 1}`}</p>
+                          <p className="text-responsive font-medium text-primary">{formatCurrency(total, query.destination.country)}</p>
+                        </div>
+                        {(opt.activities || []).length > 0 && (
+                          <p className="text-xs text-muted-foreground line-clamp-1">
+                            {(opt.activities || []).map(a => a.name).filter(Boolean).join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {transportOptions.length > 0 && (
+              <div className="space-y-1">
+                <h4 className="text-responsive font-medium flex items-center gap-2">
+                  <Car className="h-4 w-4 text-primary shrink-0" />
+                  Transport Options
+                </h4>
+                <div className="space-y-2">
+                  {transportOptions.map((opt, idx) => (
+                    <div key={idx} className="p-3 glass-effect rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <p className="font-medium text-responsive line-clamp-1">{opt.option_label || `Option ${idx + 1}`}</p>
+                        <p className="text-responsive font-medium text-primary">{formatCurrency(Number(opt.cost) || 0, query.destination.country)}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-1">{opt.vehicle_type} • Capacity {Number(opt.capacity) || 0}</p>
+                      {opt.remarks && <p className="text-xs text-muted-foreground line-clamp-2">{opt.remarks}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
+    )}
 
       {/* Day by Day Breakdown */}
       <div className="space-y-4">

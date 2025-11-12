@@ -17,6 +17,9 @@ import { Query } from '@/types/query';
 import { toast } from 'sonner';
 
 import EnhancedPricingManagement from './pricing/EnhancedPricingManagement';
+import CitySelectionPanel from '@/components/proposal/options/CitySelectionPanel';
+import SightseeingOptionsModule from '@/components/proposal/options/SightseeingOptionsModule';
+import TransportOptionsModule from '@/components/proposal/options/TransportOptionsModule';
 import EditableTermsConditions from './terms/EditableTermsConditions';
 import AdvancedProposalActions from './actions/AdvancedProposalActions';
 
@@ -161,6 +164,11 @@ const ProposalManagement: React.FC<ProposalManagementProps> = ({ query }) => {
               pricing={proposalData.pricing}
               onUpdate={handlePricingUpdate}
             />
+
+            {/* Optional planning modules */}
+            <CitySelectionPanel query={query} />
+            <SightseeingOptionsModule queryId={query.id} />
+            <TransportOptionsModule queryId={query.id} />
           </TabsContent>
 
           <TabsContent value="terms" className="p-6">

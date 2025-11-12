@@ -12,10 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useCurrency } from '@/hooks/useCurrency';
-import { PricingService } from '@/services/pricingService';
-import { EnhancedPricingService } from '@/services/enhancedPricingService';
+import type { EnhancedPricingSettings } from '@/types/enhancedPricing';
 import { MarkupSlab, PricingSettings as PricingSettingsType } from '@/types/pricing';
-import { CurrencyService } from '@/services/currencyService';
 import EnhancedMarkupSlabForm from '@/components/pricing/EnhancedMarkupSlabForm';
 import MarkupSlabsPagination from '@/components/pricing/MarkupSlabsPagination';
 import { Plus, Edit, Trash2, Save, DollarSign, Percent, Settings, Globe, Calculator, FileText, Users } from 'lucide-react';
@@ -26,17 +24,48 @@ import TaxManagement from '@/components/pricing/TaxManagement';
 import AdvancedPricingEngine from '@/components/pricing/AdvancedPricingEngine';
 import MarkupExportPreview from '@/components/pricing/MarkupExportPreview';
 import { CountriesService, type CountryListItem } from '@/integrations/supabase/services/countriesService';
-import { PricingConfigurationService } from '@/integrations/supabase/services/pricingConfigurationService';
-import { AppSettingsHelpers, SETTING_CATEGORIES } from '@/services/appSettingsService_database';
+import { PricingConfigurationService, type PricingConfigurationRow } from '@/integrations/supabase/services/pricingConfigurationService';
+// Removed AppSettingsHelpers usage to avoid DB recursion issues; using Supabase exclusively
 const PricingSettings: React.FC = () => {
-  const [settings, setSettings] = useState<PricingSettingsType>(PricingService.getSettings());
-  const [enhancedSettings, setEnhancedSettings] = useState(EnhancedPricingService.getEnhancedSettings());
+  const [settings, setSettings] = useState<PricingSettingsType>({
+    defaultMarkupPercentage: 10,
+    useSlabPricing: false,
+    markupSlabs: [],
+    slabApplicationMode: 'total',
+    showPricingToAgents: true,
+    showPricingToStaff: true,
+    allowStaffPricingEdit: true,
+  });
+  const [enhancedSettings, setEnhancedSettings] = useState<EnhancedPricingSettings>({
+    defaultMarkupPercentage: 10,
+    useSlabPricing: false,
+    markupSlabs: [],
+    slabApplicationMode: 'total',
+    showPricingToAgents: true,
+    showPricingToStaff: true,
+    allowStaffPricingEdit: true,
+    countryRules: [],
+    regionalTemplates: [],
+    currencyConversion: {
+      baseCurrency: 'USD',
+      autoUpdateRates: false,
+      updateFrequency: 'daily',
+      fallbackRates: {},
+      conversionMargins: {},
+    },
+    enableCountryBasedPricing: false,
+    defaultCountry: 'TH',
+    popularDestinations: [],
+  });
   const [countries, setCountries] = useState<CountryListItem[]>([]);
-  const [defaultCountryCode, setDefaultCountryCode] = useState<string>(EnhancedPricingService.getEnhancedSettings().defaultCountry || 'TH');
+  const [defaultCountryCode, setDefaultCountryCode] = useState<string>('TH');
+  const [defaultConfigRow, setDefaultConfigRow] = useState<PricingConfigurationRow | null>(null);
   const [editingSlab, setEditingSlab] = useState<MarkupSlab | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [deletingSlabId, setDeletingSlabId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [pricingSupabaseOk, setPricingSupabaseOk] = useState<boolean>(false);
+  const [pricingSupabaseTs, setPricingSupabaseTs] = useState<string | null>(null);
   const {
     toast
   } = useToast();
@@ -45,7 +74,7 @@ const PricingSettings: React.FC = () => {
     getCurrencyByCountryCode
   } = useCurrency();
   useEffect(() => {
-    // Hydrate from Supabase where available; keep localStorage fallback
+    // Hydrate from Supabase only (no localStorage)
     (async () => {
       try {
         const [countryList, defaultConfig] = await Promise.all([
@@ -54,37 +83,68 @@ const PricingSettings: React.FC = () => {
         ]);
         setCountries(countryList);
         if (defaultConfig) {
-          setDefaultCountryCode(defaultConfig.country_code);
+          const hydratedCountryCode = (defaultConfig as any).default_country ?? 'TH';
+          const hydratedBaseCurrency = (defaultConfig as any).base_currency ?? defaultCurrency.code;
+          setDefaultCountryCode(hydratedCountryCode);
+          setDefaultConfigRow(defaultConfig);
           const mapped = await PricingConfigurationService.toPricingSettings(defaultConfig);
           if (mapped) {
             setSettings(mapped);
-            // Keep local copy in sync for legacy consumers
-            PricingService.updateSettings(mapped);
           }
-          // Also reflect base currency into enhanced settings
-          EnhancedPricingService.updateEnhancedSettings({
-            defaultCountry: defaultConfig.country_code,
+          setPricingSupabaseOk(true);
+          setPricingSupabaseTs(new Date().toLocaleTimeString());
+          setEnhancedSettings(prev => ({
+            ...prev,
+            enableCountryBasedPricing: Boolean((defaultConfig as any).enable_country_based_pricing ?? false),
+            defaultCountry: hydratedCountryCode,
             currencyConversion: {
-              ...EnhancedPricingService.getEnhancedSettings().currencyConversion,
-              baseCurrency: defaultConfig.currency,
+              ...prev.currencyConversion,
+              baseCurrency: hydratedBaseCurrency,
             },
-          });
-          setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+          }));
         } else {
-          // Fallback to local storage
-          setSettings(PricingService.getSettings());
-          setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+          // Seed a default configuration if tables are empty
+          try {
+            const seeded = await PricingConfigurationService.setDefaultConfiguration(
+              defaultCountryCode,
+              defaultCurrency.code
+            );
+            if (seeded) {
+              setDefaultConfigRow(seeded);
+              setDefaultCountryCode(((seeded as any).default_country ?? defaultCountryCode));
+              const mapped = await PricingConfigurationService.toPricingSettings(seeded);
+              if (mapped) setSettings(mapped);
+              setPricingSupabaseOk(true);
+              setPricingSupabaseTs(new Date().toLocaleTimeString());
+              setEnhancedSettings(prev => ({
+                ...prev,
+                enableCountryBasedPricing: Boolean((seeded as any).enable_country_based_pricing ?? false),
+                defaultCountry: (seeded as any).default_country ?? defaultCountryCode,
+                currencyConversion: {
+                  ...prev.currencyConversion,
+                  baseCurrency: (seeded as any).base_currency ?? defaultCurrency.code,
+                },
+              }));
+            }
+          } catch (seedErr) {
+            console.warn('Failed to seed default pricing configuration.', seedErr);
+          }
         }
       } catch (e) {
-        console.warn('Failed to hydrate pricing settings or countries from Supabase, using local fallback.', e);
-        setSettings(PricingService.getSettings());
-        setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+        console.warn('Failed to hydrate pricing settings or countries from Supabase.', e);
       }
     })();
   }, []);
-  const handleRefresh = () => {
-    setSettings(PricingService.getSettings());
-    setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+  const handleRefresh = async () => {
+    try {
+      const config = await PricingConfigurationService.getDefaultConfiguration();
+      if (config) {
+        const mapped = await PricingConfigurationService.toPricingSettings(config);
+        if (mapped) setSettings(mapped);
+      }
+    } catch (e) {
+      console.warn('Refresh from Supabase failed:', e);
+    }
   };
   const handleSettingsUpdate = async (updates: Partial<PricingSettingsType>) => {
     setIsLoading(true);
@@ -97,17 +157,31 @@ const PricingSettings: React.FC = () => {
       // Optimistic update
       setSettings(updatedSettings);
 
-      // Persist to storage
-      PricingService.updateSettings(updatedSettings);
+      // Persist core configuration fields to Supabase for the default country
+      try {
+        const selectedCountry = countries.find(c => c.code === defaultCountryCode) || null;
+        const row = await PricingConfigurationService.upsertConfiguration({
+          country_code: defaultCountryCode,
+          country_name: selectedCountry?.name ?? defaultCountryCode,
+          currency: selectedCountry?.currency ?? defaultCurrency.code,
+          currency_symbol: selectedCountry?.currency_symbol ?? defaultCurrency.symbol,
+          base_markup_percentage: updatedSettings.defaultMarkupPercentage,
+          slab_markup_enabled: updatedSettings.useSlabPricing,
+          is_active: true,
+          is_default: defaultConfigRow?.is_default ?? true,
+        });
+        setDefaultConfigRow(row);
+        const refreshed = await PricingConfigurationService.toPricingSettings(row);
+        if (refreshed) setSettings(refreshed);
+      } catch (supErr) {
+        console.warn('Supabase upsert configuration failed.', supErr);
+      }
       toast({
         title: "Settings Updated",
         description: "Pricing settings have been saved successfully."
       });
     } catch (error) {
       console.error('Error updating pricing settings:', error);
-
-      // Rollback optimistic update
-      setSettings(PricingService.getSettings());
       toast({
         title: "Update Failed",
         description: "Failed to save pricing settings. Please try again.",
@@ -124,19 +198,59 @@ const PricingSettings: React.FC = () => {
       let actionType: string;
       if (isCreating) {
         // Creating new slab
-        updatedSlabs = [...settings.markupSlabs, slabData];
         actionType = "created";
+        // Ensure a default pricing configuration exists to provide a valid config_id
+        let configId: string | null = defaultConfigRow?.id ?? null;
+        if (!configId) {
+          try {
+            const selectedCountry = countries.find(c => c.code === defaultCountryCode) || null;
+            const row = await PricingConfigurationService.setDefaultConfiguration(
+              defaultCountryCode,
+              selectedCountry?.currency ?? defaultCurrency.code
+            );
+            setDefaultConfigRow(row || null);
+            configId = row?.id ?? null;
+          } catch (cfgErr) {
+            console.warn('Failed to ensure default pricing configuration.', cfgErr);
+          }
+        }
+
+        // Persist to Supabase first to get the canonical slab id (uuid)
+        let persistedId: string | null = null;
+        try {
+          if (configId) {
+            const created = await PricingConfigurationService.createMarkupSlab(configId, slabData);
+            persistedId = created.id;
+          }
+        } catch (supErr) {
+          console.warn('Supabase create markup slab failed.', supErr);
+        }
+        // Refresh slabs from Supabase
+        if (configId) {
+          const cfg = await PricingConfigurationService.getDefaultConfiguration();
+          if (cfg) {
+            const refreshed = await PricingConfigurationService.toPricingSettings(cfg);
+            if (refreshed) setSettings(refreshed);
+          }
+        }
+        updatedSlabs = settings.markupSlabs;
       } else {
         // Updating existing slab
-        updatedSlabs = settings.markupSlabs.map(slab => slab.id === slabData.id ? {
-          ...slabData,
-          updatedAt: new Date().toISOString()
-        } : slab);
+        updatedSlabs = settings.markupSlabs.map(slab => slab.id === slabData.id ? { ...slabData, updatedAt: new Date().toISOString() } : slab);
         actionType = "updated";
+        // Persist update to Supabase for this slab id
+        try {
+          await PricingConfigurationService.updateMarkupSlab(slabData.id, slabData);
+          const cfg = await PricingConfigurationService.getDefaultConfiguration();
+          if (cfg) {
+            const refreshed = await PricingConfigurationService.toPricingSettings(cfg);
+            if (refreshed) setSettings(refreshed);
+          }
+        } catch (supErr) {
+          console.warn('Supabase update markup slab failed.', supErr);
+        }
       }
-      await handleSettingsUpdate({
-        markupSlabs: updatedSlabs
-      });
+      // Local UI state already refreshed from Supabase
 
       // Reset form state
       setIsCreating(false);
@@ -164,10 +278,20 @@ const PricingSettings: React.FC = () => {
     setIsLoading(true);
     try {
       const slabToDelete = settings.markupSlabs.find(slab => slab.id === slabId);
-      const updatedSlabs = settings.markupSlabs.filter(slab => slab.id !== slabId);
-      await handleSettingsUpdate({
-        markupSlabs: updatedSlabs
-      });
+      // Attempt to delete from Supabase if this slab exists in DB
+      try {
+        const exists = await PricingConfigurationService.getMarkupSlabById(slabId);
+        if (exists) {
+          await PricingConfigurationService.deleteMarkupSlab(slabId);
+        }
+      } catch (supErr) {
+        console.warn('Supabase delete markup slab failed or slab not found.', supErr);
+      }
+      const cfg = await PricingConfigurationService.getDefaultConfiguration();
+      if (cfg) {
+        const refreshed = await PricingConfigurationService.toPricingSettings(cfg);
+        if (refreshed) setSettings(refreshed);
+      }
       toast({
         title: "Slab Deleted",
         description: `Markup slab "${slabToDelete?.name}" has been deleted successfully.`
@@ -190,18 +314,24 @@ const PricingSettings: React.FC = () => {
   const toggleSlabStatus = async (slabId: string) => {
     setIsLoading(true);
     try {
-      const updatedSlabs = settings.markupSlabs.map(slab => slab.id === slabId ? {
-        ...slab,
-        isActive: !slab.isActive,
-        updatedAt: new Date().toISOString()
-      } : slab);
-      await handleSettingsUpdate({
-        markupSlabs: updatedSlabs
-      });
-      const toggledSlab = updatedSlabs.find(slab => slab.id === slabId);
+      // Persist status to Supabase for this slab
+      try {
+        const current = settings.markupSlabs.find(s => s.id === slabId);
+        if (current) {
+          await PricingConfigurationService.updateMarkupSlabStatus(slabId, !current.isActive);
+        }
+      } catch (supErr) {
+        console.warn('Supabase update slab status failed or slab not found.', supErr);
+      }
+      const cfg = await PricingConfigurationService.getDefaultConfiguration();
+      if (cfg) {
+        const refreshed = await PricingConfigurationService.toPricingSettings(cfg);
+        if (refreshed) setSettings(refreshed);
+      }
+      const toggledSlab = settings.markupSlabs.find(slab => slab.id === slabId);
       toast({
         title: "Status Updated",
-        description: `Markup slab "${toggledSlab?.name}" has been ${toggledSlab?.isActive ? 'activated' : 'deactivated'}.`
+        description: `Markup slab "${toggledSlab?.name}" status updated.`
       });
     } catch (error) {
       console.error('Error toggling slab status:', error);
@@ -226,6 +356,9 @@ const PricingSettings: React.FC = () => {
             <TabsList className="flex lg:grid lg:grid-cols-6 w-max lg:w-full min-w-full bg-muted p-1 h-auto">
               <TabsTrigger value="general" className="flex-shrink-0 px-2 sm:px-3 py-2 text-xs sm:text-sm whitespace-nowrap">
                 General & Slabs
+                <Badge variant={pricingSupabaseOk ? 'success' : 'secondary'} className="ml-2 text-[10px]">
+                  {pricingSupabaseOk ? `Supabase OK ${pricingSupabaseTs ?? ''}` : 'Supabase Error'}
+                </Badge>
               </TabsTrigger>
               <TabsTrigger value="countries" className="flex-shrink-0 px-2 sm:px-3 py-2 text-xs sm:text-sm whitespace-nowrap">
                 Countries
@@ -235,6 +368,9 @@ const PricingSettings: React.FC = () => {
               </TabsTrigger>
               <TabsTrigger value="tax" className="flex-shrink-0 px-2 sm:px-3 py-2 text-xs sm:text-sm whitespace-nowrap">
                 Tax
+                <Badge variant={pricingSupabaseOk ? 'success' : 'secondary'} className="ml-2 text-[10px]">
+                  {pricingSupabaseOk ? `Supabase OK ${pricingSupabaseTs ?? ''}` : 'Supabase Error'}
+                </Badge>
               </TabsTrigger>
               <TabsTrigger value="advanced" className="flex-shrink-0 px-2 sm:px-3 py-2 text-xs sm:text-sm whitespace-nowrap">
                 Advanced
@@ -274,37 +410,23 @@ const PricingSettings: React.FC = () => {
                     setDefaultCountryCode(value);
                     const selectedCountry = countries.find(c => c.code === value) || null;
 
-                    // Keep enhanced settings in sync for legacy consumers immediately
+                    // Update local enhanced settings (no localStorage)
                     if (selectedCountry) {
-                      EnhancedPricingService.updateEnhancedSettings({
+                      setEnhancedSettings(prev => ({
+                        ...prev,
                         defaultCountry: value,
                         currencyConversion: {
-                          ...enhancedSettings.currencyConversion,
+                          ...prev.currencyConversion,
                           baseCurrency: selectedCountry.currency,
                         },
-                      });
-                      setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+                      }));
                     }
 
                     // Try persisting to Supabase, but do not block UI
                     try {
                       if (selectedCountry) {
-                        await PricingConfigurationService.setDefaultConfiguration(value, selectedCountry.currency);
-                        // Persist app-level hints for other modules (optional)
-                        await AppSettingsHelpers.upsertSetting({
-                          category: SETTING_CATEGORIES.PAYMENT,
-                          setting_key: 'pricing_default_country',
-                          setting_value: value,
-                          data_type: 'text',
-                          is_active: true,
-                        });
-                        await AppSettingsHelpers.upsertSetting({
-                          category: SETTING_CATEGORIES.PAYMENT,
-                          setting_key: 'pricing_base_currency',
-                          setting_value: selectedCountry.currency,
-                          data_type: 'text',
-                          is_active: true,
-                        });
+                        const row = await PricingConfigurationService.setDefaultConfiguration(value, selectedCountry.currency);
+                        setDefaultConfigRow(row || null);
 
                         toast({
                           title: 'Country Updated',
@@ -320,23 +442,33 @@ const PricingSettings: React.FC = () => {
                       });
                     }
 
-                    // Create country rule if it doesn't exist (local-only rules)
+                    // Optionally add local country rule if not present (in-memory only)
                     if (selectedCountry) {
-                      const existingRule = EnhancedPricingService.getCountryRule(value);
-                      if (!existingRule) {
-                        EnhancedPricingService.createCountryRule({
-                          countryCode: value,
-                          countryName: selectedCountry.name,
-                          currency: selectedCountry.currency,
-                          currencySymbol: selectedCountry.currency_symbol,
-                          defaultMarkup: settings.defaultMarkupPercentage,
-                          markupType: 'percentage',
-                          isActive: true,
-                          region: selectedCountry.region,
-                          tier: 'standard',
-                          conversionMargin: 2,
-                        });
-                      }
+                      setEnhancedSettings(prev => {
+                        const exists = prev.countryRules.some(r => r.countryCode === value);
+                        if (exists) return prev;
+                        return {
+                          ...prev,
+                          countryRules: [
+                            ...prev.countryRules,
+                            {
+                              id: Date.now().toString(),
+                              countryCode: value,
+                              countryName: selectedCountry.name,
+                              currency: selectedCountry.currency,
+                              currencySymbol: selectedCountry.currency_symbol,
+                              defaultMarkup: settings.defaultMarkupPercentage,
+                              markupType: 'percentage',
+                              isActive: true,
+                              region: selectedCountry.region,
+                              tier: 'standard',
+                              conversionMargin: 2,
+                              createdAt: new Date().toISOString(),
+                              updatedAt: new Date().toISOString(),
+                            },
+                          ],
+                        };
+                      });
                     }
                   }}>
                       <SelectTrigger>
@@ -365,43 +497,54 @@ const PricingSettings: React.FC = () => {
                       <Badge variant={settings.useSlabPricing ? "default" : "outline"} className="text-xs">
                         {settings.useSlabPricing ? "Active" : "Inactive"}
                       </Badge>
-                      <Switch checked={settings.useSlabPricing} onCheckedChange={checked => {
-                      handleSettingsUpdate({
-                        useSlabPricing: checked
-                      });
+                      <Switch checked={settings.useSlabPricing} onCheckedChange={async (checked) => {
+                      // Persist global slab pricing toggle
+                      await handleSettingsUpdate({ useSlabPricing: checked });
 
-                      // Auto-activate slabs for countries with configured rules
-                      if (checked) {
-                        const activeCountries = enhancedSettings.countryRules.filter(rule => rule.isActive);
-                        const updatedSlabs = settings.markupSlabs.map(slab => {
-                          // Check if any active country uses this slab's currency OR if it's Thailand (THB) - default active
-                          const hasMatchingCountry = activeCountries.some(country => country.currency === slab.currency);
-                          const isThailandCurrency = slab.currency === 'THB';
-                          return (hasMatchingCountry || isThailandCurrency) ? {
-                            ...slab,
-                            isActive: true,
-                            updatedAt: new Date().toISOString()
-                          } : slab;
-                        });
-                        if (updatedSlabs.some((slab, index) => slab.isActive !== settings.markupSlabs[index].isActive)) {
-                          handleSettingsUpdate({
-                            markupSlabs: updatedSlabs
-                          });
-                          const activatedCount = updatedSlabs.filter(slab => slab.isActive).length;
+                      // Ensure a default configuration id exists
+                      let configId: string | null = defaultConfigRow?.id ?? null;
+                      let configRow = defaultConfigRow;
+                      if (!configId) {
+                        try {
+                          const seeded = await PricingConfigurationService.setDefaultConfiguration(
+                            defaultCountryCode,
+                            defaultCurrency.code
+                          );
+                          setDefaultConfigRow(seeded || null);
+                          configRow = seeded || null;
+                          configId = seeded?.id ?? null;
+                        } catch (seedErr) {
+                          console.warn('Failed to seed default pricing configuration for slab toggle.', seedErr);
+                        }
+                      }
+
+                      // Bulk update all slabs' is_active to match the toggle
+                      if (configId) {
+                        try {
+                          const updatedCount = await PricingConfigurationService.updateAllMarkupSlabStatusForConfig(configId, checked);
+                          // Refresh settings from Supabase to reflect updated slab statuses
+                          const latestConfig = await PricingConfigurationService.getDefaultConfiguration();
+                          const refreshed = await PricingConfigurationService.toPricingSettings(latestConfig || configRow);
+                          if (refreshed) setSettings(refreshed);
+
                           toast({
-                            title: "Slab Pricing Enabled",
-                            description: `Pricing will now use configured markup slabs. ${activatedCount} slabs activated based on configured countries.`
+                            title: checked ? 'Slab Pricing Enabled' : 'Slab Pricing Disabled',
+                            description: checked
+                              ? `All slabs marked active (${updatedCount} updated).`
+                              : `All slabs marked inactive (${updatedCount} updated).`,
                           });
-                        } else {
+                        } catch (err) {
+                          console.error('Failed to bulk update slab statuses via Supabase', err);
                           toast({
-                            title: "Slab Pricing Enabled",
-                            description: "Pricing will now use configured markup slabs"
+                            title: 'Update Failed',
+                            description: 'Could not update slab statuses. Please try again.',
+                            variant: 'destructive',
                           });
                         }
                       } else {
                         toast({
-                          title: "Slab Pricing Disabled",
-                          description: "Pricing will use default markup percentage"
+                          title: checked ? 'Slab Pricing Enabled' : 'Slab Pricing Disabled',
+                          description: 'No configuration found; saved toggle only.',
                         });
                       }
                     }} />
@@ -415,16 +558,18 @@ const PricingSettings: React.FC = () => {
                     </div>
                     <Switch checked={enhancedSettings.enableCountryBasedPricing} onCheckedChange={async (checked) => {
                     try {
-                      EnhancedPricingService.updateEnhancedSettings({ enableCountryBasedPricing: checked });
-                      setEnhancedSettings(EnhancedPricingService.getEnhancedSettings());
+                      setEnhancedSettings(prev => ({ ...prev, enableCountryBasedPricing: checked }));
 
-                      await AppSettingsHelpers.upsertSetting({
-                        category: SETTING_CATEGORIES.PAYMENT,
-                        setting_key: 'enable_country_pricing',
-                        setting_value: String(checked),
-                        data_type: 'boolean',
-                        is_active: true,
-                      });
+                      // Persist to pricing_configurations for the default configuration
+                      try {
+                        await PricingConfigurationService.upsertConfiguration({
+                          country_code: defaultCountryCode,
+                          enable_country_based_pricing: checked,
+                          is_active: true,
+                        });
+                      } catch (supErr) {
+                        console.warn('Supabase upsert enable_country_based_pricing failed.', supErr);
+                      }
 
                       toast({
                         title: checked ? 'Country Pricing Enabled' : 'Country Pricing Disabled',
@@ -441,6 +586,13 @@ const PricingSettings: React.FC = () => {
                   }} />
                   </div>
                 </div>
+
+                {/* Hint when country-based pricing is disabled */}
+                {!enhancedSettings.enableCountryBasedPricing && (
+                  <div className="mt-2 text-sm text-amber-600">
+                    Country-based pricing is currently disabled. Enable it above to configure country-specific pricing rules.
+                  </div>
+                )}
 
                 <Separator />
 
@@ -477,6 +629,9 @@ const PricingSettings: React.FC = () => {
                     <Percent className="h-4 w-4 sm:h-5 sm:w-5" />
                     <span className="text-lg sm:text-xl">Markup Slabs Configuration</span>
                     {settings.useSlabPricing && <Badge variant="default" className="ml-2 text-xs">Active</Badge>}
+                    <Badge variant={pricingSupabaseOk ? 'success' : 'secondary'} className="ml-2 text-xs">
+                      {pricingSupabaseOk ? `Supabase OK ${pricingSupabaseTs ?? ''}` : 'Supabase Error'}
+                    </Badge>
                   </span>
                   <Button onClick={() => setIsCreating(true)} disabled={isCreating || editingSlab !== null || isLoading} size="sm" className="w-full sm:w-auto">
                     <Plus className="h-4 w-4 mr-2" />
@@ -486,6 +641,23 @@ const PricingSettings: React.FC = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Supabase Source & Tables Indicator */}
+                <div className="p-3 sm:p-4 bg-muted/50 rounded-lg border">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <div className="font-medium">Source</div>
+                      <div className="text-muted-foreground">Supabase</div>
+                    </div>
+                    <div>
+                      <div className="font-medium">Tables</div>
+                      <div className="text-muted-foreground">public.pricing_configurations, public.markup_slabs</div>
+                    </div>
+                    <div>
+                      <div className="font-medium">Location</div>
+                      <div className="text-muted-foreground">src/integrations/supabase/services/pricingConfigurationService.ts</div>
+                    </div>
+                  </div>
+                </div>
                 {/* Enhanced Slab Application Mode Setting with Country-Based Pricing */}
                 {settings.useSlabPricing && <div className="space-y-4">
                     

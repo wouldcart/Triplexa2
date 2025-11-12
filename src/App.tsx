@@ -139,6 +139,7 @@ import DatabaseTest from './components/test/DatabaseTest';
 import SupabaseConnectionTest from './components/test/SupabaseConnectionTest';
 import TestSeedPage from './pages/TestSeedPage';
 import TestHotelCrud from './pages/TestHotelCrud';
+import TestPricingCrud from './pages/TestPricingCrud';
 
 // Import missing management components
 import AgentManagement from './pages/management/AgentManagement';
@@ -417,11 +418,12 @@ function App() {
     };
   }, []);
 
-  // Conditionally run Supabase connection test only on non-public routes
+  // Conditionally run Supabase connection test only on non-public routes and when explicitly enabled
   useEffect(() => {
     const path = location.pathname;
     const isPublic = /^\/(privacy|terms)(\/|$)/.test(path);
-    if (!isPublic) {
+    const enableDebug = import.meta.env.VITE_ENABLE_SUPABASE_DEBUG === 'true' && import.meta.env.MODE === 'development';
+    if (!isPublic && enableDebug) {
       testSupabaseConnection();
     }
   }, [location.pathname]);
@@ -571,6 +573,7 @@ function App() {
         <Route path="/test/supabase" element={<ProtectedRoute><SupabaseConnectionTest /></ProtectedRoute>} />
         <Route path="/test/seed" element={<ProtectedRoute><TestSeedPage /></ProtectedRoute>} />
         <Route path="/test/hotel-crud" element={<ProtectedRoute><TestHotelCrud /></ProtectedRoute>} />
+        <Route path="/test/pricing-crud" element={<ProtectedRoute><TestPricingCrud /></ProtectedRoute>} />
         
         <Route path="/inventory/sightseeing" element={<ProtectedRoute><Sightseeing /></ProtectedRoute>} />
         <Route path="/inventory/sightseeing/add" element={<ProtectedRoute><AddSightseeing /></ProtectedRoute>} />

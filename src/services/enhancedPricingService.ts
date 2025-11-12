@@ -4,6 +4,7 @@ import { EnhancedPricingSettings, CountryPricingCalculation, BulkPricingOperatio
 import { CountryPricingRule, RegionalPricingTemplate } from '@/types/countryPricing';
 import { CountryCurrencyService } from './countryCurrencyService';
 import { initialCountries } from '@/pages/inventory/countries/data/countryData';
+import { PricingConfigurationService } from '@/integrations/supabase/services/pricingConfigurationService';
 
 export class EnhancedPricingService extends PricingService {
   private static enhancedSettings: EnhancedPricingSettings = {
@@ -104,13 +105,47 @@ export class EnhancedPricingService extends PricingService {
   };
 
   static getEnhancedSettings(): EnhancedPricingSettings {
-    const saved = localStorage.getItem('enhancedPricingSettings');
-    return saved ? JSON.parse(saved) : this.enhancedSettings;
+    // Supabase-only: hydrate base pricing settings and merge enhanced fields (not persisted)
+    (async () => {
+      try {
+        let cfg = await PricingConfigurationService.getDefaultConfiguration();
+        if (!cfg) {
+          cfg = await PricingConfigurationService.setDefaultConfiguration('TH');
+        }
+        const mapped = await PricingConfigurationService.toPricingSettings(cfg);
+        if (mapped) {
+          this.enhancedSettings = {
+            ...this.enhancedSettings,
+            ...mapped,
+          };
+        }
+      } catch (err) {
+        console.warn('EnhancedPricingService: failed to hydrate from Supabase', err);
+      }
+    })();
+    return this.enhancedSettings;
   }
 
   static updateEnhancedSettings(settings: Partial<EnhancedPricingSettings>): void {
-    this.enhancedSettings = { ...this.enhancedSettings, ...settings };
-    localStorage.setItem('enhancedPricingSettings', JSON.stringify(this.enhancedSettings));
+    // Supabase-only: persist base pricing-related fields; enhanced fields remain in-memory
+    (async () => {
+      try {
+        const row = await PricingConfigurationService.upsertConfiguration({
+          country_code: 'TH',
+          base_markup_percentage: settings.defaultMarkupPercentage,
+          slab_markup_enabled: settings.useSlabPricing,
+        } as any);
+        const mapped = await PricingConfigurationService.toPricingSettings(row);
+        if (mapped) {
+          this.enhancedSettings = { ...this.enhancedSettings, ...mapped, ...settings };
+        } else {
+          this.enhancedSettings = { ...this.enhancedSettings, ...settings };
+        }
+      } catch (err) {
+        console.warn('EnhancedPricingService: failed to persist settings to Supabase', err);
+        this.enhancedSettings = { ...this.enhancedSettings, ...settings };
+      }
+    })();
   }
 
   static getCountryRule(countryCode: string): CountryPricingRule | null {
@@ -225,9 +260,25 @@ export class EnhancedPricingService extends PricingService {
   }
 
   static createCountryRule(rule: Omit<CountryPricingRule, 'id' | 'createdAt' | 'updatedAt'>): CountryPricingRule {
+    // Generate a robust unique ID to avoid duplicate keys in React lists
+    const uniqueId = ((): string => {
+      try {
+        // Prefer crypto.randomUUID when available for strong uniqueness
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const c: any = (globalThis as unknown as { crypto?: { randomUUID?: () => string } }).crypto;
+        if (c?.randomUUID) {
+          return `country_${c.randomUUID()}`;
+        }
+      } catch {
+        // Fall through to timestamp/random
+      }
+      const rand = Math.floor(Math.random() * 1e9);
+      return `country_${rule.countryCode}_${Date.now()}_${rand}`;
+    })();
+
     const newRule: CountryPricingRule = {
       ...rule,
-      id: `country_${Date.now()}`,
+      id: uniqueId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

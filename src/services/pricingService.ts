@@ -1,5 +1,6 @@
 
 import { MarkupSlab, PricingSettings, CurrencyRate, ModulePricing } from '@/types/pricing';
+import { PricingConfigurationService } from '@/integrations/supabase/services/pricingConfigurationService';
 
 export class PricingService {
   private static settings: PricingSettings = {
@@ -50,18 +51,44 @@ export class PricingService {
   };
 
   static getSettings(): PricingSettings {
-    const saved = localStorage.getItem('pricingSettings');
-    return saved ? JSON.parse(saved) : this.settings;
+    // Supabase-only: hydrate from pricing_configurations
+    // Synchronous fallback removed; callers should handle async contexts upstream
+    // For legacy synchronous usage, return last cached value but refresh in background
+    (async () => {
+      try {
+        let cfg = await PricingConfigurationService.getDefaultConfiguration();
+        if (!cfg) {
+          cfg = await PricingConfigurationService.setDefaultConfiguration('TH');
+        }
+        const mapped = await PricingConfigurationService.toPricingSettings(cfg);
+        if (mapped) this.settings = mapped;
+      } catch (err) {
+        console.warn('PricingService: failed to hydrate settings from Supabase', err);
+      }
+    })();
+    return this.settings;
   }
 
   static updateSettings(settings: Partial<PricingSettings>): void {
-    this.settings = { ...this.settings, ...settings };
-    localStorage.setItem('pricingSettings', JSON.stringify(this.settings));
-    
-    // Emit event for real-time updates
-    window.dispatchEvent(new CustomEvent('pricing-settings-updated', {
-      detail: this.settings
-    }));
+    // Supabase-only: upsert configuration
+    (async () => {
+      try {
+        const countryCode = 'TH'; // default tie-in; UI maintains default country elsewhere
+        const row = await PricingConfigurationService.upsertConfiguration({
+          country_code: countryCode,
+          base_markup_percentage: settings.defaultMarkupPercentage,
+          slab_markup_enabled: settings.useSlabPricing,
+        } as any);
+        const mapped = await PricingConfigurationService.toPricingSettings(row);
+        if (mapped) this.settings = mapped;
+        // Emit event for real-time updates
+        window.dispatchEvent(new CustomEvent('pricing-settings-updated', {
+          detail: this.settings
+        }));
+      } catch (err) {
+        console.warn('PricingService: failed to persist settings to Supabase', err);
+      }
+    })();
   }
 
   static calculateMarkup(basePrice: number, paxCount: number, currency: string = 'THB'): ModulePricing {

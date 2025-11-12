@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '@/types/User';
 import { useAuth } from '@/contexts/AuthContext';
-import { AppSettingsService, SETTING_CATEGORIES } from '@/services/appSettingsService_database';
+import { AppSettingsService, SETTING_CATEGORIES, AppSettingsHelpers } from '@/services/appSettingsService_database';
 import { CurrencyService, CurrencyInfo } from '@/services/currencyService';
 
 // Language types and constants
@@ -398,19 +398,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const persistSetting = async (key: string, value: string) => {
     try {
-      // Try update first
-      const updateRes = await AppSettingsService.updateSetting(SETTING_CATEGORIES.GENERAL, key, {
+      // Use unified upsert helper to avoid redundant update->create loops
+      const res = await AppSettingsHelpers.upsertSetting({
+        category: SETTING_CATEGORIES.GENERAL,
+        setting_key: key,
         setting_value: value,
         is_active: true
       });
-      if (!updateRes.success) {
-        // If not found, create it
-        await AppSettingsService.createSetting({
-          category: SETTING_CATEGORIES.GENERAL,
-          setting_key: key,
-          setting_value: value,
-          is_active: true
-        });
+      if (!res.success) {
+        console.warn('Persist setting failed:', res.error);
       }
     } catch (err) {
       console.warn('Failed to persist setting', key, err);

@@ -10,8 +10,11 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { TaxCalculationService } from '@/services/taxCalculationService';
 import { TaxConfiguration, TaxRate } from '@/types/taxManagement';
-import { initialCountries } from '@/pages/inventory/countries/data/countryData';
+import { getActiveTable as getActiveTaxTable } from '@/integrations/supabase/services/taxConfigurationService';
+// Countries are loaded indirectly via TaxCalculationService using Supabase; no local list import
 import { FileText, Calculator, Globe, Percent, Plus, Trash2, Settings } from 'lucide-react';
+import CountriesCrudSection from '@/components/pricing/CountriesCrudSection';
+import { CountriesService } from '@/services/countriesService';
 
 // Service types from inventory sections
 const SERVICE_TYPES = [
@@ -32,12 +35,38 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
   const [selectedCountry, setSelectedCountry] = useState<string>(TaxCalculationService.getDefaultCountry());
   const [isLoading, setIsLoading] = useState(false);
   const [autoDetectCountry, setAutoDetectCountry] = useState<boolean>(true);
+  const [activeTaxTable, setActiveTaxTable] = useState<string>('');
+  const [activityLog, setActivityLog] = useState<Array<{ ts: string; msg: string }>>([]);
   const { toast } = useToast();
+  const [supabaseCountriesCount, setSupabaseCountriesCount] = useState<number>(0);
+  const [supabaseInitOk, setSupabaseInitOk] = useState<boolean>(false);
+  const [supabaseInitTs, setSupabaseInitTs] = useState<string | null>(null);
 
   useEffect(() => {
-    // Initialize default configurations and load existing ones
-    TaxCalculationService.initializeDefaultConfigurations();
-    loadTaxConfigurations();
+    // Initialize configurations from Supabase (fallbacks handled internally)
+    (async () => {
+      TaxCalculationService.initializeDefaultConfigurations();
+      await TaxCalculationService.initializeFromSupabase();
+      setSupabaseInitOk(TaxCalculationService.isInitializedFromSupabase());
+      setSupabaseInitTs(new Date().toLocaleTimeString());
+      setSelectedCountry(TaxCalculationService.getDefaultCountry());
+      loadTaxConfigurations();
+      try {
+        const tbl = await getActiveTaxTable();
+        setActiveTaxTable(tbl);
+      } catch {
+        setActiveTaxTable('tax_configurations');
+      }
+      try {
+        const res = await CountriesService.getAllCountries();
+        setSupabaseCountriesCount((res.data ?? []).length);
+      } catch {
+        setSupabaseCountriesCount(0);
+      }
+      logActivity(
+        `Initialized: ${TaxCalculationService.isInitializedFromSupabase() ? 'Supabase' : 'Defaults'}; Table: ${activeTaxTable || 'detecting...'}; TS: ${supabaseInitTs || ''}`
+      );
+    })();
   }, []);
 
   const loadTaxConfigurations = () => {
@@ -45,15 +74,17 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
     setTaxConfigurations(configs);
   };
 
-  const updateTaxConfiguration = (config: TaxConfiguration) => {
-    TaxCalculationService.updateTaxConfiguration(config);
+  const updateTaxConfiguration = async (config: TaxConfiguration) => {
+    setIsLoading(true);
+    await TaxCalculationService.updateTaxConfiguration(config);
     loadTaxConfigurations();
+    setIsLoading(false);
     onTaxUpdate?.(config);
-    
     toast({
       title: "Tax Configuration Updated",
       description: `Tax settings for ${config.countryCode} have been saved.`
     });
+    logActivity(`Saved configuration for ${config.countryCode} (${config.taxRates.length} rates)`);
   };
 
   const getSelectedConfig = () => {
@@ -74,6 +105,8 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
     };
 
     updateTaxConfiguration(updatedConfig);
+    const r = updatedRates[rateIndex];
+    logActivity(`Updated rate [${r.serviceType}] field '${String(field)}' → ${value}`);
   };
 
   const addNewTaxRate = () => {
@@ -95,6 +128,7 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
     };
 
     updateTaxConfiguration(updatedConfig);
+    logActivity('Added new tax rate');
   };
 
   const removeTaxRate = (rateIndex: number) => {
@@ -110,6 +144,7 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
     };
 
     updateTaxConfiguration(updatedConfig);
+    logActivity(`Removed tax rate at index ${rateIndex}`);
   };
 
   const updateTDSConfiguration = (field: string, value: any) => {
@@ -126,9 +161,90 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
     };
 
     updateTaxConfiguration(updatedConfig);
+    logActivity(`TDS updated: '${field}' → ${value}`);
   };
 
   const selectedConfig = getSelectedConfig();
+
+  const logActivity = (msg: string) => {
+    setActivityLog(prev => {
+      const next = [{ ts: new Date().toLocaleTimeString(), msg }, ...prev];
+      return next.slice(0, 4);
+    });
+  };
+
+  const updateTaxType = (newType: TaxConfiguration['taxType']) => {
+    const config = getSelectedConfig();
+    if (!config) return;
+    const updatedConfig: TaxConfiguration = {
+      ...config,
+      taxType: newType,
+      updatedAt: new Date().toISOString()
+    };
+    updateTaxConfiguration(updatedConfig);
+    logActivity(`Tax type set to ${newType}`);
+  };
+
+  const getDefaultRate = (): number => {
+    const config = getSelectedConfig();
+    if (!config) return 0;
+    const def = config.taxRates.find(r => r.isDefault || r.serviceType === 'all');
+    return def ? Number(def.rate) : 0;
+  };
+
+  const updateDefaultRate = (value: number) => {
+    const config = getSelectedConfig();
+    if (!config) return;
+    const index = config.taxRates.findIndex(r => r.isDefault || r.serviceType === 'all');
+    let updatedRates = [...config.taxRates];
+    if (index !== -1) {
+      updatedRates[index] = { ...updatedRates[index], rate: value, isDefault: true, serviceType: updatedRates[index].serviceType };
+    } else {
+      updatedRates.push({
+        id: `default-${Date.now()}`,
+        serviceType: 'all',
+        rate: value,
+        description: `${config.taxType} Default`,
+        isDefault: true
+      });
+    }
+    const updatedConfig: TaxConfiguration = {
+      ...config,
+      taxRates: updatedRates,
+      updatedAt: new Date().toISOString()
+    };
+    updateTaxConfiguration(updatedConfig);
+    logActivity(`Default tax rate set to ${value}%`);
+  };
+
+  const toggleTDSAvailability = (checked: boolean) => {
+    const config = getSelectedConfig();
+    if (!config) return;
+    const nextTds = {
+      isApplicable: checked,
+      rate: config.tdsConfiguration?.rate ?? 0,
+      threshold: config.tdsConfiguration?.threshold ?? 0,
+      exemptionLimit: config.tdsConfiguration?.exemptionLimit ?? 0,
+      companyRegistration: config.tdsConfiguration?.companyRegistration
+    };
+    const updatedConfig: TaxConfiguration = {
+      ...config,
+      tdsConfiguration: nextTds,
+      updatedAt: new Date().toISOString()
+    };
+    updateTaxConfiguration(updatedConfig);
+    logActivity(`TDS ${checked ? 'enabled' : 'disabled'}`);
+  };
+
+  const refreshCountriesCount = async () => {
+    const res = await CountriesService.getAllCountries();
+    setSupabaseCountriesCount((res.data ?? []).length);
+    // Refresh country name map inside tax service so dropdown labels stay accurate
+    try {
+      await TaxCalculationService.initializeFromSupabase();
+      loadTaxConfigurations();
+    } catch {}
+  };
 
   return (
     <div className="space-y-6">
@@ -138,6 +254,9 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
           <CardTitle className="flex items-center gap-2">
             <Globe className="h-5 w-5" />
             Tax Configuration Management
+            <Badge variant={supabaseInitOk ? 'success' : 'secondary'} className="ml-2 text-xs">
+              {supabaseInitOk ? `Supabase OK ${supabaseInitTs ?? ''}` : 'Supabase Fallback'}
+            </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -145,8 +264,14 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
           <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <Badge variant="default">Default: India (IN)</Badge>
-                <Badge variant="outline">{TaxCalculationService.getAvailableCountries().length} Countries Configured</Badge>
+                <Badge variant="default">
+                  {(() => {
+                    const code = TaxCalculationService.getDefaultCountry();
+                    const name = TaxCalculationService.getAvailableCountries().find(c => c.code === code)?.name || code;
+                    return `Default: ${name} (${code})`;
+                  })()}
+                </Badge>
+                <Badge variant="outline">{supabaseCountriesCount} Countries Configured</Badge>
               </div>
               <div className="flex items-center gap-2">
                 <Switch 
@@ -167,7 +292,7 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Select Country</Label>
-              <Select value={selectedCountry} onValueChange={setSelectedCountry}>
+              <Select value={selectedCountry} onValueChange={(val) => { setSelectedCountry(val); logActivity(`Country selected: ${val}`); }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select country" />
                 </SelectTrigger>
@@ -187,13 +312,14 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={selectedConfig.isActive}
-                    onCheckedChange={(checked) => 
+                    onCheckedChange={(checked) => {
                       updateTaxConfiguration({
                         ...selectedConfig,
                         isActive: checked,
                         updatedAt: new Date().toISOString()
-                      })
-                    }
+                      });
+                      logActivity(`Tax status: ${checked ? 'Active' : 'Inactive'}`);
+                    }}
                   />
                   <Badge variant={selectedConfig.isActive ? "default" : "secondary"}>
                     {selectedConfig.isActive ? 'Active' : 'Inactive'}
@@ -202,11 +328,113 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
               </div>
             )}
           </div>
+
+          {/* Selection Tracker */}
+          {selectedConfig && (
+            <div className="p-4 bg-muted/50 rounded-lg border">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <div className="font-medium">Selection</div>
+                  <div className="text-muted-foreground">{selectedCountry}</div>
+                </div>
+                <div>
+                  <div className="font-medium">Source</div>
+                  <div className="text-muted-foreground">Supabase</div>
+                </div>
+                <div>
+                  <div className="font-medium">Active Table</div>
+                  <div className="text-muted-foreground">{`public.${activeTaxTable || 'tax_configurations'}`}</div>
+                </div>
+                <div>
+                  <div className="font-medium">Location</div>
+                  <div className="text-muted-foreground">src/integrations/supabase/services/taxConfigurationService.ts</div>
+                </div>
+              </div>
+              <Separator className="my-3" />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <div className="font-medium">Rates</div>
+                  <div className="text-muted-foreground">{selectedConfig.taxRates.length}</div>
+                </div>
+                <div>
+                  <div className="font-medium">TDS Applicable</div>
+                  <div className="text-muted-foreground">{selectedConfig.tdsConfiguration?.isApplicable ? 'Yes' : 'No'}</div>
+                </div>
+              </div>
+
+              {/* Recent activity logs */}
+              <Separator className="my-3" />
+              <div>
+                <div className="font-medium">Recent Changes</div>
+                {activityLog.length === 0 ? (
+                  <div className="text-muted-foreground text-sm">No recent changes.</div>
+                ) : (
+                  <ul className="text-sm space-y-1">
+                    {activityLog.map((l, i) => (
+                      <li key={i} className="flex justify-between">
+                        <span>{l.msg}</span>
+                        <span className="text-muted-foreground">{l.ts}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
+      {/* Countries CRUD (Supabase-backed) */}
+      <CountriesCrudSection onDataChanged={refreshCountriesCount} />
+
       {selectedConfig && (
         <>
+          {/* Tax Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                Tax Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Tax Type</Label>
+                  <Select value={selectedConfig.taxType} onValueChange={(val) => updateTaxType(val as TaxConfiguration['taxType'])}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="GST">GST</SelectItem>
+                      <SelectItem value="VAT">VAT</SelectItem>
+                      <SelectItem value="SALES_TAX">Sales Tax</SelectItem>
+                      <SelectItem value="NONE">None</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Default Rate (%)</Label>
+                  <Input
+                    type="number"
+                    value={getDefaultRate()}
+                    onChange={(e) => updateDefaultRate(Number(e.target.value))}
+                    min="0"
+                    max="100"
+                    step="0.01"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label>Enable TDS</Label>
+                  <Switch
+                    checked={!!selectedConfig.tdsConfiguration?.isApplicable}
+                    onCheckedChange={toggleTDSAvailability}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Tax Rates Configuration */}
           <Card>
             <CardHeader>
@@ -297,8 +525,8 @@ const TaxManagement: React.FC<TaxManagementProps> = ({ onTaxUpdate }) => {
             </CardContent>
           </Card>
 
-          {/* TDS Configuration for India */}
-          {selectedCountry === 'IN' && selectedConfig.tdsConfiguration && (
+          {/* TDS Configuration */}
+          {selectedConfig.tdsConfiguration && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

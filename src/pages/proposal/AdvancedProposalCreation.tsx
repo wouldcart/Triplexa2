@@ -217,6 +217,7 @@ const AdvancedProposalCreation: React.FC = () => {
   const [showProgressDialog, setShowProgressDialog] = useState(false);
   const [skippedRules, setSkippedRules] = useState<string[]>([]);
   const recentLogsRef = useRef<Map<string, number>>(new Map());
+  const [isTabSwitching, setIsTabSwitching] = useState(false);
 
   // Log tab engagement whenever active tab changes (including initial mount)
   useEffect(() => {
@@ -371,14 +372,46 @@ const AdvancedProposalCreation: React.FC = () => {
     }
   }, [query?.id]);
 
-  // Simplified tab change handler - instant switching
-  const handleTabChange = useCallback((newTab: string) => {
+  // Enhanced tab change handler - persist URL/localStorage and show spinner
+  const handleTabChange = useCallback(async (newTab: string) => {
     if (newTab === activeTab) return;
-    
-    console.log('Switching tab from', activeTab, 'to', newTab);
-    setActiveTab(newTab as 'itinerary' | 'proposal');
-    console.log(`✅ Switched to tab: ${newTab}`);
-  }, [activeTab]);
+
+    try {
+      setIsTabSwitching(true);
+      console.log('Switching tab from', activeTab, 'to', newTab);
+
+      // Save itinerary data when leaving itinerary tab (best-effort)
+      if (activeTab === 'itinerary' && itineraryData.length > 0) {
+        saveItineraryData(itineraryData, 'tab-switch');
+      }
+
+      // Update URL param without navigation
+      const params = new URLSearchParams(window.location.search);
+      params.set('tab', newTab);
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState(null, '', newUrl);
+
+      // Persist tab choice per-query
+      if (query?.id) {
+        try {
+          localStorage.setItem(`active_tab_${query.id}`, newTab);
+        } catch {}
+      }
+
+      setActiveTab(newTab as 'itinerary' | 'proposal');
+      console.log(`✅ Switched to tab: ${newTab}`);
+    } catch (e) {
+      console.error('Error during tab switch:', e);
+      toast({
+        title: 'Tab switch error',
+        description: 'We could not persist the tab state reliably.',
+        variant: 'destructive'
+      });
+    } finally {
+      // Small delay to avoid flicker
+      setTimeout(() => setIsTabSwitching(false), 300);
+    }
+  }, [activeTab, itineraryData, query?.id, toast, saveItineraryData]);
 
   // Enhanced day update handler with proper type conversion
   const handleUpdateDay = (dayId: string, updates: any) => {
@@ -453,6 +486,16 @@ const AdvancedProposalCreation: React.FC = () => {
               });
               setHasShownDraftLoadedToast(true);
             }
+          }
+
+          // Restore previously selected tab from localStorage if available
+          if (query?.id) {
+            try {
+              const storedTab = localStorage.getItem(`active_tab_${query.id}`);
+              if (storedTab === 'itinerary' || storedTab === 'proposal') {
+                setActiveTab(storedTab as 'itinerary' | 'proposal');
+              }
+            } catch {}
           }
           
           // If direct-linking to proposal tab, ensure data is ready
@@ -810,6 +853,13 @@ const AdvancedProposalCreation: React.FC = () => {
                 <span>Proposal Management</span>
               </TabsTrigger>
             </TabsList>
+
+            {isTabSwitching && (
+              <div className="mt-3 flex items-center gap-2 text-muted-foreground">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+                <span className="text-sm">Switching tabs…</span>
+              </div>
+            )}
 
             <TabsContent value="itinerary" className="mt-6">
               <TabErrorBoundary tabName="Day Wise Itinerary">

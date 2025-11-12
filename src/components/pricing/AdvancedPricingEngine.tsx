@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { PricingService } from '@/services/pricingService';
 import { TaxCalculationService } from '@/services/taxCalculationService';
-import { initialCountries } from '@/pages/inventory/countries/data/countryData';
+import { CountriesService, type CountryListItem } from '@/integrations/supabase/services/countriesService';
 import { MarkupSlab } from '@/types/pricing';
 import { TaxCalculationResult } from '@/types/taxManagement';
 import { Users, Calculator, DollarSign, Percent, Settings, TrendingUp } from 'lucide-react';
@@ -75,11 +75,27 @@ const AdvancedPricingEngine: React.FC<AdvancedPricingEngineProps> = ({ onPricing
 
   const [pricingResult, setPricingResult] = useState<PricingResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [availableCountries, setAvailableCountries] = useState<CountryListItem[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
     calculatePricing();
   }, [config]);
+
+  useEffect(() => {
+    let mounted = true;
+    CountriesService.listActiveCountries()
+      .then((list) => {
+        if (mounted) setAvailableCountries(list);
+      })
+      .catch(() => {
+        // On error, keep empty list; UI still allows selecting 'No Tax'
+        if (mounted) setAvailableCountries([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const calculatePricing = () => {
     setIsLoading(true);
@@ -398,9 +414,9 @@ const AdvancedPricingEngine: React.FC<AdvancedPricingEngineProps> = ({ onPricing
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {initialCountries.filter(country => country.status === 'active').map(country => (
+                    {availableCountries.map((country) => (
                       <SelectItem key={country.code} value={country.code}>
-                        {country.name} ({country.currencySymbol})
+                        {country.name} ({country.currency_symbol})
                       </SelectItem>
                     ))}
                     <SelectItem value="NONE">No Tax</SelectItem>

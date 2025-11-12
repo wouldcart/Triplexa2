@@ -9,6 +9,7 @@ import { Query } from '@/types/query';
 import { ProposalData } from '@/services/proposalService';
 import EnhancedProposalService from '@/services/enhancedProposalService';
 import ProposalService from '@/services/proposalService';
+import SupabaseProposalService from '@/services/supabaseProposalService';
 import { SmartProposalStatus } from './status/SmartProposalStatus';
 import { ProposalStatusManager } from './status/ProposalStatusManager';
 import { 
@@ -101,17 +102,88 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
     try {
       setRefreshing(true);
       setError(null);
-      
-      // Load saved proposals with improved deduplication
+
+      // 1) Load Supabase proposals/drafts
+      const { data: sbRows, error: sbError } = await SupabaseProposalService.listProposalsByEnquiry(query.id);
+      if (sbError && showToastOnError) {
+        console.warn('Supabase list error:', sbError);
+        toast({
+          title: 'Supabase fetch failed',
+          description: 'Falling back to local proposals and drafts',
+          variant: 'destructive'
+        });
+      }
+
+      const mapRowToProposalData = (row: any): ProposalData => {
+        const itinerary = Array.isArray(row?.itinerary_data)
+          ? { days: row.itinerary_data, sightseeing_options: [], city_selection: null }
+          : (row?.itinerary_data || { days: [], sightseeing_options: [], city_selection: null });
+        const moduleCount = Array.isArray(itinerary.days) ? itinerary.days.length : 0;
+        const total = typeof row?.total_cost === 'number' ? row.total_cost : (row?.final_price || 0);
+        return {
+          id: row.proposal_id,
+          queryId: query.id,
+          query,
+          modules: [],
+          totals: {
+            subtotal: total,
+            discountAmount: 0,
+            total,
+            moduleCount,
+          },
+          metadata: {
+            createdAt: row.created_at || new Date().toISOString(),
+            updatedAt: row.updated_at || row.last_saved || row.created_at || new Date().toISOString(),
+            status: row.status || 'draft',
+            version: row.version || 1,
+            sentDate: row.sent_at || undefined,
+            viewedDate: row.viewed_at || undefined,
+            agentFeedback: row.agent_feedback || undefined,
+            modifications: row.modifications || [],
+          }
+        };
+      };
+
+      const mapRowToDraft = (row: any): DraftProposal | null => {
+        const itinerary = Array.isArray(row?.itinerary_data)
+          ? { days: row.itinerary_data, sightseeing_options: [], city_selection: null }
+          : (row?.itinerary_data || { days: [], sightseeing_options: [], city_selection: null });
+        const days = Array.isArray(itinerary.days) ? itinerary.days : [];
+        const total = typeof row?.total_cost === 'number' ? row.total_cost : (row?.final_price || 0);
+        if (!row?.proposal_id || !row?.status || row.status !== 'draft') return null;
+        if (String(row.proposal_id).startsWith('DRAFT-')) {
+          return {
+            id: row.proposal_id,
+            queryId: query.id,
+            days,
+            totalCost: total || 0,
+            savedAt: row.last_saved || row.updated_at || row.created_at || new Date().toISOString(),
+            version: row.version || 1,
+            type: 'draft'
+          };
+        }
+        return null;
+      };
+
+      const sbProposals: ProposalData[] = (sbRows || [])
+        .filter((r: any) => !String(r.proposal_id).startsWith('DRAFT-'))
+        .map(mapRowToProposalData);
+      const sbDrafts: DraftProposal[] = (sbRows || [])
+        .map(mapRowToDraft)
+        .filter((d: any) => d !== null) as DraftProposal[];
+
+      // 2) Load saved proposals from local for legacy compatibility, then merge
       const savedProposals = EnhancedProposalService.getProposalsByQuery(query.id);
       const legacyProposals = ProposalService.getProposalsByQueryId(query.id);
-      const allProposals = [...savedProposals, ...legacyProposals];
+      const allProposals = [...sbProposals, ...savedProposals, ...legacyProposals];
       const uniqueProposals = removeDuplicateProposals(allProposals);
-      
       setProposals(uniqueProposals);
 
       // Load drafts with improved error handling and validation
       const draftData: DraftProposal[] = [];
+
+      // Add Supabase drafts first
+      sbDrafts.forEach((d) => draftData.push(d));
       
       // Check for auto-save draft (day-wise itinerary)
       const autoSaveDraft = getDraftFromLocalStorage(`proposal_draft_${query.id}`);
@@ -301,7 +373,7 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
     }
   };
 
-  const handleEditDraft = (draftId: string) => {
+  const handleEditDraft = async (draftId: string) => {
     try {
       const draft = drafts.find(d => d.id === draftId);
       if (!draft) {
@@ -313,14 +385,39 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
         return;
       }
 
-      // Validate and fix draft data before navigation
-      if (!validateAndFixDraftData(draftId)) {
-        toast({
-          title: "Invalid draft data",
-          description: "The draft data appears to be corrupted. Please create a new proposal.",
-          variant: "destructive"
-        });
-        return;
+      // If draft is Supabase-backed, hydrate local storage for the builder to load
+      if (draftId.startsWith('DRAFT-')) {
+        try {
+          const { data: sbDraft } = await SupabaseProposalService.getDraftByProposalId(draftId);
+          if (sbDraft) {
+            const draftType = sbDraft.draft_type === 'enhanced' ? 'enhanced' : 'daywise';
+            const itinerary = Array.isArray(sbDraft?.itinerary_data)
+              ? { days: sbDraft.itinerary_data, sightseeing_options: [], city_selection: null }
+              : (sbDraft?.itinerary_data || { days: [], sightseeing_options: [], city_selection: null });
+            const storageKey = draftType === 'enhanced'
+              ? `enhanced_proposal_modules_${query.id}`
+              : `proposal_draft_${query.id}`;
+            const payload = draftType === 'enhanced' ? (Array.isArray(itinerary.days) ? itinerary.days : []) : {
+              days: Array.isArray(itinerary.days) ? itinerary.days : [],
+              totalCost: typeof sbDraft?.total_cost === 'number' ? sbDraft.total_cost : (sbDraft?.final_price || 0),
+              savedAt: sbDraft.last_saved || sbDraft.updated_at || sbDraft.created_at || new Date().toISOString(),
+              version: sbDraft.version || 1
+            };
+            localStorage.setItem(storageKey, JSON.stringify(payload));
+          }
+        } catch (e) {
+          console.warn('Hydration failed for draft', draftId, e);
+        }
+      } else {
+        // Validate and fix local draft data before navigation
+        if (!validateAndFixDraftData(draftId)) {
+          toast({
+            title: "Invalid draft data",
+            description: "The draft data appears to be corrupted. Please create a new proposal.",
+            variant: "destructive"
+          });
+          return;
+        }
       }
 
       // Always navigate to advanced proposal with appropriate parameters
@@ -342,6 +439,20 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
       const finalRoute = `${targetRoute}?${params.toString()}`;
       
       console.log(`Navigating to: ${finalRoute} for draft: ${draftId}`);
+      // Track selection
+      try {
+        void createWorkflowEvent({
+          enquiryBusinessId: query.id,
+          eventType: 'ui_engagement',
+          userId: user?.id || null,
+          userName: user?.name || null,
+          userRole: user?.role || null,
+          details: 'Continue draft clicked',
+          metadata: { action: 'continue_draft', draftId, source: 'ProposalActions' }
+        });
+      } catch (e) {
+        console.warn('Failed to log Continue draft click:', e);
+      }
       navigate(finalRoute);
       
       toast({
@@ -370,6 +481,7 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
 
   const handleDuplicateProposal = async (proposalId: string) => {
     try {
+      // Prefer local duplication for legacy proposals; Supabase duplication would be server-side.
       const newProposalId = EnhancedProposalService.duplicateProposal(proposalId);
       if (newProposalId) {
         await loadProposalsAndDrafts();
@@ -398,6 +510,15 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
         : `proposal_draft_${query.id}`;
       
       localStorage.removeItem(storageKey);
+
+      // Also delete remote draft if it's Supabase-backed
+      if (draftId.startsWith('DRAFT-')) {
+        try {
+          await SupabaseProposalService.deleteByProposalId(draftId);
+        } catch (e) {
+          console.warn('Supabase draft delete failed:', e);
+        }
+      }
       
       // Update state immediately for better UX
       setDrafts(prevDrafts => prevDrafts.filter(d => d.id !== draftId));
@@ -409,6 +530,20 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
         title: "Draft deleted",
         description: "Draft has been removed successfully"
       });
+      // Track deletion
+      try {
+        void createWorkflowEvent({
+          enquiryBusinessId: query.id,
+          eventType: 'ui_engagement',
+          userId: user?.id || null,
+          userName: user?.name || null,
+          userRole: user?.role || null,
+          details: 'Delete draft clicked',
+          metadata: { action: 'delete_draft', draftId, source: 'ProposalActions' }
+        });
+      } catch (e) {
+        console.warn('Failed to log Delete draft click:', e);
+      }
     } catch (error) {
       console.error('Delete draft error:', error);
       toast({
@@ -424,34 +559,14 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
 
   const handleConvertDraftToProposal = async (draft: DraftProposal) => {
     try {
-      // Create a new proposal from the draft
-      const proposalId = EnhancedProposalService.createProposal(query.id, {
+      // Create a new proposal in Supabase from the draft
+      const { proposal_id, error } = await SupabaseProposalService.createProposal({
         query,
-        modules: draft.days.map((day: any, index: number) => ({
-          id: day.id || `day_${index}`,
-          type: 'sightseeing' as const,
-          name: day.title || `Day ${index + 1}`,
-          category: 'daily-itinerary',
-          data: day,
-          pricing: {
-            basePrice: day.totalCost || 0,
-            finalPrice: day.totalCost || 0,
-            currency: 'USD'
-          },
-          status: 'active' as const,
-          metadata: {
-            supplier: 'Internal',
-            confirmationRequired: false,
-            tags: ['day-by-day']
-          }
-        })),
-        totals: {
-          subtotal: draft.totalCost,
-          discountAmount: 0,
-          total: draft.totalCost,
-          moduleCount: draft.days.length
-        }
+        days: draft.days,
+        totalCost: draft.totalCost,
+        draftType: draft.id.includes('enhanced') ? 'enhanced' : 'daywise',
       });
+      if (error) throw error;
 
       // Remove the draft
       handleDeleteDraft(draft.id);
@@ -459,8 +574,22 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
       await loadProposalsAndDrafts();
       toast({
         title: "Draft converted",
-        description: `Draft converted to proposal ${proposalId}`
+        description: `Draft converted to proposal ${proposal_id}`
       });
+      // Track conversion
+      try {
+        void createWorkflowEvent({
+          enquiryBusinessId: query.id,
+          eventType: 'ui_engagement',
+          userId: user?.id || null,
+          userName: user?.name || null,
+          userRole: user?.role || null,
+          details: 'Save as Proposal clicked',
+          metadata: { action: 'convert_draft', draftId: draft.id, proposalId: proposal_id, source: 'ProposalActions' }
+        });
+      } catch (e) {
+        console.warn('Failed to log Save as Proposal click:', e);
+      }
     } catch (error) {
       toast({
         title: "Conversion failed",
@@ -487,19 +616,18 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
     });
   };
 
-  const handleProposalStatusUpdate = (proposalId: string, status: any, data?: any) => {
-    // Update the proposal status in the service
-    const proposal = proposals.find(p => p.id === proposalId);
-    if (proposal) {
-      const updatedMetadata = {
-        ...proposal.metadata,
-        status,
-        ...data
-      };
-      
-      EnhancedProposalService.updateProposal(proposalId, {
-        metadata: updatedMetadata
-      });
+  const handleProposalStatusUpdate = async (proposalId: string, status: any, data?: any) => {
+    // Prefer Supabase for remote proposals (no underscore in ID), fallback to local
+    try {
+      if (proposalId.startsWith('PROP') && !proposalId.includes('_')) {
+        await SupabaseProposalService.updateProposalStatus(proposalId, status);
+      } else {
+        const proposal = proposals.find(p => p.id === proposalId);
+        if (proposal) {
+          const updatedMetadata = { ...proposal.metadata, status, ...data };
+          EnhancedProposalService.updateProposal(proposalId, { metadata: updatedMetadata });
+        }
+      }
 
       // Update local state
       setProposalStatuses(prev => {
@@ -510,7 +638,10 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
       });
 
       // Refresh data
-      loadProposalsAndDrafts(false);
+      await loadProposalsAndDrafts(false);
+    } catch (e) {
+      console.error('Status update error:', e);
+      toast({ title: 'Status update failed', description: 'Could not update proposal status', variant: 'destructive' });
     }
   };
 

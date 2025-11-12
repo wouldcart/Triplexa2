@@ -529,6 +529,75 @@ export const AccommodationSelector: React.FC<AccommodationSelectorProps> = ({
     setEditingData({});
   };
 
+  // Bulk remove all accommodations for a given option
+  const handleBulkRemoveOption = (optionNumber: 1 | 2 | 3) => {
+    const optionAccommodations = accommodations.filter(acc => acc.optionNumber === optionNumber);
+    optionAccommodations.forEach(acc => {
+      try {
+        onAccommodationRemove(acc.id);
+      } catch (e) {
+        console.warn('Failed to remove accommodation in bulk operation:', acc.id, e);
+      }
+    });
+
+    // Persist updated selection to Supabase (proposals.accommodation_data)
+    try {
+      const remainingAccommodations = accommodations.filter(acc => acc.optionNumber !== optionNumber);
+      const selectedAccommodations = remainingAccommodations.map(acc => ({
+        id: acc.id,
+        hotelName: acc.hotelName,
+        roomType: acc.roomType,
+        nights: acc.numberOfNights,
+        pricePerNight: acc.pricePerNightPerRoom,
+        numberOfRooms: acc.numberOfRooms,
+        totalPrice: acc.totalPrice,
+        type: (acc.optionNumber === 1 ? 'standard' : acc.optionNumber === 2 ? 'optional' : 'alternative') as 'standard' | 'optional' | 'alternative',
+        dayId: acc.checkInDay.toString(),
+        city: acc.city
+      }));
+
+      persistence.updateAccommodationData({
+        selectedAccommodations,
+        markupData: persistence.data.accommodationData.markupData
+      });
+    } catch (e) {
+      console.warn('Failed to persist bulk removal to Supabase:', e);
+    }
+  };
+
+  // Persist single accommodation removal to Supabase
+  const handleRemoveSingleAccommodation = (accommodationId: string) => {
+    try {
+      onAccommodationRemove(accommodationId);
+    } catch (e) {
+      console.warn('Failed to remove accommodation:', accommodationId, e);
+    }
+
+    // Map remaining accommodations and persist
+    try {
+      const remainingAccommodations = accommodations.filter(acc => acc.id !== accommodationId);
+      const selectedAccommodations = remainingAccommodations.map(acc => ({
+        id: acc.id,
+        hotelName: acc.hotelName,
+        roomType: acc.roomType,
+        nights: acc.numberOfNights,
+        pricePerNight: acc.pricePerNightPerRoom,
+        numberOfRooms: acc.numberOfRooms,
+        totalPrice: acc.totalPrice,
+        type: (acc.optionNumber === 1 ? 'standard' : acc.optionNumber === 2 ? 'optional' : 'alternative') as 'standard' | 'optional' | 'alternative',
+        dayId: acc.checkInDay.toString(),
+        city: acc.city
+      }));
+
+      persistence.updateAccommodationData({
+        selectedAccommodations,
+        markupData: persistence.data.accommodationData.markupData
+      });
+    } catch (e) {
+      console.warn('Failed to persist single removal to Supabase:', e);
+    }
+  };
+
   const handleCancelEdit = () => {
     setEditingAccommodation(null);
     setEditingData({});
@@ -624,10 +693,23 @@ export const AccommodationSelector: React.FC<AccommodationSelectorProps> = ({
                 {/* Enhanced Accommodations List */}
                 {option && option.accommodations.length > 0 && (
                   <div className="space-y-3">
-                    <h4 className="font-medium text-sm flex items-center gap-2">
-                      <Hotel className="h-4 w-4 text-primary" />
-                      Selected Accommodations
-                    </h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-medium text-sm flex items-center gap-2">
+                        <Hotel className="h-4 w-4 text-primary" />
+                        Selected Accommodations
+                      </h4>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleBulkRemoveOption(optionNum as 1 | 2 | 3)}
+                        disabled={!option || option.accommodations.length === 0}
+                        className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                        title={`Remove all accommodations in Option ${optionNum}`}
+                      >
+                        <Trash2 className="h-3 w-3 mr-1" />
+                        Remove All
+                      </Button>
+                    </div>
                     {option.accommodations.map((accommodation) => (
                       <Card key={accommodation.id} className="border-l-4 border-l-primary/60 shadow-sm hover:shadow-md transition-all duration-200 bg-gradient-to-r from-card to-primary/5">
                         <CardContent className="p-4">
@@ -808,15 +890,15 @@ export const AccommodationSelector: React.FC<AccommodationSelectorProps> = ({
                             </div>
                             
                              <div className="flex flex-col gap-2">
-                               <Button
-                                 variant="ghost"
-                                 size="sm"
-                                 onClick={() => onAccommodationRemove(accommodation.id)}
-                                 className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
-                                 title={`Remove ${accommodation.hotelName} (${accommodation.roomType})`}
-                               >
-                                 <Trash2 className="h-3 w-3" />
-                               </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRemoveSingleAccommodation(accommodation.id)}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
+                                  title={`Remove ${accommodation.hotelName} (${accommodation.roomType})`}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
                              </div>
                           </div>
 
