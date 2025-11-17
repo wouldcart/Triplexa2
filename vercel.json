@@ -1,31 +1,5 @@
 {
   "version": 2,
-  "functions": {
-    "api/sms/sendOtp.js": {
-      "runtime": "nodejs18.x"
-    },
-    "api/sms/verifyOtp.js": {
-      "runtime": "nodejs18.x"
-    },
-    "api/sms/test.js": {
-      "runtime": "nodejs18.x"
-    },
-    "api/sms/config-status.js": {
-      "runtime": "nodejs18.x"
-    },
-    "api/ai/chat.js": {
-      "runtime": "nodejs18.x"
-    },
-    "api/auth/send-otp.js": {
-      "runtime": "nodejs18.x"
-    },
-    "api/auth/verify-otp.js": {
-      "runtime": "nodejs18.x"
-    },
-    "api/auth/upsert-agent-phone.js": {
-      "runtime": "nodejs18.x"
-    }
-  },
   "routes": [
     {
       "src": "/api/sms/sendOtp",
