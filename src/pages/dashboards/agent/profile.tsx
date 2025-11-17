@@ -15,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { updateAccountEmail } from '@/services/smsService';
+import { updateAccountEmail } from '@/services/smsService.ts';
 import { useNavigate } from 'react-router-dom';
 import { MultiSelect } from '@/components/ui/multi-select';
 
