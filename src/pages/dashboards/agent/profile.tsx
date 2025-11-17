@@ -14,7 +14,8 @@ import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { updateAccountEmail } from '@/services/smsService';
 import { useNavigate } from 'react-router-dom';
 import { MultiSelect } from '@/components/ui/multi-select';
 
@@ -76,6 +77,8 @@ const ProfilePage: React.FC = () => {
     specializations: [] as string[],
   });
   const [initialForm, setInitialForm] = useState<any>(null);
+  const [emailEditOpen, setEmailEditOpen] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
 
   // Documents state (stored in agent_settings.preferences.documents)
   const [agentDocs, setAgentDocs] = useState<{ title?: string; url: string; type: string; uploaded_at: string }[]>([]);
@@ -519,11 +522,33 @@ const ProfilePage: React.FC = () => {
                 )}
               </div>
               <div>
-                <Label>Email (readonly)</Label>
-                {isEditing ? (
-                  <Input value={form.email} readOnly />
-                ) : (
+                <Label>Email</Label>
+                {!isEditing ? (
                   <p className="text-foreground">{form.email || '—'}</p>
+                ) : (
+                  <div className="space-y-2">
+                    <Input value={form.email} readOnly />
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="outline" onClick={() => { setEmailEditOpen(!emailEditOpen); setNewEmail(''); }}>Change</Button>
+                      {emailEditOpen && (
+                        <>
+                          <Input value={newEmail} onChange={(e)=>setNewEmail(e.target.value)} placeholder="Enter new email" />
+                          <Button size="sm" onClick={async()=>{
+                            try {
+                              if (!newEmail || !/.+@.+\..+/.test(newEmail)) { toast.error('Enter a valid email'); return; }
+                              const { data: auth } = await supabase.auth.getUser();
+                              const uid = auth?.user?.id || agentId || currentUser?.id; if (!uid) { toast.error('Not authenticated'); return; }
+                              const r = await updateAccountEmail(uid, newEmail)
+                              if (!r.ok) { toast.error(String(r.data?.error||'Update failed')); return; }
+                              setForm(prev => ({ ...prev, email: newEmail }))
+                              setEmailEditOpen(false)
+                              toast.success('Email updated')
+                            } catch (e:any) { toast.error(e?.message||'Update failed') }
+                          }}>Update</Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
               <div>
@@ -913,6 +938,9 @@ const ProfilePage: React.FC = () => {
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{previewDoc?.title || 'Document Preview'}</DialogTitle>
+            <DialogDescription>
+              Preview of uploaded document
+            </DialogDescription>
           </DialogHeader>
           {previewDoc?.type?.startsWith('image/') ? (
             <img src={previewDoc.url} alt={previewDoc.title || 'Document'} className="max-h-[70vh] w-auto mx-auto rounded-md border" />

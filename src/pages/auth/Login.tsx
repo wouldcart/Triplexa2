@@ -14,7 +14,9 @@ import { useApplicationSettings } from '../../contexts/ApplicationSettingsContex
 import { AuthService } from '../../services/authService';
 import { supabase } from '../../lib/supabaseClient';
 import { User } from '../../types/User';
-import { Eye, EyeOff, Lock, User as UserIcon, Mail, Send } from 'lucide-react';
+import { Eye, EyeOff, Lock, User as UserIcon, Mail, Send, Chrome } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { upsertAgentWithPhone, sendOtp as smsSendOtp, verifyOtp as smsVerifyOtp } from '@/services/smsService';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -32,18 +34,41 @@ const Login: React.FC = () => {
   const [magicLinkLoading, setMagicLinkLoading] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [showMagicLink, setShowMagicLink] = useState(false);
+  const [activeTab, setActiveTab] = useState<'email'|'mobile'>('email');
+  const [mobilePhone, setMobilePhone] = useState('');
+  const [mobileName, setMobileName] = useState('');
+  const [mobileRequestId, setMobileRequestId] = useState('');
+  const [mobileOtp, setMobileOtp] = useState('');
+  const [mobileSending, setMobileSending] = useState(false);
+  const [mobileVerifying, setMobileVerifying] = useState(false);
   
-  const { settings } = useApplicationSettings();
+  // Use ApplicationSettings with fallback for unauthenticated users
+  let settings = { 
+    logo: '', 
+    companyDetails: { 
+      name: 'Travel App', 
+      tagline: 'Your Travel Partner' 
+    } 
+  };
+  
+  try {
+    const { settings: appSettings } = useApplicationSettings();
+    settings = appSettings || settings;
+  } catch (error) {
+    // Fallback for when ApplicationSettingsProvider is not available
+    console.warn('ApplicationSettingsProvider not available, using fallback settings');
+  }
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { signIn, user } = useAuth();
+  const { signIn, signInWithGoogle, user } = useAuth();
 
-  // Redirect authenticated users immediately
+  // Redirect authenticated users immediately to root (which will handle role-based routing)
   useEffect(() => {
     if (user) {
-      console.log('🔄 User already authenticated, redirecting to root');
+      console.log('🔄 User already authenticated, redirecting to root for role-based routing');
+      console.log('👤 User details:', user.id, 'Role:', user.role);
       navigate('/', { replace: true });
     }
   }, [user, navigate]);
@@ -262,6 +287,70 @@ const Login: React.FC = () => {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      console.log('🔐 Initiating Google OAuth for agent role');
+      console.log('📍 Current origin:', window.location.origin);
+      console.log('🧪 Testing Supabase client availability...');
+      
+      // Test if Supabase client is available
+      const { supabase: testClient } = await import('../../lib/supabaseClient');
+      console.log('✅ Supabase client loaded:', !!testClient);
+      
+      // Check if we're in a development environment
+      console.log('🌍 Environment:', import.meta.env.MODE);
+      console.log('🔗 Redirect URL will be:', `${window.location.origin}/login`);
+      
+      const result = await signInWithGoogle('agent');
+      
+      if (result.error) {
+        console.error('❌ Google sign-in error:', result.error);
+        
+        // Check for specific OAuth errors
+        const errorMessage = result.error;
+        if (errorMessage.includes('provider') || errorMessage.includes('oauth')) {
+          setError('Google OAuth is not configured. Please contact support or use email login.');
+          toast({
+            title: "Google OAuth Not Available",
+            description: "Google sign-in is not configured. Please use email login or contact support.",
+            variant: "destructive",
+          });
+        } else {
+          setError(result.error);
+          toast({
+            title: "Google sign-in failed",
+            description: result.error,
+            variant: "destructive",
+          });
+        }
+      } else {
+        console.log('✅ Google OAuth initiated, result:', result);
+        console.log('🔄 Waiting for redirect...');
+        // The OAuth flow will redirect to Google and back
+        // The auth state change listener will handle the session
+        
+        // Show a message to the user
+        toast({
+          title: "Redirecting to Google...",
+          description: "You'll be redirected to Google to complete sign-in.",
+        });
+      }
+    } catch (err: any) {
+      console.error('🚨 Google sign-in error:', err);
+      setError(err.message || 'Google sign-in failed');
+      toast({
+        title: "Google sign-in failed",
+        description: err.message || 'An error occurred during Google sign-in',
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const enhancedTestAccounts = [
     { 
       role: 'Super Admin', 
@@ -385,6 +474,12 @@ const Login: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <Tabs value={activeTab} onValueChange={(v:any)=>setActiveTab(v)}>
+              <TabsList className="mb-4">
+                <TabsTrigger value="email">Email</TabsTrigger>
+                <TabsTrigger value="mobile">Mobile</TabsTrigger>
+              </TabsList>
+              <TabsContent value="email">
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="username">Email</Label>
@@ -468,6 +563,28 @@ const Login: React.FC = () => {
                 {loading ? 'Signing in...' : 'Sign In'}
               </Button>
 
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300 dark:border-gray-600" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">Or continue with</span>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleGoogleSignIn}
+                disabled={loading}
+              >
+                <Chrome className="h-4 w-4 mr-2" />
+                {loading ? 'Connecting...' : 'Sign in with Google'}
+              </Button>
+
+
+
               <div className="text-center">
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   First time here?{' '}
@@ -480,8 +597,71 @@ const Login: React.FC = () => {
                     Register your travel agency here.
                   </Button>
                 </p>
+                <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
+                  New to our platform? Sign in with Google to get started.
+                </p>
               </div>
             </form>
+              </TabsContent>
+              <TabsContent value="mobile">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="mobileName">Name</Label>
+                    <Input id="mobileName" type="text" placeholder="Your name" value={mobileName} onChange={(e)=>setMobileName(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mobilePhone">Mobile (India)</Label>
+                    <div className="flex gap-3">
+                      <Input id="mobilePhone" type="tel" placeholder="10-digit mobile number" value={mobilePhone} onChange={(e)=>setMobilePhone(e.target.value.replace(/\D/g,''))} maxLength={10} className="flex-1" />
+                      <Button type="button" onClick={async()=>{ setMobileSending(true); const r = await smsSendOtp(mobilePhone,'login'); if (r.ok) { setMobileRequestId(r.data.request_id||''); toast({ title:'OTP sent', description:`Enter the OTP sent to +91${mobilePhone}` }); } else { toast({ title:'Send OTP failed', description:String(r.data?.error||'Unknown error'), variant:'destructive' }); } setMobileSending(false); }} disabled={mobileSending || mobilePhone.length!==10 || mobileName.trim()==='' }>
+                        {mobileSending ? 'Sending…' : 'Send OTP Code'}
+                      </Button>
+                    </div>
+                  </div>
+                  {mobileRequestId && (
+                    <div className="space-y-2">
+                      <Label>OTP</Label>
+                      <Input
+                        inputMode="numeric"
+                        pattern="[0-9]{6}"
+                        maxLength={6}
+                        value={mobileOtp}
+                        onChange={(e)=>setMobileOtp(e.target.value.replace(/\D/g,''))}
+                        placeholder="Enter 6-digit OTP"
+                      />
+                    </div>
+                  )}
+                  {mobileRequestId && (
+                    <div className="flex items-center gap-3">
+                      <Button type="button" onClick={async()=>{
+                        setMobileVerifying(true);
+                        const r = await smsVerifyOtp(mobilePhone, mobileRequestId, mobileOtp)
+                        if (r.ok) {
+                          const u = await upsertAgentWithPhone(mobilePhone, mobileName || `Agent ${mobilePhone}`)
+                          if (u.ok) {
+                            const emailAlias = u.data.email
+                            const pwd = u.data.password
+                            const resp = await signIn(emailAlias, pwd)
+                            if (resp.error) {
+                              toast({ title:'Login failed', description:String(resp.error), variant:'destructive' })
+                            } else {
+                              toast({ title:'Login successful', description:`Welcome, ${resp.user?.name||'Agent'}` })
+                            }
+                          } else {
+                            toast({ title:'Account creation failed', description:String(u.data?.error||'Unknown error'), variant:'destructive' })
+                          }
+                        } else {
+                          toast({ title:'Verification failed', description:String(r.data?.error||'Unknown error'), variant:'destructive' })
+                        }
+                        setMobileVerifying(false);
+                      }} disabled={mobileVerifying || mobilePhone.length!==10 || mobileName.trim()==='' || mobileOtp.length!==6}>
+                        {mobileVerifying ? 'Verifying…' : 'Verify & Sign In'}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+            </Tabs>
            
             
             <Dialog open={resetOpen} onOpenChange={setResetOpen}>
