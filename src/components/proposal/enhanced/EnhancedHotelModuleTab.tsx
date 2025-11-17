@@ -2,6 +2,7 @@
 import React from 'react';
 import HotelModuleTab from './HotelModuleTab';
 import EnhancedAccommodationPlanning from '../accommodation/EnhancedAccommodationPlanning';
+import { OptionalCitiesAccommodation } from '../accommodation/OptionalCitiesAccommodation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Hotel, ListChecks } from 'lucide-react';
 import { Hotel as HotelType } from '@/components/inventory/hotels/types/hotel';
@@ -66,6 +67,9 @@ const EnhancedHotelModuleTab: React.FC<EnhancedHotelModuleTabProps> = ({
       </TabsContent>
 
       <TabsContent value="planning" className="mt-6">
+        {query && (
+          <OptionalCitiesAccommodation query={query} />
+        )}
         <EnhancedAccommodationPlanning
           selectedAccommodations={hotelModules.map(module => ({
             id: module.id,

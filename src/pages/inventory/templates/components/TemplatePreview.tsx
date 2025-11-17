@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar, MapPin, DollarSign, Clock, Star, Users } from 'lucide-react';
@@ -20,6 +20,9 @@ const TemplatePreview: React.FC<TemplatePreviewProps> = ({ template, isOpen, onC
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{template.name}</DialogTitle>
+          <DialogDescription>
+            Preview of template details and day-by-day itinerary
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

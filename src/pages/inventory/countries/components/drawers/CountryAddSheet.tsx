@@ -5,6 +5,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,9 @@ const CountryAddSheet: React.FC<CountryAddSheetProps> = ({
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add New Country</DialogTitle>
+          <DialogDescription>
+            Add a new country to the inventory system
+          </DialogDescription>
         </DialogHeader>
         
         <div className="grid gap-4 py-4">

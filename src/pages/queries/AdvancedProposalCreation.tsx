@@ -14,6 +14,8 @@ import { ProposalSummaryView } from '@/components/proposal/ProposalSummaryView';
 import { useProposalBuilder } from '@/hooks/useProposalBuilder';
 import { calculateTripDuration, getCurrencyByCountry, formatCurrency } from '@/utils/currencyUtils';
 import { SmartSuggestion } from '@/hooks/useSmartSuggestions';
+import { OptionalRecords } from '@/types/optionalRecords';
+import { supabase } from '@/lib/supabaseClient';
 
 // Enhanced conversion functions with better type handling
 const convertItineraryDayToProposalDay = (day: any) => ({
@@ -46,6 +48,7 @@ const AdvancedProposalCreation: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState<'planning' | 'summary'>('planning');
   const [pricingSettings, setPricingSettings] = useState(PricingService.getSettings());
+  const [optionalRecords, setOptionalRecords] = useState<OptionalRecords>({});
 
   // Extract URL parameters
   const draftId = searchParams.get('draftId');
@@ -93,6 +96,56 @@ const AdvancedProposalCreation: React.FC = () => {
 
         setQuery(queryData);
 
+        // Load optional records from proposal if available
+        if (queryData?.proposalId) {
+          try {
+            // Determine if proposalId is a UUID or enquiry ID
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+            const isUuid = uuidRegex.test(queryData.proposalId);
+            
+            // Load proposal data to get optional_records
+            let proposalQuery = supabase
+              .from('proposals')
+              .select('optional_records');
+
+            if (isUuid) {
+              // If it's a UUID, query by the 'id' field
+              proposalQuery = proposalQuery.eq('id', queryData.proposalId);
+            } else {
+              // If it's an enquiry ID, query by the 'proposal_id' field
+              proposalQuery = proposalQuery.eq('proposal_id', queryData.proposalId);
+            }
+
+            const { data: proposalData, error: proposalError } = await proposalQuery.maybeSingle();
+
+            if (proposalData?.optional_records) {
+              setOptionalRecords(proposalData.optional_records);
+              console.log('Loaded optional records from proposal:', proposalData.optional_records);
+            } else {
+              console.log('ℹ️ No optional records found in proposal, checking enquiry...');
+              
+              // Try to load from enquiry if not found in proposal
+              if (queryData?.cityAllocations) {
+                // Create optional records from enquiry cityAllocations with proper isOptional flag
+                const cityOptionalRecords = queryData.cityAllocations.map((allocation: any) => ({
+                  city: typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || allocation.cityId,
+                  cityName: typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || allocation.cityId,
+                  cityId: typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || allocation.cityId,
+                  isOptional: allocation.isOptional || false,
+                  allocation: allocation.allocation || 0,
+                  nights: allocation.nights || 0,
+                  updatedAt: new Date().toISOString()
+                }));
+                
+                console.log('📍 Loaded optional cities from enquiry cityAllocations:', cityOptionalRecords);
+                setOptionalRecords({ cities: cityOptionalRecords });
+              }
+            }
+          } catch (error) {
+            console.error('Error loading optional records from proposal:', error);
+          }
+        }
+
         // Load specific draft if requested
         if (loadDraft && draftId && loadSpecificDraft) {
           try {
@@ -127,6 +180,81 @@ const AdvancedProposalCreation: React.FC = () => {
       }
     };
 
+  // Auto-save optional records when they change
+  useEffect(() => {
+    const saveOptionalRecords = async () => {
+      if (!query?.id || !query?.proposalId) return;
+
+      try {
+        console.log('💾 Auto-saving optional records to proposals and enquiries tables...');
+        
+        // Determine if proposalId is a UUID or enquiry ID
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const isUuid = uuidRegex.test(query.proposalId);
+        
+        // Save to proposals table
+        let proposalUpdateQuery = supabase
+          .from('proposals')
+          .update({ 
+            optional_records: optionalRecords,
+            last_saved: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (isUuid) {
+          // If it's a UUID, update by the 'id' field
+          proposalUpdateQuery = proposalUpdateQuery.eq('id', query.proposalId);
+        } else {
+          // If it's an enquiry ID, update by the 'proposal_id' field
+          proposalUpdateQuery = proposalUpdateQuery.eq('proposal_id', query.proposalId);
+        }
+
+        const { error: proposalError } = await proposalUpdateQuery;
+
+        if (proposalError) {
+          console.error('❌ Error saving optional records to proposals:', proposalError);
+          throw proposalError;
+        }
+
+        console.log('✅ Optional records saved to proposals table');
+
+        // Save to enquiries table (update cityAllocations based on optional records)
+        const optionalCities = optionalRecords.cities?.filter(city => city.isOptional).map(city => city.city) || [];
+        
+        const { error: enquiryError } = await supabase
+          .from('enquiries')
+          .update({ 
+            city_allocations: optionalCities,
+            updated_at: new Date().toISOString()
+          })
+          .eq('enquiry_id', query.id);
+
+        if (enquiryError) {
+          console.error('❌ Error saving optional records to enquiries:', enquiryError);
+          throw enquiryError;
+        }
+
+        console.log('✅ Optional records saved to enquiries table');
+
+      } catch (error) {
+        console.error('❌ Error auto-saving optional records:', error);
+        toast({
+          title: "Error saving optional city settings",
+          description: "Failed to save optional city settings. Please try again.",
+          variant: "destructive",
+          duration: 3000,
+        });
+      }
+    };
+
+    // Debounce the save to avoid too many rapid updates
+    const timeoutId = setTimeout(() => {
+      saveOptionalRecords();
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [optionalRecords, query?.id, query?.proposalId, toast]);
+
     loadQuery();
   }, [id, navigate, toast, draftId, loadDraft, draftType, urlTab, loadSpecificDraft]);
 
@@ -152,6 +280,45 @@ const AdvancedProposalCreation: React.FC = () => {
       setSearchParams(newParams, { replace: true });
     }
   }, [activeView, query?.id, searchParams, setSearchParams]);
+
+  // Sync optional records to proposal when they change
+  useEffect(() => {
+    const syncOptionalRecords = async () => {
+      if (!query?.proposalId || Object.keys(optionalRecords).length === 0) return;
+
+      try {
+        // Determine if proposalId is a UUID or enquiry ID
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const isUuid = uuidRegex.test(query.proposalId);
+        
+        let updateQuery = supabase
+          .from('proposals')
+          .update({
+            optional_records: optionalRecords,
+            last_saved: new Date().toISOString()
+          });
+
+        if (isUuid) {
+          // If it's a UUID, update by the 'id' field
+          updateQuery = updateQuery.eq('id', query.proposalId);
+        } else {
+          // If it's an enquiry ID, update by the 'proposal_id' field
+          updateQuery = updateQuery.eq('proposal_id', query.proposalId);
+        }
+
+        const { error } = await updateQuery;
+
+        if (error) throw error;
+        console.log('Optional records synced to proposal successfully');
+      } catch (error) {
+        console.error('Error syncing optional records to proposal:', error);
+      }
+    };
+
+    // Debounce the sync to avoid too many API calls
+    const timeoutId = setTimeout(syncOptionalRecords, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [optionalRecords, query?.proposalId]);
 
   const handleSaveDraft = async () => {
     try {
@@ -182,7 +349,51 @@ const AdvancedProposalCreation: React.FC = () => {
 
   const handleGenerateProposal = async () => {
     try {
+      // Generate proposal with optional records
       const proposalId = await generateProposal();
+      
+      // Update the proposal with optional records if any exist
+      if (optionalRecords && (optionalRecords.sightseeing?.length || optionalRecords.transport?.length || optionalRecords.cities?.length)) {
+        try {
+          // Determine if proposalId is a UUID or enquiry ID
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          const isUuid = uuidRegex.test(proposalId);
+          
+          // Save optional records to Supabase proposals table using the optional_records JSONB field
+          let updateQuery = supabase
+            .from('proposals')
+            .update({
+              optional_records: optionalRecords,
+              last_saved: new Date().toISOString()
+            });
+
+          if (isUuid) {
+            // If it's a UUID, update by the 'id' field
+            updateQuery = updateQuery.eq('id', proposalId);
+          } else {
+            // If it's an enquiry ID, update by the 'proposal_id' field
+            updateQuery = updateQuery.eq('proposal_id', proposalId);
+          }
+
+          const { error } = await updateQuery;
+
+          if (error) throw error;
+          console.log('Optional records saved to Supabase proposals table:', optionalRecords);
+          
+          toast({
+            title: "Optional records saved",
+            description: "Your optional selections have been saved with the proposal",
+          });
+        } catch (error) {
+          console.error('Failed to save optional records to Supabase:', error);
+          toast({
+            title: "Warning",
+            description: "Proposal created but optional records could not be saved",
+            variant: "default"
+          });
+        }
+      }
+      
       toast({
         title: "Proposal created",
         description: "Your proposal has been generated successfully",
@@ -241,6 +452,78 @@ const AdvancedProposalCreation: React.FC = () => {
     if (reorderDay) {
       reorderDay(dayId, direction);
     }
+  };
+
+  // Optional records handlers
+  const handleToggleActivityOptional = (activityId: string, isOptional: boolean) => {
+    setOptionalRecords(prev => {
+      const existingSightseeing = prev.sightseeing || [];
+      const existingIndex = existingSightseeing.findIndex(record => record.optionId === activityId);
+      
+      if (existingIndex >= 0) {
+        // Update existing record
+        const updated = [...existingSightseeing];
+        updated[existingIndex] = { ...updated[existingIndex], isOptional };
+        return { ...prev, sightseeing: updated };
+      } else {
+        // Add new record
+        const newRecord = {
+          optionId: activityId,
+          title: `Activity ${activityId}`,
+          description: 'Sightseeing activity',
+          activities: [{ name: 'Activity', duration: '2 hours', cost: 0 }],
+          isOptional
+        };
+        return { ...prev, sightseeing: [...existingSightseeing, newRecord] };
+      }
+    });
+  };
+
+  const handleToggleCityOptional = (cityId: string, isOptional: boolean) => {
+    setOptionalRecords(prev => {
+      const existingCities = prev.cities || [];
+      const existingIndex = existingCities.findIndex(record => record.city === cityId);
+      
+      if (existingIndex >= 0) {
+        // Update existing record
+        const updated = [...existingCities];
+        updated[existingIndex] = { ...updated[existingIndex], isOptional };
+        return { ...prev, cities: updated };
+      } else {
+        // Add new record
+        const newRecord = {
+          city: cityId,
+          isOptional,
+          allocation: 0,
+          nights: 0
+        };
+        return { ...prev, cities: [...existingCities, newRecord] };
+      }
+    });
+  };
+
+  const handleToggleTransportOptional = (transportId: string, isOptional: boolean) => {
+    setOptionalRecords(prev => {
+      const existingTransport = prev.transport || [];
+      const existingIndex = existingTransport.findIndex(record => record.optionId === transportId);
+      
+      if (existingIndex >= 0) {
+        // Update existing record
+        const updated = [...existingTransport];
+        updated[existingIndex] = { ...updated[existingIndex], isOptional };
+        return { ...prev, transport: updated };
+      } else {
+        // Add new record
+        const newRecord = {
+          optionId: transportId,
+          type: 'car' as const,
+          description: 'Transport option',
+          cost: 0,
+          isOptional
+        };
+        return { ...prev, transport: [...existingTransport, newRecord] };
+      }
+    });
   };
 
   // Auto-add days based on trip duration
@@ -324,6 +607,7 @@ const AdvancedProposalCreation: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* HIDDEN: Auto-add days button removed from header
             {tripDuration && days.length < tripDuration.days && (
               <Button 
                 variant="outline" 
@@ -334,6 +618,7 @@ const AdvancedProposalCreation: React.FC = () => {
                 Auto-Add {tripDuration.days - days.length} Days
               </Button>
             )}
+            */}
             <Button 
               variant="outline" 
               onClick={() => navigate('/settings/pricing')}
@@ -381,7 +666,44 @@ const AdvancedProposalCreation: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-blue-700">Destination</p>
                 <p className="text-sm text-blue-600">{query.destination.country}</p>
-                <p className="text-xs text-blue-500">{query.destination.cities.join(', ')}</p>
+                <div className="text-xs text-blue-500">
+                  {query.cityAllocations && query.cityAllocations.length > 0 
+                    ? query.cityAllocations.map((allocation: any, index: number) => {
+                        const cityName = typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || 'City';
+                        return (
+                          <span key={index} className="inline-flex items-center gap-1">
+                            <span className={allocation.isOptional ? 'opacity-60' : ''}>
+                              {cityName} {allocation.nights}N
+                            </span>
+                            {allocation.isOptional && (
+                              <Badge variant="outline" className="text-xs px-1 py-0 border-orange-300 text-orange-600 bg-orange-50">
+                                Optional
+                              </Badge>
+                            )}
+                            {index < query.cityAllocations.length - 1 && <span className="mx-1">+</span>}
+                          </span>
+                        );
+                      })
+                    : query.destination.cities.map((city: any, index: number) => {
+                        const cityName = typeof city === 'string' ? city : (city as any)?.name || (city as any)?.city || 'City';
+                        const isOptional = query.cityAllocations?.find((alloc: any) => alloc.cityId === cityName)?.isOptional || false;
+                        
+                        return (
+                          <span key={index} className="inline-flex items-center gap-1">
+                            <span className={isOptional ? 'opacity-60' : ''}>
+                              {cityName}
+                            </span>
+                            {isOptional && (
+                              <Badge variant="outline" className="text-xs px-1 py-0 border-orange-300 text-orange-600 bg-orange-50">
+                                Optional
+                              </Badge>
+                            )}
+                            {index < query.destination.cities.length - 1 && <span className="mx-1">+</span>}
+                          </span>
+                        );
+                      })
+                  }
+                </div>
               </div>
               <div>
                 <p className="text-sm font-medium text-blue-700">Travel Dates</p>
@@ -434,12 +756,17 @@ const AdvancedProposalCreation: React.FC = () => {
             onUpdateDay={handleUpdateDay}
             onRemoveDay={removeDay}
             onReorderDay={handleReorderDay}
+            onToggleActivityOptional={handleToggleActivityOptional}
+            onToggleTransportOptional={handleToggleTransportOptional}
+            onToggleCityOptional={handleToggleCityOptional}
+            optionalRecords={optionalRecords}
           />
         ) : (
           <ProposalSummaryView
             query={query}
             days={days.map(convertItineraryDayToProposalDay)}
             totalCost={totalCost}
+            optionalRecords={optionalRecords}
           />
         )}
       </div>

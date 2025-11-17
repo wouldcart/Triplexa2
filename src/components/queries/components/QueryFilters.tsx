@@ -81,7 +81,7 @@ const QueryFiltersComponent: React.FC<QueryFiltersProps> = ({
   return (
     <div className="space-y-4">
       {/* Basic Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -92,68 +92,70 @@ const QueryFiltersComponent: React.FC<QueryFiltersProps> = ({
           />
         </div>
         
-        <Select value={filters.statusFilter} onValueChange={(value) => onUpdateFilter('statusFilter', value)}>
-          <SelectTrigger className="w-[180px] bg-background border-input">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent className="bg-background border-border">
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="new">New</SelectItem>
-            <SelectItem value="assigned">Assigned</SelectItem>
-            <SelectItem value="in-progress">In Progress</SelectItem>
-            <SelectItem value="proposal-sent">Proposal Sent</SelectItem>
-            <SelectItem value="confirmed">Confirmed</SelectItem>
-            <SelectItem value="converted">Converted</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap gap-3 md:gap-4">
+          <Select value={filters.statusFilter} onValueChange={(value) => onUpdateFilter('statusFilter', value)}>
+            <SelectTrigger className="w-full md:w-[180px] bg-background border-input">
+              <SelectValue placeholder="Filter by status" />
+            </SelectTrigger>
+            <SelectContent className="bg-background border-border">
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="new">New</SelectItem>
+              <SelectItem value="assigned">Assigned</SelectItem>
+              <SelectItem value="in-progress">In Progress</SelectItem>
+              <SelectItem value="proposal-sent">Proposal Sent</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
+              <SelectItem value="converted">Converted</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
 
-        <Select value={filters.dateFilter} onValueChange={(value) => onUpdateFilter('dateFilter', value)}>
-          <SelectTrigger className="w-[150px] bg-background border-input">
-            <SelectValue placeholder="Date filter" />
-          </SelectTrigger>
-          <SelectContent className="bg-background border-border">
-            <SelectItem value="all">All Time</SelectItem>
-            <SelectItem value="today">Today</SelectItem>
-            <SelectItem value="week">This Week</SelectItem>
-            <SelectItem value="month">This Month</SelectItem>
-          </SelectContent>
-        </Select>
+          <Select value={filters.dateFilter} onValueChange={(value) => onUpdateFilter('dateFilter', value)}>
+            <SelectTrigger className="w-full md:w-[150px] bg-background border-input">
+              <SelectValue placeholder="Date filter" />
+            </SelectTrigger>
+            <SelectContent className="bg-background border-border">
+              <SelectItem value="all">All Time</SelectItem>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="week">This Week</SelectItem>
+              <SelectItem value="month">This Month</SelectItem>
+            </SelectContent>
+          </Select>
 
-        {/* Sort Order Button - Only show if function is working */}
-        {isSortFunctionWorking && (
-          <Button 
-            variant="outline" 
-            onClick={handleSortOrderToggle}
-            className="gap-2 min-w-[140px] hover:bg-accent hover:text-accent-foreground transition-colors"
-            title={`Currently showing ${sortOrder === 'newest' ? 'newest' : 'oldest'} first. Click to toggle.`}
-          >
-            <ArrowUpDown className="h-4 w-4" />
-            <span className="font-medium">
-              {sortOrder === 'newest' ? 'Newest First' : 'Oldest First'}
-            </span>
-          </Button>
-        )}
-
-        <Collapsible open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
-          <CollapsibleTrigger asChild>
-            <Button variant="outline" className="gap-2">
-              <Filter className="h-4 w-4" />
-              Advanced Filters
-              {activeFiltersCount > 0 && (
-                <Badge variant="secondary" className="ml-1">{activeFiltersCount}</Badge>
-              )}
-              <ChevronDown className={`h-4 w-4 transition-transform ${isAdvancedOpen ? 'rotate-180' : ''}`} />
+          {/* Sort Order Button - Only show if function is working */}
+          {isSortFunctionWorking && (
+            <Button 
+              variant="outline" 
+              onClick={handleSortOrderToggle}
+              className="gap-2 w-full md:w-auto min-w-[140px] hover:bg-accent hover:text-accent-foreground transition-colors"
+              title={`Currently showing ${sortOrder === 'newest' ? 'newest' : 'oldest'} first. Click to toggle.`}
+            >
+              <ArrowUpDown className="h-4 w-4" />
+              <span className="font-medium">
+                {sortOrder === 'newest' ? 'Newest First' : 'Oldest First'}
+              </span>
             </Button>
-          </CollapsibleTrigger>
-        </Collapsible>
+          )}
 
-        {activeFiltersCount > 0 && (
-          <Button variant="ghost" onClick={onClearAllFilters} className="gap-2">
-            <X className="h-4 w-4" />
-            Clear All
-          </Button>
-        )}
+          <Collapsible open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="outline" className="gap-2 w-full md:w-auto">
+                <Filter className="h-4 w-4" />
+                Advanced Filters
+                {activeFiltersCount > 0 && (
+                  <Badge variant="secondary" className="ml-1">{activeFiltersCount}</Badge>
+                )}
+                <ChevronDown className={`h-4 w-4 transition-transform ${isAdvancedOpen ? 'rotate-180' : ''}`} />
+              </Button>
+            </CollapsibleTrigger>
+          </Collapsible>
+
+          {activeFiltersCount > 0 && (
+            <Button variant="ghost" onClick={onClearAllFilters} className="gap-2 w-full md:w-auto">
+              <X className="h-4 w-4" />
+              Clear All
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Active Filters Display */}
@@ -194,7 +196,7 @@ const QueryFiltersComponent: React.FC<QueryFiltersProps> = ({
               <CardTitle className="text-sm">Advanced Filters</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Agent Filter */}
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Agents</Label>

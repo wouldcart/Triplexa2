@@ -12,6 +12,10 @@ import {
   Hotel, Car, Camera, Utensils,
   Clock, Star, ChevronRight
 } from 'lucide-react';
+import { OptionalRecords } from '@/types/optionalRecords';
+import EnhancedProposalSummary from '@/components/proposal/EnhancedProposalSummary';
+import { UniversalPDFService } from '@/services/universalPDFService';
+import { useToast } from '@/hooks/use-toast';
 
 interface ProposalPreviewProps {
   query: Query;
@@ -19,6 +23,7 @@ interface ProposalPreviewProps {
   totalCost: number;
   onSave: () => void;
   onShare: () => void;
+  optionalRecords?: OptionalRecords;
 }
 
 const ProposalPreview: React.FC<ProposalPreviewProps> = ({
@@ -26,9 +31,22 @@ const ProposalPreview: React.FC<ProposalPreviewProps> = ({
   days,
   totalCost,
   onSave,
-  onShare
+  onShare,
+  optionalRecords
 }) => {
   const [previewMode, setPreviewMode] = useState<'client' | 'internal'>('client');
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const { toast } = useToast();
+  const pdfService = new UniversalPDFService();
+
+  // Helper function to check if a country is optional (derived from its cities)
+  const isCountryOptional = (countryName: string) => {
+    if (!optionalRecords?.cities || !query?.destination.cities) return false;
+    
+    // If any city in the country is optional, consider the country optional
+    const optionalCities = optionalRecords.cities.filter((city: any) => city.isOptional);
+    return optionalCities.length > 0;
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -40,6 +58,94 @@ const ProposalPreview: React.FC<ProposalPreviewProps> = ({
   };
 
   const getTotalPax = () => query.paxDetails.adults + query.paxDetails.children;
+
+  // PDF Export function that respects optional toggles
+  const handleExportPDF = async () => {
+    setIsGeneratingPDF(true);
+    try {
+      // Filter days to only include non-optional items based on current toggle state
+      const filteredDays = days.map(day => {
+        // Filter activities, transport, and accommodations based on optional status
+        const filteredActivities = day.activities?.filter(activity => {
+          if (!optionalRecords?.activities) return true; // Include if no optional records
+          const activityOptional = optionalRecords.activities.find(opt => opt.itemId === activity.id);
+          return !activityOptional || activityOptional.isSelected !== false; // Include if not optional or if optional but selected
+        }) || [];
+
+        const filteredTransport = day.transport?.filter(transport => {
+          if (!optionalRecords?.transport) return true;
+          const transportOptional = optionalRecords.transport.find(opt => opt.itemId === transport.id);
+          return !transportOptional || transportOptional.isSelected !== false;
+        }) || [];
+
+        const filteredAccommodations = day.accommodations?.filter(accommodation => {
+          if (!optionalRecords?.accommodations) return true;
+          const accommodationOptional = optionalRecords.accommodations.find(opt => opt.itemId === accommodation.id);
+          return !accommodationOptional || accommodationOptional.isSelected !== false;
+        }) || [];
+
+        // Recalculate day total cost without optional items
+        const recalculatedTotal = [
+          ...filteredActivities.map(a => a.price || 0),
+          ...filteredTransport.map(t => t.price || 0),
+          ...filteredAccommodations.map(a => a.price || 0),
+          day.accommodation?.price || 0
+        ].reduce((sum, price) => sum + price, 0);
+
+        return {
+          ...day,
+          activities: filteredActivities,
+          transport: filteredTransport,
+          accommodations: filteredAccommodations,
+          totalCost: recalculatedTotal
+        };
+      });
+
+      // Calculate new total cost without optional items
+      const newTotalCost = filteredDays.reduce((sum, day) => sum + day.totalCost, 0);
+
+      // Create PDF data with filtered content
+      const pdfData = {
+        query,
+        days: filteredDays,
+        totalCost: newTotalCost,
+        optionalRecords,
+        generatedAt: new Date().toISOString(),
+        previewMode
+      };
+
+      // Generate PDF using the universal PDF service
+      const pdfBlob = await pdfService.generatePDF('business-proposal', pdfData, {
+        format: 'pdf',
+        compression: true
+      });
+
+      // Download the PDF
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `proposal-${query.id}-${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "PDF Generated",
+        description: "Proposal PDF exported successfully with current optional selections",
+      });
+
+    } catch (error) {
+      console.error('PDF generation failed:', error);
+      toast({
+        title: "PDF Generation Failed",
+        description: "Failed to generate PDF. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
 
   const renderDayCard = (day: ItineraryDay) => (
     <Card key={day.id} className="mb-6">
@@ -164,9 +270,14 @@ const ProposalPreview: React.FC<ProposalPreviewProps> = ({
             <Printer className="h-4 w-4 mr-1" />
             Print
           </Button>
-          <Button variant="outline" size="sm">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleExportPDF}
+            disabled={isGeneratingPDF}
+          >
             <Download className="h-4 w-4 mr-1" />
-            Export PDF
+            {isGeneratingPDF ? 'Generating...' : 'Export PDF'}
           </Button>
           <Button variant="outline" size="sm" onClick={onSave}>
             <Save className="h-4 w-4 mr-1" />
@@ -184,7 +295,14 @@ const ProposalPreview: React.FC<ProposalPreviewProps> = ({
         {/* Header */}
         <div className="text-center mb-8 pb-6 border-b">
           <h1 className="text-3xl font-bold mb-2">Travel Proposal</h1>
-          <p className="text-lg text-muted-foreground">{query.destination.country} Experience</p>
+          <p className="text-lg text-muted-foreground">
+            {query.destination.country} Experience
+            {isCountryOptional(query.destination.country) && (
+              <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 ml-2">
+                Optional Country
+              </Badge>
+            )}
+          </p>
           <div className="flex items-center justify-center gap-6 mt-4">
             <div className="flex items-center gap-1 text-sm">
               <MapPin className="h-4 w-4" />
@@ -211,7 +329,14 @@ const ProposalPreview: React.FC<ProposalPreviewProps> = ({
               <div>
                 <h4 className="font-medium mb-2">Travel Details</h4>
                 <div className="space-y-1 text-sm">
-                  <p><span className="font-medium">Destination:</span> {query.destination.country}</p>
+                  <p>
+                    <span className="font-medium">Destination:</span> {query.destination.country}
+                    {isCountryOptional(query.destination.country) && (
+                      <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 ml-1">
+                        Optional
+                      </Badge>
+                    )}
+                  </p>
                   <p><span className="font-medium">Cities:</span> {query.destination.cities.join(', ')}</p>
                   <p><span className="font-medium">Duration:</span> {query.tripDuration.days} days, {query.tripDuration.nights} nights</p>
                   <p><span className="font-medium">Dates:</span> {formatDate(query.travelDates.from)} - {formatDate(query.travelDates.to)}</p>
@@ -231,6 +356,19 @@ const ProposalPreview: React.FC<ProposalPreviewProps> = ({
             </div>
           </CardContent>
         </Card>
+
+        {/* Enhanced Proposal Summary with Optional Controls */}
+        <div className="mb-6">
+          <EnhancedProposalSummary
+            query={query}
+            accommodations={days.flatMap(day => day.accommodations || [])}
+            transportRoutes={days.flatMap(day => day.transport || [])}
+            activities={days.flatMap(day => day.activities || [])}
+            proposalId={query.id}
+            showToggleControls={true}
+            optionalRecords={optionalRecords}
+          />
+        </div>
 
         {/* Daily Itinerary */}
         <div className="mb-6">

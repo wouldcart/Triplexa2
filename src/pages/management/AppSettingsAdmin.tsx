@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +12,8 @@ import { GeneralSettings } from '@/components/settings/categories/GeneralSetting
 import { SEOSettings } from '@/components/settings/categories/SEOSettings';
 import { BrandingSettings } from '@/components/settings/categories/BrandingSettings';
 import { ContentSettings } from '@/components/settings/categories/ContentSettings';
+import { AuthenticationSettings } from '@/components/settings/categories/AuthenticationSettings';
+import { IntegrationsSettings } from '@/components/settings/categories/IntegrationsSettings';
 import AppSettingsHeader from '@/components/settings/AppSettingsHeader';
 import AppSettingsSidebar from '@/components/settings/AppSettingsSidebar';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -55,6 +58,7 @@ const AppSettingsAdmin: React.FC = () => {
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const { hasAccess, isLoading: accessLoading } = useAppSettingsAccess();
+  const [searchParams] = useSearchParams();
 
   // Load all settings
   const loadSettings = async () => {
@@ -87,6 +91,22 @@ const AppSettingsAdmin: React.FC = () => {
       loadSettings();
     }
   }, [hasAccess]);
+
+  // Handle URL parameters to auto-select tabs and sections
+  useEffect(() => {
+    const category = searchParams.get('category');
+    const section = searchParams.get('section');
+    
+    if (category && Object.values(SETTING_CATEGORIES).includes(category as any)) {
+      setActiveTab(category);
+      
+      // Store the section in a data attribute or pass it to the component
+      if (section) {
+        // This will be handled by the individual components
+        document.documentElement.setAttribute('data-settings-section', section);
+      }
+    }
+  }, [searchParams]);
 
   // Save all pending changes
   const handleSaveAll = async () => {
@@ -242,7 +262,7 @@ const AppSettingsAdmin: React.FC = () => {
           </CardHeader>
           <CardContent>
             <Tabs value={activeTab} onValueChange={(value: string) => setActiveTab(value)} className="space-y-6">
-              <TabsList className="grid w-full grid-cols-4 lg:grid-cols-7">
+              <TabsList className="grid w-full grid-cols-4 lg:grid-cols-8">
                 {[
                   SETTING_CATEGORIES.GENERAL,
                   SETTING_CATEGORIES.SEO,
@@ -251,6 +271,7 @@ const AppSettingsAdmin: React.FC = () => {
                   SETTING_CATEGORIES.AUTHENTICATION,
                   SETTING_CATEGORIES.NOTIFICATIONS,
                   SETTING_CATEGORIES.CONTENT,
+                  SETTING_CATEGORIES.INTEGRATIONS,
                 ].map((category) => {
                   const Icon = categoryIcons[category] || Settings;
                   const count = settings[category]?.length || 0;
@@ -317,29 +338,7 @@ const AppSettingsAdmin: React.FC = () => {
 
               {/* Authentication Settings */}
               <TabsContent value={SETTING_CATEGORIES.AUTHENTICATION}>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Lock className="h-5 w-5" />
-                      Authentication Settings
-                    </CardTitle>
-                    <CardDescription>
-                      Configure login methods and security settings
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-center py-12">
-                      <Lock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                      <h3 className="text-lg font-semibold mb-2">Authentication Configuration</h3>
-                      <p className="text-muted-foreground mb-4">
-                        Set up SSO, 2FA, and other authentication methods
-                      </p>
-                      <Button variant="outline">
-                        Coming Soon
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                <AuthenticationSettings />
               </TabsContent>
 
               {/* Notifications Settings */}
@@ -372,6 +371,11 @@ const AppSettingsAdmin: React.FC = () => {
               {/* Content Settings */}
               <TabsContent value={SETTING_CATEGORIES.CONTENT}>
                 <ContentSettings />
+              </TabsContent>
+
+              {/* Integrations Settings */}
+              <TabsContent value={SETTING_CATEGORIES.INTEGRATIONS}>
+                <IntegrationsSettings />
               </TabsContent>
             </Tabs>
           </CardContent>

@@ -165,6 +165,9 @@ Best regards`;
             <Share className="h-5 w-5" />
             Share Proposal
           </DialogTitle>
+          <DialogDescription>
+            Share this proposal with clients via email or generate a shareable link.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { 
   Eye, Edit, Mail, Bell, Search, Filter, 
@@ -311,6 +311,9 @@ export const EnhancedBookingsTable: React.FC = () => {
                           <DialogContent>
                             <DialogHeader>
                               <DialogTitle>Send Booking Confirmation</DialogTitle>
+                              <DialogDescription>
+                                Send a confirmation email to the customer
+                              </DialogDescription>
                             </DialogHeader>
                             <div className="space-y-4">
                               <div>

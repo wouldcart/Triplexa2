@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -37,10 +37,25 @@ const StaffAssignmentPanel: React.FC<StaffAssignmentPanelProps> = ({
     (values || []).map(v => getCountryById(v)?.name || v).filter(Boolean) as string[];
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentStaffId, setCurrentStaffId] = useState<number>(1);
+  const [storedStaffData, setStoredStaffData] = useState<any[]>([]);
   const { toast } = useToast();
   
   const { activeStaff, getAvailableStaff } = useActiveStaffData();
   const { assignQueryToStaff, findBestStaffMatch, autoAssignQueries, isAssigning } = useQueryAssignment();
+
+  // Fetch staff data from Supabase
+  useEffect(() => {
+    const fetchStaffData = async () => {
+      try {
+        const staff = await getStoredStaff();
+        setStoredStaffData(staff);
+      } catch (error) {
+        console.error('Error fetching staff data:', error);
+        setStoredStaffData([]);
+      }
+    };
+    fetchStaffData();
+  }, []);
 
   const unassignedQueries = queries.filter(q => q.status === 'new');
   const assignedQueries = queries.filter(q => 
@@ -89,8 +104,8 @@ const StaffAssignmentPanel: React.FC<StaffAssignmentPanelProps> = ({
     if (!bestMatch) return null;
 
     const reason = getAssignmentReason(bestMatch, query);
-    const storedStaffData = getStoredStaff().find(s => s.id === bestMatch.id.toString());
-    const operationalCountries = mapIdsToCountryNames(storedStaffData?.operationalCountries || []);
+    const staffData = storedStaffData.find(s => s.id === bestMatch.id.toString());
+    const operationalCountries = mapIdsToCountryNames(staffData?.operationalCountries || []);
     const hasCountryMatch = operationalCountries.includes(query.destination.country);
 
     return {
@@ -305,8 +320,8 @@ const StaffAssignmentPanel: React.FC<StaffAssignmentPanelProps> = ({
                   const workloadPercentage = (staff.assigned / staff.workloadCapacity) * 100;
                   const isOverloaded = workloadPercentage >= 90;
                   const isBusy = workloadPercentage >= 70;
-                  const storedStaffData = getStoredStaff().find(s => s.id === staff.id.toString());
-                  const operationalCountries = mapIdsToCountryNames(storedStaffData?.operationalCountries || []);
+                  const staffData = storedStaffData.find(s => s.id === staff.id.toString());
+                  const operationalCountries = mapIdsToCountryNames(staffData?.operationalCountries || []);
                   
                   return (
                     <Card key={staff.id} className={`${

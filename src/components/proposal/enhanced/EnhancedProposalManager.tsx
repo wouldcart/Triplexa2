@@ -49,10 +49,11 @@ const EnhancedProposalManager: React.FC<EnhancedProposalManagerProps> = ({ query
   });
 
   // Auto-save functionality
-  const { manualSave } = useAutoSaveProposal({
+  const { manualSave, lastSaved, saveError, isSaving } = useAutoSaveProposal({
     queryId: currentQueryId || '',
     days,
     totalCost,
+    query: query || undefined,
     enabled: true,
     showToast: false
   });
@@ -161,6 +162,15 @@ const EnhancedProposalManager: React.FC<EnhancedProposalManagerProps> = ({ query
   };
 
   const getSaveStatusText = () => {
+    if (saveError) {
+      return `Auto-save error: ${saveError}`;
+    }
+    if (isSaving) {
+      return 'Auto-saving...';
+    }
+    if (lastSaved) {
+      return `Auto-saved ${lastSaved.toLocaleTimeString()}`;
+    }
     switch (saveStatus) {
       case 'saved':
         return 'All changes saved';
@@ -168,6 +178,8 @@ const EnhancedProposalManager: React.FC<EnhancedProposalManagerProps> = ({ query
         return 'Saving...';
       case 'unsaved':
         return 'Unsaved changes';
+      default:
+        return 'Ready';
     }
   };
 

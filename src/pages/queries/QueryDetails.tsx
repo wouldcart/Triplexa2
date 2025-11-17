@@ -14,7 +14,8 @@ import BreadcrumbNav from "@/components/navigation/BreadcrumbNav";
 import ProposalActions from "@/components/queries/ProposalActions";
 import { QueryAssignmentActions } from "@/components/queries/QueryAssignmentActions";
 import { SupabaseAgentDetailsCard } from "@/components/queries/SupabaseAgentDetailsCard";
-import { getEnquiryById } from "@/services/enquiriesService";
+import { getEnquiryById, updateEnquiry } from "@/services/enquiriesService";
+import { queryWorkflowService } from "@/services/queryWorkflowService";
 import EnquiryTimeline from "@/components/queries/workflow/EnquiryTimeline";
 import EnhancedStatusBadge from "@/components/queries/status/EnhancedStatusBadge";
 import EnhancedProposalService from "@/services/enhancedProposalService";
@@ -51,6 +52,7 @@ const QueryDetails: React.FC = () => {
   });
   const [selectedModules, setSelectedModules] = useState<any[]>([]);
   const [proposalState, setProposalState] = useState<any>(null);
+  const [statusUpdating, setStatusUpdating] = useState(false);
 
   // Fetch the query from Supabase (no localStorage fallback)
   useEffect(() => {
@@ -79,6 +81,13 @@ const QueryDetails: React.FC = () => {
     })();
   }, [id]);
 
+  // Debug: Monitor query status changes
+  useEffect(() => {
+    if (query) {
+      console.log(`QueryDetails: Query status updated to "${query.status}"`);
+    }
+  }, [query?.status]);
+
   const calculatePriority = (query: Query): 'low' | 'normal' | 'high' | 'urgent' => {
     const travelDate = new Date(query.travelDates.from);
     const daysUntilTravel = Math.floor((travelDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
@@ -104,6 +113,69 @@ const QueryDetails: React.FC = () => {
   const formatDestinationCurrency = (amount: number) => {
     if (!query) return amount.toFixed(2);
     return formatCurrency(amount, query.destination.country);
+  };
+
+  const handleStatusChange = async (newStatus: string) => {
+    if (!query) return;
+    const oldStatus = query.status;
+    try {
+      setStatusUpdating(true);
+      
+      // Preserve existing required fields to avoid NOT NULL constraint violations
+      const updatePayload = {
+        status: newStatus,
+        updatedAt: new Date().toISOString(),
+        // Preserve existing travel dates to satisfy NOT NULL constraint
+        travelDates: {
+          from: query.travelDates.from,
+          to: query.travelDates.to,
+          isEstimated: query.travelDates.isEstimated
+        },
+        // Preserve other required fields that might have NOT NULL constraints
+        destination: query.destination,
+        paxDetails: query.paxDetails,
+        packageType: query.packageType,
+        tripDuration: query.tripDuration
+      };
+      
+      // Update the enquiry in Supabase
+      const { error } = await updateEnquiry(query.id, updatePayload as any);
+      
+      if (error) {
+        throw new Error(error.message || "Failed to update status");
+      }
+      
+      // Update local state
+      setQuery(prev => prev ? { ...prev, status: newStatus, updatedAt: new Date().toISOString() } : prev);
+      
+      // Record workflow event for audit trail
+      try {
+        queryWorkflowService.createStatusChangeEvent(
+          query.id,
+          'current-user',
+          'Current User',
+          'staff',
+          oldStatus,
+          newStatus
+        );
+      } catch (workflowError) {
+        console.warn('Failed to record workflow event:', workflowError);
+      }
+      
+      toast({ 
+        title: "Status Updated", 
+        description: `Enquiry status changed from ${oldStatus.replace('-', ' ')} to ${newStatus.replace('-', ' ')}` 
+      });
+    } catch (e: any) {
+      console.error('Status update error:', e);
+      toast({ 
+        title: "Update failed", 
+        description: e?.message || "Could not update status. Please try again.", 
+        variant: "destructive" 
+      });
+    } finally {
+      setStatusUpdating(false);
+    }
   };
 
   const handleViewProposalDetails = (proposalId: string) => {
@@ -250,6 +322,22 @@ const QueryDetails: React.FC = () => {
                   </div>
                 </div>
               )}
+              <div className="min-w-[180px]">
+                <Select value={query.status} onValueChange={handleStatusChange} disabled={statusUpdating}>
+                  <SelectTrigger className="bg-white/10 hover:bg-white/20 text-white border-white/20">
+                    <SelectValue placeholder="Change Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new">New</SelectItem>
+                    <SelectItem value="assigned">Assigned</SelectItem>
+                    <SelectItem value="in-progress">In Progress</SelectItem>
+                    <SelectItem value="proposal-sent">Proposal Sent</SelectItem>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="converted">Converted</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <Button size="sm" variant="secondary" asChild className="bg-white/10 hover:bg-white/20 text-white border-white/20">
                 <Link to={`/queries/edit/${encodeURIComponent(query.id)}`}>
                   <Edit className="h-4 w-4 mr-1" />
@@ -401,7 +489,7 @@ const QueryDetails: React.FC = () => {
                             // Show cities with allocated nights if allocations exist
                             query.cityAllocations.map((allocation: any, index: number) => (
                               <Badge key={index} variant="outline" className="bg-background border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300">
-                                {typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || 'City'} ({allocation.nights}N)
+                                {typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || 'City'} ({allocation.nights}N){allocation.isOptional ? ' Optional' : ''}
                               </Badge>
                             ))
                           ) : (
@@ -510,6 +598,13 @@ const QueryDetails: React.FC = () => {
                         <p className="text-amber-700 dark:text-amber-300">{query.specialRequests}</p>
                       </div>
                     )}
+                    
+                    {query.notes && (
+                      <div className="bg-indigo-50 dark:bg-indigo-900/30 p-4 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                        <div className="font-medium text-indigo-800 dark:text-indigo-200 mb-2">Additional Notes</div>
+                        <p className="text-indigo-700 dark:text-indigo-300 whitespace-pre-wrap">{query.notes}</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -530,6 +625,7 @@ const QueryDetails: React.FC = () => {
                 <ProposalActions 
                   query={query} 
                   onProposalStateChange={setProposalState}
+                  onQueryUpdate={(updatedQuery) => setQuery(updatedQuery)}
                 />
               </div>
             </div>
@@ -1277,6 +1373,8 @@ const QueryDetails: React.FC = () => {
                   <ProposalActions 
                     query={query} 
                     onProposalStateChange={setProposalState}
+                    onQueryUpdate={(updatedQuery) => setQuery(updatedQuery)}
+                    enableAutoStatusUpdate={false}
                   />
                 </div>
               </div>

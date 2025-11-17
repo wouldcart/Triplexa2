@@ -140,17 +140,8 @@ export const useInventoryData = (): InventoryData => {
         transportData = getSavedTransportData();
       }
 
-      // If no hotel data in localStorage, try to load from hotel module
+      // Use only Supabase data - no fallback to mock data
       let finalHotelData = hotelData;
-      if (hotelData.length === 0) {
-        try {
-          const hotelModule = await import('@/components/inventory/hotels/data/hotelData');
-          finalHotelData = hotelModule.mockHotels || [];
-        } catch (error) {
-          console.error("Error loading hotel data:", error);
-          finalHotelData = [];
-        }
-      }
 
       // Process sightseeing data to ensure proper typing
       const processedSightseeingData = sightseeingDataFromStorage.map(item => {

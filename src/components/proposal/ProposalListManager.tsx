@@ -286,6 +286,9 @@ const ProposalListManager: React.FC<ProposalListManagerProps> = ({
                         <DialogContent>
                           <DialogHeader>
                             <DialogTitle>Delete Proposal</DialogTitle>
+                            <DialogDescription>
+                              This action will permanently delete the proposal and cannot be undone.
+                            </DialogDescription>
                           </DialogHeader>
                           <div className="space-y-4">
                             <p>Are you sure you want to delete proposal <strong>{proposal.id}</strong>?</p>

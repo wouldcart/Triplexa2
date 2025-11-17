@@ -141,6 +141,7 @@ const EnhancedStatusBadge: React.FC<EnhancedStatusBadgeProps> = ({
           'gap-1 font-medium transition-all duration-200',
           priority && getPriorityColor(priority)
         )}
+        data-testid="query-status"
       >
         <Icon className={cn(
           size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'

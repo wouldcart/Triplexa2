@@ -5,6 +5,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,9 @@ const CountryEditSheet: React.FC<CountryEditSheetProps> = ({
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Country: {selectedCountry.name}</DialogTitle>
+          <DialogDescription>
+            Update country details and information
+          </DialogDescription>
         </DialogHeader>
         
         <div className="grid gap-4 py-4">

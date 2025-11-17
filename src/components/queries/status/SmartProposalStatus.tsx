@@ -4,6 +4,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FileText, AlertCircle, CheckCircle2, Clock, Send, Edit, RefreshCw, MessageSquare, TrendingUp, Users } from 'lucide-react';
 import { Query } from '@/types/query';
+import { useAutomatedProposalStatus } from '@/hooks/useAutomatedProposalStatus';
+import { AutomatedProposalStatusBadge } from './AutomatedProposalStatusBadge';
 interface ProposalState {
   hasProposals: boolean;
   hasDrafts: boolean;
@@ -27,6 +29,8 @@ export const SmartProposalStatus: React.FC<SmartProposalStatusProps> = ({
   onContinueDraft,
   onViewProposal
 }) => {
+  // Integrate automated proposal status
+  const { currentStatus, trackingData, isLoading: statusLoading } = useAutomatedProposalStatus(query.id);
   const getStatusMessage = () => {
     if (!proposalState.hasProposals && !proposalState.hasDrafts) {
       return {
@@ -39,9 +43,15 @@ export const SmartProposalStatus: React.FC<SmartProposalStatusProps> = ({
       };
     }
     if (proposalState.hasDrafts && !proposalState.hasProposals) {
+      // Use automated status if available, fallback to manual draft status
+      const automatedTitle = currentStatus === 'proposal-in-draft' ? 'Proposal in Draft' : 
+                           currentStatus === 'proposal-sent' ? 'Proposal Sent' :
+                           currentStatus === 'proposal-viewed' ? 'Proposal Viewed' :
+                           'Draft in Progress';
+      
       return {
-        title: "Draft in Progress",
-        description: `You have ${proposalState.draftCount} draft${proposalState.draftCount > 1 ? 's' : ''} saved. Continue working on your proposal or create a new one.`,
+        title: automatedTitle,
+        description: `You have ${proposalState.draftCount} draft${proposalState.draftCount > 1 ? 's' : ''} saved. ${currentStatus === 'proposal-in-draft' ? 'Your proposal is currently being drafted.' : 'Continue working on your proposal or create a new one.'}`,
         action: "Continue Draft",
         actionHandler: onContinueDraft,
         icon: <Edit className="h-12 w-12 text-orange-500 dark:text-orange-400" />,
@@ -115,7 +125,10 @@ export const SmartProposalStatus: React.FC<SmartProposalStatusProps> = ({
               {status.icon}
             </div>
             <div className="space-y-2 md:space-y-3">
-              <h3 className="text-lg md:text-xl font-semibold">{status.title}</h3>
+              <div className="flex items-center justify-center gap-2">
+                <h3 className="text-lg md:text-xl font-semibold">{status.title}</h3>
+                {currentStatus && <AutomatedProposalStatusBadge status={currentStatus} size="sm" />}
+              </div>
               <p className="text-sm md:text-base text-muted-foreground max-w-md px-2">{status.description}</p>
             </div>
             
@@ -148,9 +161,12 @@ export const SmartProposalStatus: React.FC<SmartProposalStatusProps> = ({
                   </span>
                 </div>
               </div>
-              {proposalState.lastProposalStatus && <Badge variant="outline" className="text-xs self-start md:ml-auto">
-                  {proposalState.lastProposalStatus.replace('-', ' ').toUpperCase()}
-                </Badge>}
+              <div className="flex items-center gap-2 md:ml-auto">
+                {currentStatus && <AutomatedProposalStatusBadge status={currentStatus} size="xs" />}
+                {proposalState.lastProposalStatus && <Badge variant="outline" className="text-xs self-start">
+                    {proposalState.lastProposalStatus.replace('-', ' ').toUpperCase()}
+                  </Badge>}
+              </div>
             </div>
           </CardContent>
         </Card>}

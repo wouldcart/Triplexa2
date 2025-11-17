@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCitiesData } from '@/hooks/useCitiesData';
 import { CityCheckboxSelector } from './CityCheckboxSelector';
+import { CityAllocation } from '@/hooks/useOptionalCities';
 
 interface CountryCitySelectorProps {
   destination: {
@@ -11,11 +12,23 @@ interface CountryCitySelectorProps {
     cities: string[];
   };
   onDestinationChange: (destination: { country: string; cities: string[] }) => void;
+  cityAllocations?: CityAllocation[];
+  onCityAllocationsChange?: (allocations: CityAllocation[]) => void;
+  isOptionalEnabled?: boolean;
+  onOptionalToggle?: (enabled: boolean) => void;
+  cityOptionalFlags?: Record<string, boolean>;
+  onCityOptionalChange?: (cityName: string, optional: boolean) => void;
 }
 
 export const CountryCitySelector: React.FC<CountryCitySelectorProps> = ({
   destination,
-  onDestinationChange
+  onDestinationChange,
+  cityAllocations,
+  onCityAllocationsChange,
+  isOptionalEnabled,
+  onOptionalToggle,
+  cityOptionalFlags,
+  onCityOptionalChange
 }) => {
   const { getActiveCountries } = useCitiesData();
   const activeCountries = getActiveCountries();
@@ -59,6 +72,12 @@ export const CountryCitySelector: React.FC<CountryCitySelectorProps> = ({
           country={destination.country}
           selectedCities={destination.cities}
           onCitiesChange={handleCitiesChange}
+          cityAllocations={cityAllocations}
+          onCityAllocationsChange={onCityAllocationsChange}
+          isOptionalEnabled={isOptionalEnabled}
+          onOptionalToggle={onOptionalToggle}
+          cityOptionalFlags={cityOptionalFlags}
+          onCityOptionalChange={onCityOptionalChange}
         />
       )}
     </div>

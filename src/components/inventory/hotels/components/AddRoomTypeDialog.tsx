@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -212,6 +213,9 @@ const AddRoomTypeDialog: React.FC<AddRoomTypeDialogProps> = ({
   // Meal plan options
   const mealPlans: MealPlan[] = [
     'Room Only',
+    'EP (European Plan)',
+    'CP (Continental Plan)',
+    'MAP (Modified American Plan)',
     'Bed & Breakfast',
     'Half Board',
     'Full Board',
@@ -223,6 +227,9 @@ const AddRoomTypeDialog: React.FC<AddRoomTypeDialogProps> = ({
       <DialogContent className="max-w-2xl max-h-[95vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Edit Room Type' : 'Add Room Type'}</DialogTitle>
+          <DialogDescription>
+            {isEditing ? 'Update room type details and pricing information.' : 'Add a new room type with details and pricing information.'}
+          </DialogDescription>
         </DialogHeader>
         
         <Form {...form}>

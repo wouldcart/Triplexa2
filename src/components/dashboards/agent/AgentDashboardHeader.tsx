@@ -28,11 +28,41 @@ const AgentDashboardHeader: React.FC = () => {
   const navigate = useNavigate();
   const { signOut } = useAuth();
   const { currentUser } = useApp();
-  const { settings } = useApplicationSettings();
+  // Use ApplicationSettings with fallback for potential context issues
+  let settings = { 
+    logo: '', 
+    darkLogo: '',
+    companyDetails: { 
+      name: 'Travel App', 
+      tagline: 'Your Travel Partner' 
+    } 
+  };
+  
+  try {
+    const { settings: appSettings } = useApplicationSettings();
+    settings = appSettings || settings;
+  } catch (error) {
+    // Fallback for when ApplicationSettingsProvider is not available
+    console.warn('ApplicationSettingsProvider not available in AgentDashboardHeader, using fallback settings');
+  }
   const { theme } = useTheme();
   // Remove local agentHeader state and effect; use context instead
   const { agentHeader, loading, error, refresh } = useAgentHeader();
   const { toast } = useToast();
+
+  // IMMEDIATE DEBUG LOG ON MOUNT
+  console.log('=== AGENT DASHBOARD HEADER MOUNTED ===', {
+    theme,
+    settings: {
+      hasLogo: !!settings.logo,
+      hasDarkLogo: !!settings.darkLogo,
+      logo: settings.logo,
+      darkLogo: settings.darkLogo
+    },
+    currentUser: !!currentUser,
+    agentHeader: !!agentHeader,
+    timestamp: new Date().toISOString()
+  });
 
   const parseStoragePublicUrl = (url?: string | null): { bucket: string; path: string } | null => {
     if (!url) return null;
@@ -99,9 +129,222 @@ const AgentDashboardHeader: React.FC = () => {
     }
   }, [error, toast]);
 
-  const currentLogo = (theme === 'dark' && settings.darkLogo ? settings.darkLogo : settings.logo) || null;
+  // Simple and direct theme detection based on document class
+  const getCurrentTheme = () => {
+    // Check if dark mode is active by looking at document class
+    const isDarkMode = document.documentElement.classList.contains('dark');
+    
+    // Always log theme detection for debugging
+    const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    console.log('=== THEME DETECTION DEBUG ===', {
+      documentHasDarkClass: isDarkMode,
+      systemPrefersDark: systemPrefersDark,
+      documentClasses: document.documentElement.className,
+      currentThemeSetting: theme,
+      result: isDarkMode ? 'dark' : 'light',
+      timestamp: new Date().toISOString(),
+      // Check if we're actually in dark mode
+      bodyClasses: document.body.className,
+      allDarkClasses: document.querySelectorAll('.dark').length,
+      systemTheme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    });
+    
+    return isDarkMode ? 'dark' : 'light';
+  };
+  
+  const [currentTheme, setCurrentTheme] = useState<'light' | 'dark'>(getCurrentTheme());
+  
+  // Update theme when it changes
+  useEffect(() => {
+    const updateTheme = () => {
+      const detectedTheme = getCurrentTheme();
+      setCurrentTheme(detectedTheme);
+      
+      // Debug log for system theme detection
+      console.log('Theme update:', {
+        themeSetting: theme,
+        detectedTheme: detectedTheme,
+        documentClasses: document.documentElement.className,
+        systemPreference: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+      });
+    };
+    
+    // Initial check
+    updateTheme();
+    
+    // For system theme, add multiple delayed checks to ensure proper detection
+    if (theme === 'system') {
+      const timeouts = [
+        setTimeout(updateTheme, 100),
+        setTimeout(updateTheme, 500),
+        setTimeout(updateTheme, 1000)
+      ];
+      
+      return () => {
+        timeouts.forEach(clearTimeout);
+      };
+    }
+    
+    // Monitor document class changes
+    const observer = new MutationObserver(updateTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+    
+    // Force update when theme context changes (especially for system theme)
+    const timeoutId = setTimeout(updateTheme, 100);
+    
+    return () => {
+      observer.disconnect();
+      clearTimeout(timeoutId);
+    };
+  }, [theme]);
+  
+  // Use the detected theme to select logo - prioritize theme-based selection over agent profile image
+  const currentLogo = (currentTheme === 'dark' && settings.darkLogo ? settings.darkLogo : settings.logo) || null;
+  
+  // DEBUG: Log logo selection logic
+  console.log('=== LOGO SELECTION CALCULATION ===', {
+    currentTheme,
+    hasDarkLogo: !!settings.darkLogo,
+    hasLightLogo: !!settings.logo,
+    darkLogoUrl: settings.darkLogo,
+    lightLogoUrl: settings.logo,
+    currentLogo: currentLogo,
+    selectionLogic: {
+      themeIsDark: currentTheme === 'dark',
+      condition1: currentTheme === 'dark',
+      condition2: !!settings.darkLogo,
+      result: currentTheme === 'dark' && settings.darkLogo ? 'DARK LOGO' : 'LIGHT LOGO'
+    }
+  });
+  
+  // Special handling for system theme - directly check what theme provider would apply
+  useEffect(() => {
+    if (theme === 'system') {
+      const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const expectedTheme = systemPrefersDark ? 'dark' : 'light';
+      
+      console.log('=== SYSTEM THEME ANALYSIS ===', {
+        systemPrefersDark,
+        expectedTheme,
+        currentDocumentClass: document.documentElement.className,
+        currentDetectedTheme: currentTheme,
+        shouldUseDarkLogo: expectedTheme === 'dark' && settings.darkLogo,
+        documentHasDarkClass: document.documentElement.classList.contains('dark'),
+        documentHasLightClass: document.documentElement.classList.contains('light'),
+        timestamp: new Date().toISOString()
+      });
+      
+      // Force the correct theme based on system preference
+      if (currentTheme !== expectedTheme) {
+        console.log('!!! FORCING THEME CORRECTION FOR SYSTEM MODE !!!', {
+          from: currentTheme,
+          to: expectedTheme
+        });
+        setCurrentTheme(expectedTheme);
+      }
+      
+      // Ensure the document has the correct class (this is the key fix)
+      const hasExpectedClass = document.documentElement.classList.contains(expectedTheme);
+      const hasWrongClass = document.documentElement.classList.contains(expectedTheme === 'dark' ? 'light' : 'dark');
+      
+      if (!hasExpectedClass || hasWrongClass) {
+        console.log('!!! CORRECTING DOCUMENT CLASSES FOR SYSTEM THEME !!!', {
+          expectedClass: expectedTheme,
+          hasExpectedClass,
+          hasWrongClass,
+          currentClasses: document.documentElement.className
+        });
+        
+        // Remove wrong class
+        if (hasWrongClass) {
+          document.documentElement.classList.remove(expectedTheme === 'dark' ? 'light' : 'dark');
+        }
+        
+        // Add correct class
+        if (!hasExpectedClass) {
+          document.documentElement.classList.add(expectedTheme);
+        }
+        
+        // Force re-detection
+        setCurrentTheme(expectedTheme);
+      }
+    }
+  }, [theme, currentTheme, settings.darkLogo]);
+  
+  // Define agentLogo before using it in the useEffect dependency array
+  const agentLogo = currentLogo || agentHeader?.profile_image;
+  
+  // Debug theme detection
+  useEffect(() => {
+    console.log('=== LOGO SELECTION DEBUG ===', {
+      currentTheme,
+      documentClass: document.documentElement.className,
+      darkLogo: settings.darkLogo,
+      lightLogo: settings.logo,
+      currentLogo: currentLogo,
+      agentHeaderProfileImage: agentHeader?.profile_image,
+      finalAgentLogo: agentLogo,
+      isDarkMode: document.documentElement.classList.contains('dark'),
+      themeContext: theme,
+      systemPreference: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+      logoSelectionLogic: {
+        themeIsDark: currentTheme === 'dark',
+        hasDarkLogo: !!settings.darkLogo,
+        hasLightLogo: !!settings.logo,
+        shouldUseDarkLogo: currentTheme === 'dark' && settings.darkLogo,
+        finalSelection: currentTheme === 'dark' && settings.darkLogo ? 'DARK LOGO' : 'LIGHT LOGO'
+      }
+    });
+  }, [currentTheme, settings, currentLogo, agentLogo, theme, agentHeader?.profile_image]);
+  
+  // Force theme check on mount and periodically
+  useEffect(() => {
+    const forceThemeCheck = () => {
+      const detectedTheme = getCurrentTheme();
+      setCurrentTheme(detectedTheme);
+      
+      // Special debug for system theme
+      if (theme === 'system') {
+        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        console.log('=== FORCE THEME CHECK (SYSTEM) ===', {
+          detectedTheme,
+          systemPrefersDark,
+          documentClasses: document.documentElement.className,
+          expectedClass: systemPrefersDark ? 'dark' : 'light',
+          shouldBeDark: systemPrefersDark,
+          currentLogo: systemPrefersDark && settings.darkLogo ? 'DARK LOGO' : 'LIGHT LOGO'
+        });
+        
+        // Force correct theme for system mode
+        const correctTheme = systemPrefersDark ? 'dark' : 'light';
+        if (detectedTheme !== correctTheme) {
+          console.log('!!! SYSTEM THEME MISMATCH - CORRECTING !!!', {
+            detected: detectedTheme,
+            correct: correctTheme
+          });
+          setCurrentTheme(correctTheme);
+        }
+      }
+    };
+    
+    // Check immediately
+    forceThemeCheck();
+    
+    // Check again after a delay to ensure everything is loaded
+    const timeoutId = setTimeout(forceThemeCheck, 500);
+    
+    // Check periodically while component is mounted
+    const intervalId = setInterval(forceThemeCheck, 1000);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      clearInterval(intervalId);
+    };
+  }, []);
   const companyName = (agentHeader?.agency_name?.trim() || currentUser?.companyInfo?.companyName?.trim() || settings?.companyDetails?.name?.trim() || '—');
-  const agentLogo = agentHeader?.profile_image || currentLogo;
   
   useEffect(() => {
     setLogoUrl(agentLogo || null);
@@ -180,23 +423,37 @@ const AgentDashboardHeader: React.FC = () => {
         {/* Left: Logo and Company */}
         <div className="flex items-center gap-3">
           {logoUrl || agentLogo ? (
-            <img
-              src={logoUrl || agentLogo || ''}
-              alt="Company Logo"
-              className="h-8 w-8 object-contain rounded-full bg-white p-1 border cursor-pointer"
-              onClick={() => navigate('/dashboards/agent')}
-              onError={async () => {
-                if (!agentLogo) return;
-                const parsed = parseStoragePublicUrl(agentLogo);
-                if (!parsed) return;
-                const { data } = await supabase.storage
-                  .from(parsed.bucket)
-                  .createSignedUrl(parsed.path, 60 * 60);
-                if (data?.signedUrl) {
-                  setLogoUrl(data.signedUrl);
-                }
-              }}
-            />
+            <div className="relative">
+              <img
+                src={logoUrl || agentLogo || ''}
+                alt="Company Logo"
+                className="h-8 w-8 object-contain rounded-full bg-white p-1 border cursor-pointer"
+                onClick={() => navigate('/dashboards/agent')}
+                onError={async () => {
+                  if (!agentLogo) return;
+                  const parsed = parseStoragePublicUrl(agentLogo);
+                  if (!parsed) return;
+                  const { data } = await supabase.storage
+                    .from(parsed.bucket)
+                    .createSignedUrl(parsed.path, 60 * 60);
+                  if (data?.signedUrl) {
+                    setLogoUrl(data.signedUrl);
+                  }
+                }}
+              />
+              {/* Debug indicator - remove after testing */}
+              <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full text-xs flex items-center justify-center text-white font-bold border border-white" 
+                   style={{ backgroundColor: currentTheme === 'dark' ? '#ef4444' : '#22c55e', 
+                            fontSize: '10px' }}>
+                {currentTheme === 'dark' ? 'D' : 'L'}
+              </div>
+              {/* System theme indicator */}
+              {theme === 'system' && (
+                <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center border border-white">
+                  S
+                </div>
+              )}
+            </div>
           ) : (
             <div
               className="h-8 w-8 bg-blue-500 rounded-md flex items-center justify-center cursor-pointer"

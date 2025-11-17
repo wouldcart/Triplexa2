@@ -1,9 +1,9 @@
 
 import { useMemo } from 'react';
 import { Query } from '@/types/query';
-import { mockHotels } from '@/components/inventory/hotels/data/hotelData';
 import { transportRoutes } from '@/pages/inventory/transport/data/transportData';
 import { sightseeingData } from '@/pages/inventory/sightseeing/data/initialData';
+import { useHotelCrud } from '@/components/inventory/hotels/hooks/useHotelCrud';
 
 export interface SmartSuggestion {
   id: string;
@@ -34,6 +34,9 @@ export interface DayTemplate {
 }
 
 export const useSmartSuggestions = (query: Query, selectedDay?: number) => {
+  // Use hotel CRUD to get actual hotels from Supabase
+  const { hotels: supabaseHotels } = useHotelCrud();
+  
   // Analyze traveler profile
   const travelerProfile = useMemo(() => {
     const totalPax = query.paxDetails.adults + query.paxDetails.children;
@@ -212,8 +215,37 @@ export const useSmartSuggestions = (query: Query, selectedDay?: number) => {
       .slice(0, 5);
   };
 
+  // Generate accommodation suggestions based on context
+  const accommodationSuggestions = useMemo(() => {
+    return supabaseHotels
+      .filter(hotel => 
+        query.destination.cities.some(city =>
+          hotel.city && city && 
+          hotel.city.toLowerCase().includes(city.toLowerCase())
+        )
+      )
+      .map(hotel => ({
+        id: `hotel_${hotel.id}`,
+        type: 'accommodation' as const,
+        category: 'full-day' as const,
+        name: hotel.name || 'Unnamed Hotel',
+        description: hotel.description || `Stay at ${hotel.name || 'hotel'} in ${hotel.city || 'destination'}`,
+        duration: 'Overnight',
+        price: hotel.minRate || 100,
+        location: hotel.city || '',
+        timeSlot: 'Flexible',
+        popularity: hotel.rating ? hotel.rating * 10 : 75,
+        seasonalScore: 80,
+        budgetFit: Math.max(0, 100 - Math.abs((hotel.minRate || 100) - travelerProfile.budgetPerPax) / travelerProfile.budgetPerPax * 100),
+        travelerTypeScore: 70,
+        data: hotel
+      }))
+      .slice(0, 5);
+  }, [supabaseHotels, query.destination.cities, travelerProfile.budgetPerPax]);
+
   return {
     activitySuggestions: activitySuggestions.slice(0, 10),
+    accommodationSuggestions,
     dayTemplates,
     getTimeSlotSuggestions,
     travelerProfile,

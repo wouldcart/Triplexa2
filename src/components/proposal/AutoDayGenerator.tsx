@@ -81,6 +81,7 @@ export const AutoDayGenerator: React.FC<AutoDayGeneratorProps> = ({
       
       {/* {renderCompleteMessage()} */}
       
+      {/* HIDDEN: Quick Day Generator card and auto-add functionality
       <Card className="hidden bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-purple-800">
@@ -140,6 +141,7 @@ export const AutoDayGenerator: React.FC<AutoDayGeneratorProps> = ({
           )}
         </CardContent>
       </Card>
+      */}
     </div>
   );
 };

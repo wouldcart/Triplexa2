@@ -46,6 +46,11 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
   const [specialRequests, setSpecialRequests] = useState<string[]>([]);
   const [currentRequest, setCurrentRequest] = useState('');
   const [destination, setDestination] = useState<{ country: string; cities: string[] }>({ country: '', cities: [] });
+  const [cityOptionalFlags, setCityOptionalFlags] = useState<Record<string, boolean>>({});
+  const [existingCityAllocations, setExistingCityAllocations] = useState<any[]>([]);
+  const [currentAgentDetails, setCurrentAgentDetails] = useState<any>(null);
+  const [selectedEmail, setSelectedEmail] = useState('');
+  const [selectedPhone, setSelectedPhone] = useState('');
 
   const {
     register,
@@ -65,6 +70,42 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
       loadEnquiryData(enquiryId);
     }
   }, [mode, enquiryId]);
+
+  // Load agent details when selected agent or communication preference changes
+  useEffect(() => {
+    const selectedAgentId = watch('agentId');
+    const communicationPreference = watch('communicationPreference');
+    
+    if (selectedAgentId && supabaseAgents.length > 0) {
+      const numericAgentId = Number.parseInt(selectedAgentId);
+      const supabaseAgent = supabaseAgents.find(a => toNumericAgentId(a.id) === numericAgentId);
+      if (supabaseAgent) {
+        // Parse alternate emails and mobile numbers from the agent data
+        const alternateEmails = supabaseAgent.alternate_email ? 
+          supabaseAgent.alternate_email.split(',').map(email => email.trim()).filter(Boolean) : [];
+        const mobileNumbers = supabaseAgent.mobile_numbers ? 
+          supabaseAgent.mobile_numbers.split(',').map(phone => phone.trim()).filter(Boolean) : [];
+        
+        // Get agent details based on communication preference
+        const agentDetails = {
+          name: supabaseAgent.name,
+          email: supabaseAgent.email,
+          phone: supabaseAgent.phone,
+          agencyName: supabaseAgent.agencyName,
+          country: supabaseAgent.country,
+          city: supabaseAgent.city,
+          profileImage: supabaseAgent.profile_image,
+          alternateEmails,
+          mobileNumbers
+        };
+        setCurrentAgentDetails(agentDetails);
+        
+        // Set default selected contacts
+        setSelectedEmail(supabaseAgent.email || '');
+        setSelectedPhone(supabaseAgent.phone || '');
+      }
+    }
+  }, [watch('agentId'), supabaseAgents, watch('communicationPreference')]);
 
   const loadEnquiryData = async (id: string) => {
     try {
@@ -96,6 +137,16 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
             country: enquiry.destination.country || '',
             cities: enquiry.destination.cities || []
           });
+        }
+
+        if (Array.isArray(enquiry.cityAllocations)) {
+          setExistingCityAllocations(enquiry.cityAllocations as any[]);
+          const flags: Record<string, boolean> = {};
+          (enquiry.cityAllocations as any[]).forEach((alloc: any) => {
+            const cityName = typeof alloc.city === 'string' ? alloc.city : String(alloc.city);
+            flags[cityName] = !!alloc.isOptional;
+          });
+          setCityOptionalFlags(flags);
         }
         
         // Set select values manually as reset doesn't always work with selects
@@ -216,7 +267,22 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
           sightseeing: true,
           transfers: 'airport',
           mealPlan: 'breakfast'
-        }
+        },
+        cityAllocations: (() => {
+          const byCity = new Map<string, any>();
+          existingCityAllocations.forEach((a: any) => {
+            const key = typeof a.city === 'string' ? a.city : String(a.city);
+            byCity.set(key, a);
+          });
+          const merged: any[] = [];
+          destination.cities.forEach((city) => {
+            const key = city;
+            const alloc = byCity.get(key) || { id: key, city: key, nights: 0, isOptional: false, estimatedCost: 0 };
+            const opt = !!cityOptionalFlags[key];
+            merged.push({ ...alloc, isOptional: opt });
+          });
+          return merged;
+        })()
       };
 
       // Persist to Supabase (create or update)
@@ -249,6 +315,10 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCityOptionalChange = (cityName: string, optional: boolean) => {
+    setCityOptionalFlags(prev => ({ ...prev, [cityName]: optional }));
   };
 
   const handleCitiesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -437,6 +507,8 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
                    <CountryCitySelector
                      destination={destination}
                      onDestinationChange={setDestination}
+                     cityOptionalFlags={cityOptionalFlags}
+                     onCityOptionalChange={handleCityOptionalChange}
                    />
                  </CardContent>
               </Card>
@@ -639,6 +711,9 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
                         <SelectValue placeholder="Select meal plan" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="ep">EP (European Plan) - No meals</SelectItem>
+                        <SelectItem value="cp">CP (Continental Plan) - Breakfast only</SelectItem>
+                        <SelectItem value="map">MAP (Modified American Plan) - Breakfast &amp; Lunch/Dinner</SelectItem>
                         <SelectItem value="breakfast">Breakfast</SelectItem>
                         <SelectItem value="half-board">Half Board</SelectItem>
                         <SelectItem value="full-board">Full Board</SelectItem>
@@ -701,6 +776,112 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ mode, enquiryId, onSave }) =>
                       </SelectContent>
                     </Select>
                   </div>
+
+                  {/* Agent Details Display */}
+                  {currentAgentDetails && (
+                    <div className="space-y-3 p-4 bg-muted rounded-lg">
+                      <div className="flex items-center gap-3">
+                        {currentAgentDetails.profileImage && (
+                          <img 
+                            src={currentAgentDetails.profileImage} 
+                            alt={currentAgentDetails.name}
+                            className="w-12 h-12 rounded-full object-cover"
+                          />
+                        )}
+                        <div>
+                          <h4 className="font-medium">{currentAgentDetails.name}</h4>
+                          {currentAgentDetails.agencyName && (
+                            <p className="text-sm text-muted-foreground">{currentAgentDetails.agencyName}</p>
+                          )}
+                          {currentAgentDetails.city && currentAgentDetails.country && (
+                            <p className="text-sm text-muted-foreground">
+                              {currentAgentDetails.city}, {currentAgentDetails.country}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-3 pt-2 border-t">
+                        {/* Email Communication */}
+                        {watch('communicationPreference') === 'email' && (
+                          <div className="space-y-2">
+                            {currentAgentDetails.alternateEmails && currentAgentDetails.alternateEmails.length > 0 ? (
+                              <div>
+                                <Label className="text-sm font-medium">Select Email:</Label>
+                                <Select value={selectedEmail} onValueChange={setSelectedEmail}>
+                                  <SelectTrigger className="text-sm">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {currentAgentDetails.email && (
+                                      <SelectItem value={currentAgentDetails.email}>{currentAgentDetails.email} (Primary)</SelectItem>
+                                    )}
+                                    {currentAgentDetails.alternateEmails.map((email: string, index: number) => (
+                                      <SelectItem key={index} value={email}>{email} (Alternate)</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            ) : (
+                              currentAgentDetails.email && (
+                                <div>
+                                  <span className="text-sm font-medium">Email: </span>
+                                  <span className="text-sm text-muted-foreground">{currentAgentDetails.email}</span>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+
+                        {/* Phone/WhatsApp Communication */}
+                        {(watch('communicationPreference') === 'phone' || watch('communicationPreference') === 'whatsapp') && (
+                          <div className="space-y-2">
+                            {currentAgentDetails.mobileNumbers && currentAgentDetails.mobileNumbers.length > 0 ? (
+                              <div>
+                                <Label className="text-sm font-medium">
+                                  Select {watch('communicationPreference') === 'whatsapp' ? 'WhatsApp' : 'Phone'}:
+                                  <span className="ml-2 inline-flex items-center">
+                                    <svg className="w-3 h-3 text-green-500 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                                      <circle cx="10" cy="10" r="3"/>
+                                    </svg>
+                                    <span className="text-xs text-green-500 ml-1">Live</span>
+                                  </span>
+                                </Label>
+                                <Select value={selectedPhone} onValueChange={setSelectedPhone}>
+                                  <SelectTrigger className="text-sm">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {currentAgentDetails.phone && (
+                                      <SelectItem value={currentAgentDetails.phone}>{currentAgentDetails.phone} (Primary)</SelectItem>
+                                    )}
+                                    {currentAgentDetails.mobileNumbers.map((phone: string, index: number) => (
+                                      <SelectItem key={index} value={phone}>{phone} (Mobile)</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            ) : (
+                              currentAgentDetails.phone && (
+                                <div>
+                                  <span className="text-sm font-medium">
+                                    {watch('communicationPreference') === 'whatsapp' ? 'WhatsApp: ' : 'Phone: '}
+                                    <span className="ml-2 inline-flex items-center">
+                                      <svg className="w-3 h-3 text-green-500 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                                        <circle cx="10" cy="10" r="3"/>
+                                      </svg>
+                                      <span className="text-xs text-green-500 ml-1">Live</span>
+                                    </span>
+                                  </span>
+                                  <span className="text-sm text-muted-foreground">{currentAgentDetails.phone}</span>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

@@ -221,6 +221,9 @@ const RoomTypeForm: React.FC<RoomTypeFormProps> = ({ hotelId, roomTypeId, onCanc
   // Meal plan options
   const mealPlans: MealPlan[] = [
     'Room Only',
+    'EP (European Plan)',
+    'CP (Continental Plan)',
+    'MAP (Modified American Plan)',
     'Bed & Breakfast',
     'Half Board',
     'Full Board',

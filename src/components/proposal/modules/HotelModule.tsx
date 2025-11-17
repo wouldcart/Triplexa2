@@ -8,6 +8,7 @@ import { Query } from '@/types/query';
 import { formatCurrency } from '@/lib/formatters';
 import { formatPriceForCountry } from '@/pages/inventory/transport/utils/currencyUtils';
 import { Hotel, Star, Users, Calendar, MapPin, Plus, Edit, Lightbulb } from 'lucide-react';
+import { useHotelCrud } from '@/components/inventory/hotels/hooks/useHotelCrud';
 
 interface HotelData {
   id: string;
@@ -48,6 +49,8 @@ const HotelModule: React.FC<HotelModuleProps> = ({
   selectedModules, 
   onUpdatePricing 
 }) => {
+  // Use hotel CRUD to get actual hotels from Supabase
+  const { hotels: supabaseHotels } = useHotelCrud();
   const [hotels, setHotels] = useState<HotelData[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>('');
   const [selectedHotel, setSelectedHotel] = useState<string>('');
@@ -77,81 +80,33 @@ const HotelModule: React.FC<HotelModuleProps> = ({
   }, [selectedHotel]);
 
   const loadHotelsForCity = (city: string) => {
-    // Mock hotel data based on city
-    const mockHotels: HotelData[] = [
-      {
-        id: '1',
-        name: 'Grand Palace Hotel',
-        city: city,
-        country: query.destination.country,
-        starRating: 5,
-        category: 'Luxury',
-        address: `123 Main Street, ${city}`,
-        amenities: ['Pool', 'Spa', 'Restaurant', 'Gym', 'WiFi', 'Airport Transfer'],
-        images: ['/placeholder.svg'],
-        roomTypes: [
-          {
-            id: 'r1',
-            name: 'Deluxe Room',
-            capacity: 2,
-            bedConfiguration: '1 King Bed',
-            price: 3500,
-            currency: 'THB',
-            amenities: ['AC', 'Mini Bar', 'Balcony', 'City View'],
-            images: ['/placeholder.svg'],
-            availability: true
-          },
-          {
-            id: 'r2',
-            name: 'Suite',
-            capacity: 4,
-            bedConfiguration: '1 King + 1 Sofa Bed',
-            price: 5500,
-            currency: 'THB',
-            amenities: ['AC', 'Mini Bar', 'Living Area', 'Sea View'],
-            images: ['/placeholder.svg'],
-            availability: true
-          }
-        ]
-      },
-      {
-        id: '2',
-        name: 'Boutique Resort',
-        city: city,
-        country: query.destination.country,
-        starRating: 4,
-        category: 'Boutique',
-        address: `456 Beach Road, ${city}`,
-        amenities: ['Pool', 'Restaurant', 'Beach Access', 'WiFi'],
-        images: ['/placeholder.svg'],
-        roomTypes: [
-          {
-            id: 'r3',
-            name: 'Garden View',
-            capacity: 2,
-            bedConfiguration: '2 Twin Beds',
-            price: 2800,
-            currency: 'THB',
-            amenities: ['AC', 'Garden View', 'Balcony'],
-            images: ['/placeholder.svg'],
-            availability: true
-          },
-          {
-            id: 'r4',
-            name: 'Ocean View',
-            capacity: 3,
-            bedConfiguration: '1 King + 1 Single',
-            price: 3800,
-            currency: 'THB',
-            amenities: ['AC', 'Ocean View', 'Large Balcony'],
-            images: ['/placeholder.svg'],
-            availability: true
-          }
-        ]
-      }
-    ];
+    // Filter Supabase hotels by city instead of using mock data
+    const cityHotels = supabaseHotels
+      .filter(hotel => hotel.city && hotel.city.toLowerCase().includes(city.toLowerCase()))
+      .map(hotel => ({
+        id: hotel.id,
+        name: hotel.name,
+        city: hotel.city,
+        country: hotel.country || query.destination.country,
+        starRating: hotel.starRating || 4,
+        category: hotel.category || 'Standard',
+        address: hotel.address || `${hotel.city || city}`,
+        amenities: hotel.amenities || ['WiFi', 'AC'],
+        images: hotel.images || ['/placeholder.svg'],
+        roomTypes: hotel.roomTypes || [{
+          id: 'default',
+          name: 'Standard Room',
+          capacity: 2,
+          bedConfiguration: '1 King Bed',
+          price: hotel.minRate || 2000,
+          currency: hotel.currency || 'THB',
+          amenities: ['AC', 'WiFi'],
+          images: ['/placeholder.svg'],
+          availability: true
+        }]
+      }));
 
-    setHotels(mockHotels);
+    setHotels(cityHotels);
   };
 
   const loadSimilarHotels = (hotelId: string) => {

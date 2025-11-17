@@ -26,9 +26,47 @@ if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
+// Enhanced storage handling with permission checks
+const createStorageAdapter = () => {
+  try {
+    // Test if localStorage is available and accessible
+    const testKey = '__supabase_test__';
+    localStorage.setItem(testKey, 'test');
+    localStorage.removeItem(testKey);
+    
+    // If we get here, localStorage is available
+    return localStorage;
+  } catch (error) {
+    console.warn('localStorage not available, falling back to sessionStorage:', error);
+    
+    try {
+      // Try sessionStorage as fallback
+      const testKey = '__supabase_test__';
+      sessionStorage.setItem(testKey, 'test');
+      sessionStorage.removeItem(testKey);
+      return sessionStorage;
+    } catch (sessionError) {
+      console.warn('sessionStorage also not available, using memory storage:', sessionError);
+      
+      // Create a simple memory storage fallback
+      const memoryStorage = new Map();
+      return {
+        getItem: (key: string) => memoryStorage.get(key) || null,
+        setItem: (key: string, value: string) => memoryStorage.set(key, value),
+        removeItem: (key: string) => memoryStorage.delete(key),
+        clear: () => memoryStorage.clear(),
+        key: (index: number) => Array.from(memoryStorage.keys())[index] || null,
+        get length() { return memoryStorage.size; }
+      };
+    }
+  }
+};
+
+const storageAdapter = createStorageAdapter();
+
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: localStorage,
+    storage: storageAdapter,
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
@@ -88,20 +126,31 @@ export const authHelpers = {
   // Sign out user
   signOut: async () => {
     try {
-      // Clear local session first
-      localStorage.removeItem('sb-xzofytokwszfwiupsdvi-auth-token');
+      // Clear session storage safely with permission handling
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          localStorage.removeItem('sb-xzofytokwszfwiupsdvi-auth-token');
+        }
+      } catch (storageError) {
+        console.warn('Could not clear localStorage during signout:', storageError);
+      }
       
       const { error } = await supabase.auth.signOut();
       if (error) {
         console.error('Supabase signOut error:', error);
-        // Even if there's an error, we've cleared local storage
         return { error: null };
       }
       return { error: null };
     } catch (err) {
       console.error('SignOut catch error:', err);
-      // Clear local storage even on error
-      localStorage.removeItem('sb-xzofytokwszfwiupsdvi-auth-token');
+      // Try to clear storage even on error, but handle permission issues
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          localStorage.removeItem('sb-xzofytokwszfwiupsdvi-auth-token');
+        }
+      } catch (storageError) {
+        console.warn('Could not clear localStorage during error handling:', storageError);
+      }
       return { error: null };
     }
   },
@@ -142,5 +191,46 @@ export const authHelpers = {
       }
     });
     return { data, error };
+  },
+
+  // Sign in with Google OAuth
+  signInWithGoogle: async (role: string = 'agent') => {
+    try {
+      console.log('🚀 Initiating Google OAuth with redirect to:', `${window.location.origin}/login`);
+      console.log('📍 Supabase URL:', import.meta.env.VITE_SUPABASE_URL);
+      console.log('🎯 Role for Google OAuth user:', role);
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/login`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+          // Store role in metadata so it can be accessed during profile creation
+          data: {
+            role: role
+          }
+        }
+      });
+      
+      console.log('📊 OAuth response:', { data, error });
+      
+      if (error) {
+        console.error('❌ OAuth error:', error);
+        // Check if it's a configuration error
+        if (error.message?.includes('provider') || error.message?.includes('oauth')) {
+          console.error('🔧 Google OAuth may not be configured in Supabase dashboard');
+        }
+      } else {
+        console.log('✅ OAuth initiated successfully, data:', data);
+      }
+      
+      return { data, error };
+    } catch (err) {
+      console.error('🚨 Exception in signInWithGoogle:', err);
+      return { data: null, error: err as any };
+    }
   }
 };

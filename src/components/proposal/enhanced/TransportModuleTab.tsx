@@ -102,6 +102,7 @@ const TransportModuleTab: React.FC<TransportModuleTabProps> = ({
   const [transportTypeSelections, setTransportTypeSelections] = useState<Record<string, boolean>>({});
   const [sightseeingSelections, setSightseeingSelections] = useState<Record<string, boolean>>({});
   const [transportTypePricing, setTransportTypePricing] = useState<Record<string, number>>({});
+  const [optionalSelections, setOptionalSelections] = useState<Record<string, boolean>>({});
 
   console.log('TransportModuleTab rendering with:', {
     country,
@@ -219,6 +220,8 @@ const TransportModuleTab: React.FC<TransportModuleTabProps> = ({
     const basePrice = transportType?.price || route.pricing?.pricePerPerson || route.price || 50;
     const routeName = route.name || `${route.startLocation || route.from} - ${route.endLocation || route.to}`;
     const vehicleType = transportType?.type || route.vehicleType || route.transferType || 'Private';
+    const selectionKey = `${route.id}_${transportType?.id || 'default'}`;
+    const isOptional = optionalSelections[selectionKey] || false;
     
     const module = {
       id: `transport_${route.id}_${transportType?.id || 'default'}_${Date.now()}`,
@@ -233,7 +236,8 @@ const TransportModuleTab: React.FC<TransportModuleTabProps> = ({
         vehicleType,
         duration: transportType?.duration || route.duration,
         seatingCapacity: transportType?.seatingCapacity,
-        distance: route.distance
+        distance: route.distance,
+        isOptional // Include optional flag
       },
       pricing: {
         basePrice,
@@ -333,6 +337,38 @@ const TransportModuleTab: React.FC<TransportModuleTabProps> = ({
           {(transportType.description || transportType.notes) && (
             <p className="text-xs text-muted-foreground">{transportType.description || transportType.notes}</p>
           )}
+          
+          {/* Optional Toggle */}
+          <div className="flex items-center justify-between mt-3 pt-3 border-t">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-600 dark:text-gray-400">Optional</span>
+              <button
+                onClick={() => {
+                  const selectionKey = `${route.id}_${transportType.id}`;
+                  setOptionalSelections(prev => ({
+                    ...prev,
+                    [selectionKey]: !prev[selectionKey]
+                  }));
+                }}
+                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+                  optionalSelections[`${route.id}_${transportType.id}`] 
+                    ? 'bg-blue-600' 
+                    : 'bg-gray-200 dark:bg-gray-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
+                    optionalSelections[`${route.id}_${transportType.id}`] ? 'translate-x-3.5' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+            {optionalSelections[`${route.id}_${transportType.id}`] && (
+              <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                Optional
+              </Badge>
+            )}
+          </div>
           
           {isSelected && (
             <div className="mt-3 pt-3 border-t">

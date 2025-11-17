@@ -32,12 +32,13 @@ const EnhancedProposalManager: React.FC<EnhancedProposalManagerProps> = () => {
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
   
   // Auto-save functionality  
-  const { manualSave } = useAutoSaveProposal({
+  const { manualSave, lastSaved, saveError, isSaving } = useAutoSaveProposal({
     queryId: id || '',
     days: proposalData?.days || [],
     totalCost: proposalData?.totalCost || 0,
+    query: query || undefined,
     enabled: true,
-    debounceMs: 2000,
+    debounceMs: 5000, // Increased from 2000ms to 5000ms for better typing experience
     showToast: false
   });
 

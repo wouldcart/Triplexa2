@@ -22,6 +22,7 @@ import {
 import { GeneralSettings as GeneralSettingsComponent } from '@/components/settings/categories/GeneralSettings';
 import { SEOSettings } from '@/components/settings/categories/SEOSettings';
 import { BrandingSettings } from '@/components/settings/categories/BrandingSettings';
+import { MetaWhatsAppSettings } from '@/components/settings/categories/MetaWhatsAppSettings';
 // Note: These components may need to be created if they don't exist
 // import { SecuritySettings } from '@/components/settings/SecuritySettings';
 // import { NotificationSettings } from '@/components/settings/NotificationSettings';

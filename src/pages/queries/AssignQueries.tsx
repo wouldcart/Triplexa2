@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { AlertCircle, ArrowRightLeft, CheckCircle, UserRound, User, MapPin, Clock, Star, TrendingUp, Award, ArrowLeft } from 'lucide-react';
 import { useEnquiries, getEnquiryById } from '@/services/enquiriesService';
 import { useToast } from '@/hooks/use-toast';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useQueryAssignment } from '@/hooks/useQueryAssignment';
@@ -467,6 +467,9 @@ const AssignQueries: React.FC = () => {
               <User className="h-5 w-5" />
               {assigningQuery?.status === 'new' ? 'Assign Query' : 'Reassign Query'} {assigningQuery?.id}
             </DialogTitle>
+            <DialogDescription>
+              Assign this query to the most suitable agent based on expertise and availability
+            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-6 py-4">
@@ -822,6 +825,9 @@ const AssignQueries: React.FC = () => {
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Edit Assignment Rules</DialogTitle>
+            <DialogDescription>
+              Configure rules for automatic query assignment based on various criteria
+            </DialogDescription>
           </DialogHeader>
           <AssignmentRulesEditor onClose={() => setEditRulesDialogOpen(false)} />
         </DialogContent>

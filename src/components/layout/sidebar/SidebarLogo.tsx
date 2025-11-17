@@ -1,10 +1,10 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useApplicationSettings } from '@/contexts/ApplicationSettingsContext';
 import { useTheme } from 'next-themes';
-import { X } from 'lucide-react';
+import { X, Image as ImageIcon } from 'lucide-react';
 
 interface SidebarLogoProps {
   sidebarOpen: boolean;
@@ -26,10 +26,26 @@ const SidebarLogo: React.FC<SidebarLogoProps> = ({ sidebarOpen, isMobile, onClos
       companyDetails: { name: 'TripOex' }
     };
   }
-  const { theme } = useTheme();
+  const { theme, systemTheme } = useTheme();
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [currentLogoUrl, setCurrentLogoUrl] = useState<string | null>(null);
 
-  // Determine which logo to show based on theme
-  const currentLogo = theme === 'dark' && settings.darkLogo ? settings.darkLogo : settings.logo;
+  // Determine which logo to show based on theme with system theme support
+  const currentTheme = theme === 'system' ? (systemTheme || 'light') : theme;
+  const shouldShowDarkLogo = currentTheme === 'dark' && settings.darkLogo;
+  const activeLogo = shouldShowDarkLogo ? settings.darkLogo : settings.logo;
+
+  // Handle smooth logo transitions
+  useEffect(() => {
+    if (activeLogo !== currentLogoUrl) {
+      setIsTransitioning(true);
+      const timer = setTimeout(() => {
+        setCurrentLogoUrl(activeLogo);
+        setIsTransitioning(false);
+      }, 150); // Smooth transition delay
+      return () => clearTimeout(timer);
+    }
+  }, [activeLogo, currentLogoUrl]);
 
   const getLogoSizeClasses = () => {
     switch (settings.logoSize) {
@@ -55,44 +71,64 @@ const SidebarLogo: React.FC<SidebarLogoProps> = ({ sidebarOpen, isMobile, onClos
 
   return (
     <div className={cn(
-      "h-16 flex items-center justify-between border-b border-gray-200 dark:border-gray-700",
+      "h-16 flex items-center justify-between border-b border-gray-200 dark:border-gray-700 transition-colors duration-300",
       sidebarOpen ? "px-4" : "px-2 justify-center"
     )}>
       <div className={cn(
-        "flex items-center justify-center w-full",
+        "flex items-center justify-center w-full transition-all duration-300 ease-in-out",
         sidebarOpen ? "justify-start space-x-3" : "justify-center"
       )}>
-        {currentLogo ? (
-          <div className={`${getLogoSizeClasses()} flex items-center justify-center flex-shrink-0 mx-auto`}>
+        {/* Logo Container with Smooth Transitions */}
+        <div className={cn(
+          `${getLogoSizeClasses()} flex items-center justify-center flex-shrink-0 mx-auto transition-all duration-300 ease-in-out`,
+          isTransitioning ? "opacity-50 scale-95" : "opacity-100 scale-100"
+        )}>
+          {currentLogoUrl ? (
             <img 
-              src={currentLogo} 
-              alt={settings.companyDetails.name}
-              className={`logo-image ${getImageSizeClasses()} max-w-none object-contain`}
+              src={currentLogoUrl} 
+              alt={`${settings.companyDetails.name} Logo`}
+              className={`${getImageSizeClasses()} max-w-none object-contain transition-all duration-300 ease-in-out`}
+              loading="eager"
+              decoding="sync"
             />
-          </div>
-        ) : (
-          <div className={`${getLogoSizeClasses()} bg-blue-500 rounded-md flex items-center justify-center flex-shrink-0 mx-auto`}>
-            <span className="font-bold text-white text-lg">
-              {settings.companyDetails.name.charAt(0)}
-            </span>
-          </div>
-        )}
-        {sidebarOpen && !currentLogo && (
-          <span className="font-semibold text-base text-gray-900 dark:text-white">
+          ) : (
+            <div className={cn(
+              "w-full h-full bg-gradient-to-br from-blue-500 to-blue-600 rounded-md flex items-center justify-center transition-all duration-300 ease-in-out",
+              currentTheme === 'dark' ? "shadow-lg shadow-blue-500/20" : "shadow-md shadow-blue-500/10"
+            )}>
+              <span className="font-bold text-white text-lg transition-all duration-300">
+                {settings.companyDetails.name.charAt(0)}
+              </span>
+            </div>
+          )}
+        </div>
+        
+        {/* Company Name with Smooth Transition */}
+        {sidebarOpen && !currentLogoUrl && (
+          <span className={cn(
+            "font-semibold text-base transition-all duration-300 ease-in-out",
+            "text-gray-900 dark:text-white"
+          )}>
             {settings.companyDetails.name}
           </span>
         )}
       </div>
 
-      {/* Mobile Close Button */}
+      {/* Mobile Close Button with Enhanced Accessibility */}
       {sidebarOpen && isMobile && (
         <Button 
           variant="ghost" 
           size="icon" 
           onClick={onClose}
-          className="h-8 w-8 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
+          className={cn(
+            "h-8 w-8 rounded-full flex-shrink-0 transition-all duration-200",
+            "hover:bg-gray-100 dark:hover:bg-gray-700",
+            "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+          )}
+          aria-label="Close sidebar"
+          title="Close sidebar"
         >
-          <X className="h-4 w-4" />
+          <X className="h-4 w-4 transition-transform duration-200 hover:scale-110" />
         </Button>
       )}
     </div>

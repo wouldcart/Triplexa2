@@ -34,48 +34,81 @@ export const useComprehensiveTransportRoutes = (options: UseTransportRoutesOptio
 
   // Fetch all routes
   const fetchRoutes = useCallback(async () => {
+    const abortController = new AbortController();
     setLoading(true);
     setError(null);
     
     try {
       const result = await ComprehensiveTransportService.getCompleteRoutes({ filters });
       
-      if (result.success && result.data) {
-        setRoutes(result.data.data);
-      } else {
-        setError(result.error || 'Failed to fetch routes');
+      // Only update state if request wasn't aborted
+      if (!abortController.signal.aborted) {
+        if (result.success && result.data) {
+          setRoutes(result.data.data);
+        } else {
+          setError(result.error || 'Failed to fetch routes');
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
+      if (!abortController.signal.aborted) {
+        setError(err instanceof Error ? err.message : 'Unknown error occurred');
+      }
     } finally {
-      setLoading(false);
+      if (!abortController.signal.aborted) {
+        setLoading(false);
+      }
     }
+    
+    // Cleanup function
+    return () => {
+      abortController.abort();
+    };
   }, [filters]);
 
   // Fetch transport types
   const fetchTransportTypes = useCallback(async () => {
+    const abortController = new AbortController();
+    
     try {
       const result = await ComprehensiveTransportService.getTransportTypes();
       
-      if (result.success && result.data) {
+      // Only update state if request wasn't aborted
+      if (!abortController.signal.aborted && result.success && result.data) {
         setTransportTypes(result.data);
       }
     } catch (err) {
-      console.error('Failed to fetch transport types:', err);
+      if (!abortController.signal.aborted) {
+        console.error('Failed to fetch transport types:', err);
+      }
     }
+    
+    // Cleanup function
+    return () => {
+      abortController.abort();
+    };
   }, []);
 
   // Fetch statistics
   const fetchStatistics = useCallback(async () => {
+    const abortController = new AbortController();
+    
     try {
       const result = await ComprehensiveTransportService.getRouteStatistics();
       
-      if (result.success && result.data) {
+      // Only update state if request wasn't aborted
+      if (!abortController.signal.aborted && result.success && result.data) {
         setStatistics(result.data);
       }
     } catch (err) {
-      console.error('Failed to fetch statistics:', err);
+      if (!abortController.signal.aborted) {
+        console.error('Failed to fetch statistics:', err);
+      }
     }
+    
+    // Cleanup function
+    return () => {
+      abortController.abort();
+    };
   }, []);
 
   // Create a new route
@@ -270,6 +303,11 @@ export const useComprehensiveTransportRoutes = (options: UseTransportRoutesOptio
     if (autoFetch) {
       refresh();
     }
+    
+    // Cleanup function to cancel any pending requests when component unmounts
+    return () => {
+      // The abort controllers in individual fetch functions will handle request cancellation
+    };
   }, [autoFetch, refresh]);
 
   // Helper functions

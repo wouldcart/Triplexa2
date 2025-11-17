@@ -101,6 +101,9 @@ export const SaveAsTemplateDialog: React.FC<SaveAsTemplateDialogProps> = ({
             <Save className="h-5 w-5" />
             Save as Template
           </DialogTitle>
+          <DialogDescription>
+            Save this proposal as a template for future use with similar client requirements.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

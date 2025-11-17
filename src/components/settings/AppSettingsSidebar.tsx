@@ -166,6 +166,14 @@ const AppSettingsSidebar: React.FC = () => {
           path: '/settings/general?category=integrations&section=third-party',
           badge: 'Beta',
           description: 'External service integrations'
+        },
+        {
+          id: 'meta-whatsapp',
+          title: 'Meta WhatsApp',
+          icon: Smartphone,
+          path: '/settings/app?category=integrations&section=meta-whatsapp',
+          badge: 'New',
+          description: 'WhatsApp Business API configuration'
         }
       ]
     },

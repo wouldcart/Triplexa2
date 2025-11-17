@@ -42,6 +42,9 @@ const CountryPricingEditDialog: React.FC<CountryPricingEditDialogProps> = ({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Edit {rule.countryName} Pricing Rule</DialogTitle>
+          <DialogDescription>
+            Modify pricing rules and markup settings for this country.
+          </DialogDescription>
         </DialogHeader>
         
         <div className="space-y-4">

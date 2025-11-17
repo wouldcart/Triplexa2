@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -30,6 +30,21 @@ const StaffList: React.FC<StaffListProps> = ({
   // Get enhanced staff data from the staff management system
   const { enhancedStaffMembers } = useEnhancedStaffData();
   const { getCountryById } = useRealTimeCountriesData();
+  const [storedStaffData, setStoredStaffData] = useState<any[]>([]);
+
+  // Fetch staff data from Supabase
+  useEffect(() => {
+    const fetchStaffData = async () => {
+      try {
+        const staffData = await getStoredStaff();
+        setStoredStaffData(staffData);
+      } catch (error) {
+        console.error('Error fetching staff data:', error);
+        setStoredStaffData([]);
+      }
+    };
+    fetchStaffData();
+  }, []);
 
   // Map stored country UUIDs to readable names using real-time countries
   const mapIdsToCountryNames = (values: string[]): string[] =>
@@ -38,7 +53,7 @@ const StaffList: React.FC<StaffListProps> = ({
   // Merge staff data with operational countries from management system
   const enrichedStaff: ExtendedStaffMember[] = staff.map(staffMember => {
     // Get staff data from management system storage
-    const managementStaff = getStoredStaff().find(stored => stored.id === staffMember.id.toString());
+    const managementStaff = storedStaffData.find(stored => stored.id === staffMember.id.toString());
     
     // Get operational countries from management system or fallback to enhanced data
     const operationalCountries = managementStaff?.operationalCountries || 

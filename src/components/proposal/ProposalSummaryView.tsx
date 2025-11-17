@@ -7,6 +7,7 @@ import { MapPin, Clock, Users, DollarSign, Car, Hotel, Camera, Utensils } from '
 import { Query } from '@/types/query';
 import { formatCurrency } from '@/utils/currencyUtils';
 import { useProposalPersistence } from '@/hooks/useProposalPersistence';
+import { OptionalRecords } from '@/types/optionalRecords';
 
 interface ProposalDay {
   id: string;
@@ -49,13 +50,60 @@ interface ProposalSummaryViewProps {
   query: Query;
   days: ProposalDay[];
   totalCost: number;
+  optionalRecords?: any;
 }
 
 export const ProposalSummaryView: React.FC<ProposalSummaryViewProps> = ({
   query,
   days,
-  totalCost
+  totalCost,
+  optionalRecords
 }) => {
+  // Helper function to check if a country is optional (derived from its cities)
+  const isCountryOptional = (countryName: string) => {
+    if (!optionalRecords?.cities || !query?.destination.cities) return false;
+    
+    // If any city in the country is optional, consider the country optional
+    const optionalCities = optionalRecords.cities.filter((city: any) => city.isOptional);
+    return optionalCities.length > 0;
+  };
+
+  // Helper function to check if a specific city is optional
+  const isCityOptional = (cityName: string) => {
+    if (!optionalRecords?.cities || !cityName) return false;
+    
+    // Check both possible data structures for backward compatibility
+    return optionalRecords.cities.some((city: any) => {
+      // New format: cityId/cityName
+      if (city.cityId && city.cityName) {
+        return city.cityName.toLowerCase() === cityName.toLowerCase() && city.isOptional;
+      }
+      // Old format: city field
+      if (city.city) {
+        return city.city.toLowerCase() === cityName.toLowerCase() && city.isOptional;
+      }
+      // Direct city name comparison
+      return false;
+    });
+  };
+
+  // Real-time validation effect for optional cities
+  useEffect(() => {
+    console.log('🔍 ProposalSummaryView: Validating optional cities in real-time:', optionalRecords);
+    
+    if (optionalRecords?.cities) {
+      console.log('📍 Optional cities detected in ProposalSummaryView:', optionalRecords.cities);
+      
+      // Validate each city in the query
+      if (query?.destination.cities) {
+        query.destination.cities.forEach(city => {
+          const isOptional = isCityOptional(city);
+          console.log(`🏙️ ProposalSummaryView: City "${city}" is optional:`, isOptional);
+        });
+      }
+    }
+  }, [optionalRecords, query?.destination.cities]);
+
   const getMealsText = (meals: any) => {
     const includedMeals = [];
     if (meals.breakfast) includedMeals.push('Breakfast');
@@ -63,6 +111,59 @@ export const ProposalSummaryView: React.FC<ProposalSummaryViewProps> = ({
     if (meals.dinner) includedMeals.push('Dinner');
     return includedMeals.length > 0 ? includedMeals.join(', ') : 'No meals included';
   };
+
+  // Calculate optional pricing
+  const calculateOptionalPricing = () => {
+    if (!optionalRecords) return { cities: 0, sightseeing: 0, transport: 0, total: 0 };
+    
+    let citiesCost = 0;
+    let sightseeingCost = 0;
+    let transportCost = 0;
+
+    // Calculate optional cities cost
+    if (optionalRecords.cities) {
+      optionalRecords.cities.forEach((city: any) => {
+        if (city.isOptional) {
+          // Find days for this city and sum their costs
+          const cityDays = days.filter(day => 
+            day.city === city.city || 
+            (typeof day.location === 'string' && day.location === city.city) ||
+            (day.location && day.location.name === city.city)
+          );
+          citiesCost += cityDays.reduce((sum, day) => sum + (day.totalCost || 0), 0);
+        }
+      });
+    }
+
+    // Calculate optional sightseeing cost
+    if (optionalRecords.sightseeing) {
+      optionalRecords.sightseeing.forEach((sightseeing: any) => {
+        if (sightseeing.isOptional && sightseeing.activities) {
+          sightseeingCost += sightseeing.activities.reduce((sum: number, activity: any) => 
+            sum + (activity.cost || 0), 0
+          );
+        }
+      });
+    }
+
+    // Calculate optional transport cost
+    if (optionalRecords.transport) {
+      optionalRecords.transport.forEach((transport: any) => {
+        if (transport.isOptional) {
+          transportCost += transport.cost || 0;
+        }
+      });
+    }
+
+    return {
+      cities: citiesCost,
+      sightseeing: sightseeingCost,
+      transport: transportCost,
+      total: citiesCost + sightseeingCost + transportCost
+    };
+  };
+
+  const optionalPricing = calculateOptionalPricing();
 
   // Load optional selections from persistence and skip empty sections automatically
   const { data } = useProposalPersistence(query.id, 'daywise');
@@ -83,8 +184,27 @@ export const ProposalSummaryView: React.FC<ProposalSummaryViewProps> = ({
               <MapPin className="h-5 w-5 text-primary shrink-0" />
               <div>
                 <p className="text-responsive font-medium text-foreground">Destination</p>
-                <p className="text-responsive text-muted-foreground">{query.destination.country}</p>
-                <p className="text-xs text-muted-foreground line-clamp-1">{query.destination.cities.join(', ')}</p>
+                <p className="text-responsive text-muted-foreground">
+                  {query.destination.country}
+                  {isCountryOptional(query.destination.country) && (
+                    <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 ml-1">
+                      Optional
+                    </Badge>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground line-clamp-1">
+                  {query.destination.cities.map((city, index) => (
+                    <span key={city} className="inline-flex items-center gap-1">
+                      {city}
+                      {isCityOptional(city) && (
+                        <Badge variant="secondary" className="text-xs bg-orange-50 text-orange-600 border border-orange-300 rounded-full px-1 py-0.5 ml-1">
+                          Optional
+                        </Badge>
+                      )}
+                      {index < query.destination.cities.length - 1 && ', '}
+                    </span>
+                  ))}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -126,7 +246,7 @@ export const ProposalSummaryView: React.FC<ProposalSummaryViewProps> = ({
     </Card>
 
     {/* Optional Options Summary */}
-    {(selectedCity || (sightseeingOptions.length > 0) || (transportOptions.length > 0)) && (
+    {(selectedCity || (sightseeingOptions.length > 0) || (transportOptions.length > 0) || optionalPricing.total > 0) && (
       <Card className="glass-effect shadow-soft">
         <CardHeader>
           <CardTitle className="text-responsive-lg">Optional Selections</CardTitle>
@@ -188,6 +308,71 @@ export const ProposalSummaryView: React.FC<ProposalSummaryViewProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        </CardContent>
+      </Card>
+    )}
+
+    {/* Optional Pricing Summary */}
+    {optionalPricing.total > 0 && (
+      <Card className="glass-effect shadow-soft border-orange-200 dark:border-orange-800">
+        <CardHeader>
+          <CardTitle className="text-responsive-lg flex items-center gap-2">
+            <DollarSign className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+            Optional Pricing Breakdown
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {optionalPricing.cities > 0 && (
+              <div className="flex items-center justify-between p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                  <span className="font-medium">Optional Cities</span>
+                </div>
+                <span className="font-semibold text-orange-600 dark:text-orange-400">
+                  {formatCurrency(optionalPricing.cities, query.destination.country)}
+                </span>
+              </div>
+            )}
+            {optionalPricing.sightseeing > 0 && (
+              <div className="flex items-center justify-between p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Camera className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                  <span className="font-medium">Optional Sightseeing</span>
+                </div>
+                <span className="font-semibold text-orange-600 dark:text-orange-400">
+                  {formatCurrency(optionalPricing.sightseeing, query.destination.country)}
+                </span>
+              </div>
+            )}
+            {optionalPricing.transport > 0 && (
+              <div className="flex items-center justify-between p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Car className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                  <span className="font-medium">Optional Transport</span>
+                </div>
+                <span className="font-semibold text-orange-600 dark:text-orange-400">
+                  {formatCurrency(optionalPricing.transport, query.destination.country)}
+                </span>
+              </div>
+            )}
+            
+            <Separator className="bg-orange-200 dark:bg-orange-800" />
+            
+            <div className="flex items-center justify-between p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-orange-700 dark:text-orange-300" />
+                <span className="font-bold">Total Optional Cost</span>
+              </div>
+              <span className="font-bold text-lg text-orange-700 dark:text-orange-300">
+                {formatCurrency(optionalPricing.total, query.destination.country)}
+              </span>
+            </div>
+            
+            <div className="text-xs text-muted-foreground text-center">
+              Optional items can be added or removed based on client preferences
+            </div>
           </div>
         </CardContent>
       </Card>

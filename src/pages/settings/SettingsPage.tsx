@@ -17,6 +17,9 @@ import {
   DollarSign,
   CreditCard,
   FileText,
+  Image as ImageIcon,
+  Server,
+  MessageSquare,
 } from 'lucide-react';
 
 type SubLink = { label: string; icon: React.ElementType; path: string };
@@ -63,6 +66,10 @@ const modules: ModuleItem[] = [
     description: 'Themes, colors, logos and layout',
     icon: Palette,
     path: '/settings/appearance',
+    subLinks: [
+      { label: 'Appearance', icon: Palette, path: '/settings/appearance' },
+      { label: 'Logo Test', icon: ImageIcon, path: '/settings/logo-test' },
+    ],
   },
   {
     id: 'language',
@@ -126,6 +133,25 @@ const modules: ModuleItem[] = [
     subLinks: [
       { label: 'Manage Templates', icon: FileText, path: '/email-templates' },
     ],
+  },
+  {
+    id: 'email-config',
+    title: 'Email Configuration',
+    description: 'Configure SMTP settings and email providers',
+    icon: Server,
+    path: '/settings/email-configuration',
+    adminOnly: true,
+  },
+  {
+    id: 'sms-otp',
+    title: 'SMS & OTP',
+    description: 'Manage SMS provider, API key, and OTP settings',
+    icon: MessageSquare,
+    path: '/settings/sms-otp',
+    subLinks: [
+      { label: 'Configuration', icon: MessageSquare, path: '/settings/sms-otp' },
+    ],
+    adminOnly: true,
   },
   {
     id: 'app',

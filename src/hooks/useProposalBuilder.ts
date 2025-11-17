@@ -108,18 +108,73 @@ export const useProposalBuilder = (queryId?: string, options?: UseProposalBuilde
   const loadSpecificDraft = useCallback(async (draftId: string, draftType: string) => {
     console.log('Loading specific draft:', draftId, 'type:', draftType);
     
+    // Try to load from Supabase first if it's a DRAFT- prefixed ID
+    if (draftId.startsWith('DRAFT-')) {
+      try {
+        console.log('Attempting to load Supabase draft:', draftId);
+        const supabaseDraft = await SupabaseProposalService.getDraftByProposalId(draftId);
+        
+        if (supabaseDraft && supabaseDraft.data) {
+          console.log('Supabase draft loaded successfully:', supabaseDraft);
+          
+          // Extract days data from the Supabase draft
+          const daysData = supabaseDraft.data.itinerary_data || [];
+          
+          if (Array.isArray(daysData) && daysData.length > 0) {
+            const validatedDays = daysData.map((day: any, index: number) => ({
+              id: day.id || `day_${Date.now()}_${index}`,
+              dayNumber: day.dayNumber || (index + 1),
+              title: day.title || `Day ${index + 1}`,
+              city: day.city || '',
+              description: day.description || '',
+              date: day.date || new Date().toISOString().split('T')[0],
+              activities: Array.isArray(day.activities) ? day.activities : [],
+              transport: Array.isArray(day.transport) ? day.transport : [],
+              accommodations: Array.isArray(day.accommodations) ? day.accommodations : [],
+              accommodation: day.accommodation || undefined,
+              meals: day.meals || {
+                breakfast: false,
+                lunch: false,
+                dinner: false
+              },
+              totalCost: typeof day.totalCost === 'number' ? day.totalCost : 0
+            }));
+            
+            setDays(validatedDays);
+            console.log('Loaded Supabase draft successfully with', validatedDays.length, 'days');
+            return;
+          } else {
+            console.log('No days data found in Supabase draft, starting with blank');
+            setDays([]);
+            return;
+          }
+        } else {
+          console.log('Supabase draft not found, starting with blank');
+          setDays([]);
+          return;
+        }
+      } catch (error) {
+        console.warn('Failed to load from Supabase, starting with blank:', error);
+        setDays([]);
+        return;
+      }
+    }
+    
+    // Fallback to localStorage for non-DRAFT IDs
     const storageKey = `proposal_draft_${draftId}_${draftType}`;
     const savedDraft = localStorage.getItem(storageKey);
     
     if (!savedDraft) {
-      throw new Error(`Draft not found: ${draftId}`);
+      console.log('No draft found, starting with blank slate');
+      setDays([]);
+      return;
     }
     
     try {
       const parsedDraft = JSON.parse(savedDraft);
       const daysData = parsedDraft.days || parsedDraft.itineraryData || [];
       
-      if (Array.isArray(daysData)) {
+      if (Array.isArray(daysData) && daysData.length > 0) {
         const validatedDays = daysData.map((day: any, index: number) => ({
           id: day.id || `day_${Date.now()}_${index}`,
           dayNumber: day.dayNumber || (index + 1),
@@ -140,11 +195,15 @@ export const useProposalBuilder = (queryId?: string, options?: UseProposalBuilde
         }));
         
         setDays(validatedDays);
-        console.log('Loaded specific draft successfully');
+        console.log('Loaded localStorage draft successfully with', validatedDays.length, 'days');
+      } else {
+        console.log('No days data in localStorage draft, starting with blank');
+        setDays([]);
       }
     } catch (error) {
       console.error('Error parsing specific draft:', error);
-      throw new Error('Invalid draft format');
+      console.log('Invalid draft format, starting with blank');
+      setDays([]);
     }
   }, []);
 

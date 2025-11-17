@@ -18,6 +18,15 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 }) => {
   const { user: currentUser, loading } = useAuth();
 
+  // Debug logging for ProtectedRoute
+  console.log('=== PROTECTED ROUTE DEBUG ===', {
+    currentUser: currentUser,
+    userRole: currentUser?.role,
+    requiredRole: requiredRole,
+    loading: loading,
+    timestamp: new Date().toISOString()
+  });
+
   // Dev-only auth bypass to preview protected routes locally
   const isDev = import.meta.env.DEV;
   let devBypassEnabled = false;

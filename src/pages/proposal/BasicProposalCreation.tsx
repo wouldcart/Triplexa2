@@ -262,7 +262,44 @@ const BasicProposalCreation: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-blue-700">Destination</p>
                 <p className="text-sm text-blue-600">{query.destination.country}</p>
-                <p className="text-xs text-blue-500">{query.destination.cities.join(', ')}</p>
+                <div className="text-xs text-blue-500">
+                  {query.cityAllocations && query.cityAllocations.length > 0 
+                    ? query.cityAllocations.map((allocation: any, index: number) => {
+                        const cityName = typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || 'City';
+                        return (
+                          <span key={index} className="inline-flex items-center gap-1">
+                            <span className={allocation.isOptional ? 'opacity-60' : ''}>
+                              {cityName} {allocation.nights}N
+                            </span>
+                            {allocation.isOptional && (
+                              <Badge variant="outline" className="text-xs px-1 py-0 border-orange-300 text-orange-600 bg-orange-50">
+                                Optional
+                              </Badge>
+                            )}
+                            {index < query.cityAllocations.length - 1 && <span className="mx-1">+</span>}
+                          </span>
+                        );
+                      })
+                    : query.destination.cities.map((city: any, index: number) => {
+                        const cityName = typeof city === 'string' ? city : (city as any)?.name || (city as any)?.city || 'City';
+                        const isOptional = query.cityAllocations?.find((alloc: any) => alloc.cityId === cityName)?.isOptional || false;
+                        
+                        return (
+                          <span key={index} className="inline-flex items-center gap-1">
+                            <span className={isOptional ? 'opacity-60' : ''}>
+                              {cityName}
+                            </span>
+                            {isOptional && (
+                              <Badge variant="outline" className="text-xs px-1 py-0 border-orange-300 text-orange-600 bg-orange-50">
+                                Optional
+                              </Badge>
+                            )}
+                            {index < query.destination.cities.length - 1 && <span className="mx-1">+</span>}
+                          </span>
+                        );
+                      })
+                  }
+                </div>
               </div>
               <div>
                 <p className="text-sm font-medium text-blue-700">Travel Dates</p>

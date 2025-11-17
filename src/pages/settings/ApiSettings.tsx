@@ -17,7 +17,7 @@ import { agentWelcomeTemplate } from '@/email/templates';
 import { loadSMTPConfig, sendEmail } from '@/services/emailService';
 import { useApplicationSettings } from '@/contexts/ApplicationSettingsContext';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { supabase, adminSupabase, isAdminClientConfigured } from '@/lib/supabaseClient';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -925,15 +925,46 @@ const ApiSettings: React.FC = () => {
   return (
     <PageLayout>
       <div className="space-y-6">
-        <h1 className="text-xl md:text-2xl font-bold">API Settings</h1>
-        {/* AI Integrations */}
-        <Card>
-          <CardHeader className="flex items-center justify-between">
-            <div>
-              <CardTitle>AI Integrations</CardTitle>
-              <CardDescription>Centralized management for AI API providers</CardDescription>
+        {/* Enhanced Unified Header */}
+        <div className="flex items-center justify-between bg-gradient-to-r from-blue-50/60 to-indigo-50/60 dark:from-gray-800/30 dark:to-blue-900/20 backdrop-blur-sm rounded-xl p-6 shadow-sm border border-blue-100 dark:border-gray-700">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-white/70 dark:bg-gray-700/50 rounded-lg border border-white/80 dark:border-gray-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 text-blue-600 dark:text-blue-400">
+                  <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
+                  <path d="m8 16 2-4 4 4 2-4"/>
+                  <path d="M3.5 12H7l2-4 4 4 2-4h3.5"/>
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 bg-clip-text text-transparent">
+                  API Settings & AI Integrations
+                </h1>
+                <p className="text-sm text-gray-600 dark:text-gray-300 font-medium">
+                  Manage AI API providers, monitor usage, and configure model settings with centralized analytics
+                </p>
+              </div>
             </div>
-            <Button onClick={startAddAPI}>Add API</Button>
+          </div>
+          <Button 
+            onClick={startAddAPI}
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 px-6 py-2.5"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 mr-2">
+              <path d="M5 12h14"/>
+              <path d="M12 5v14"/>
+            </svg>
+            Add API
+          </Button>
+        </div>
+
+        {/* AI Integrations Card */}
+        <Card className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 shadow-sm">
+          <CardHeader className="bg-gradient-to-r from-gray-50/50 to-blue-50/50 dark:from-gray-800/50 dark:to-blue-900/30 rounded-t-lg pb-4">
+            <div>
+              <CardTitle className="text-lg font-bold text-gray-800 dark:text-gray-100">AI Integrations</CardTitle>
+              <CardDescription className="text-gray-600 dark:text-gray-300">Centralized management for AI API providers</CardDescription>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Filters for AI Integrations */}
@@ -1039,7 +1070,7 @@ const ApiSettings: React.FC = () => {
                     onClick={async () => {
                       setTestingSmartId(api.id);
                       try {
-                        const res = await fetch('http://localhost:3004/api/test-ai', {
+                        const res = await fetch('http://localhost:3000/api/test-ai', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ prompt: 'System test: reply with READY.' }),
@@ -1074,6 +1105,9 @@ const ApiSettings: React.FC = () => {
                   <DialogContent className="sm:max-w-xl">
                     <DialogHeader>
                       <DialogTitle>Test Response</DialogTitle>
+                      <DialogDescription>
+                        View the API test response and prompt details
+                      </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-2">
                       <Label>Prompt</Label>
@@ -1528,6 +1562,9 @@ const ApiSettings: React.FC = () => {
           <DialogContent className="sm:max-w-[600px]">
             <DialogHeader>
               <DialogTitle>Log Details</DialogTitle>
+              <DialogDescription>
+                Detailed information about the API usage log
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 text-sm">
               <div className="flex items-center justify-between"><span>Provider</span><span className="font-semibold">{selectedLog?.provider_name || '—'}</span></div>

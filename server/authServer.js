@@ -14,6 +14,14 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
+import { 
+  generateOTP, 
+  validatePhoneNumber, 
+  sendWhatsAppOTP, 
+  storeOTP, 
+  verifyOTP, 
+  checkRateLimit 
+} from './whatsappService.js';
 
 // Load environment variables
 dotenv.config();
@@ -112,6 +120,18 @@ const agentSignupSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email('Invalid email format').toLowerCase(),
   password: z.string().min(1, 'Password is required'),
+  remember_me: z.boolean().optional().default(false)
+});
+
+// WhatsApp OTP Schemas
+const sendOTPSchema = z.object({
+  phone: z.string().min(10, 'Phone number is required').max(15, 'Phone number too long'),
+  role: z.enum(['admin', 'staff', 'agent']).optional().default('agent')
+});
+
+const verifyOTPSchema = z.object({
+  phone: z.string().min(10, 'Phone number is required').max(15, 'Phone number too long'),
+  otp: z.string().length(6, 'OTP must be 6 digits').regex(/^\d{6}$/, 'OTP must contain only digits'),
   remember_me: z.boolean().optional().default(false)
 });
 
@@ -671,6 +691,357 @@ app.get('/validate-session', async (req, res) => {
   }
 });
 
+// WhatsApp OTP Endpoints
+
+/**
+ * Send WhatsApp OTP
+ * POST /auth/send-otp
+ */
+app.post('/send-otp', async (req, res) => {
+  try {
+    console.log('📱 WhatsApp OTP send request received');
+    
+    // Sanitize input data
+    const sanitizedData = sanitizeObject(req.body);
+    
+    // Validate input data
+    const validationResult = sendOTPSchema.safeParse(sanitizedData);
+    if (!validationResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Validation failed',
+          code: 'VALIDATION_ERROR',
+          details: validationResult.error.errors,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    const { phone, role } = validationResult.data;
+    
+    // Validate and format phone number
+    let formattedPhone;
+    try {
+      formattedPhone = validatePhoneNumber(phone);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: error.message,
+          code: 'INVALID_PHONE_FORMAT',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // Check rate limiting (max 5 attempts per 60 minutes)
+    const rateLimit = await checkRateLimit(formattedPhone, 5, 60);
+    if (!rateLimit.canRetry) {
+      return res.status(429).json({
+        success: false,
+        error: {
+          message: `Too many attempts. Please try again later. Remaining attempts: ${rateLimit.remainingAttempts}`,
+          code: 'RATE_LIMIT_EXCEEDED',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // Generate OTP
+    const otp = generateOTP();
+    
+    // Get Meta configuration
+    let metaConfig;
+    try {
+      metaConfig = await getMetaConfiguration();
+    } catch (error) {
+      return res.status(503).json({
+        success: false,
+        error: {
+          message: 'WhatsApp service not configured. Please contact administrator.',
+          code: 'SERVICE_NOT_CONFIGURED',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // Store OTP in database
+    const otpRecord = await storeOTP(
+      formattedPhone, 
+      otp, 
+      req.clientInfo.ipAddress, 
+      req.clientInfo.userAgent
+    );
+
+    // Send WhatsApp OTP
+    try {
+      await sendWhatsAppOTP(formattedPhone, otp, metaConfig.business_name);
+    } catch (error) {
+      console.error('❌ WhatsApp OTP send failed:', error.message);
+      
+      // Mark OTP as expired since sending failed
+      await adminSupabase
+        .from('otp_logs')
+        .update({ status: 'expired' })
+        .eq('id', otpRecord.id);
+
+      return res.status(503).json({
+        success: false,
+        error: {
+          message: 'Failed to send WhatsApp OTP. Please try again.',
+          code: 'WHATSAPP_SEND_FAILED',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // Log successful OTP send
+    await logActivity('OTP_SENT', null, {
+      phone: formattedPhone,
+      otp_id: otpRecord.id,
+      role: role
+    }, req.clientInfo.ipAddress, req.clientInfo.userAgent);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        phone: formattedPhone,
+        message: 'OTP sent successfully via WhatsApp',
+        expires_in: 300, // 5 minutes in seconds
+        attempts_remaining: rateLimit.remainingAttempts - 1
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    handleError(res, error, 500);
+  }
+});
+
+/**
+ * Verify WhatsApp OTP and create/login user
+ * POST /auth/verify-otp
+ */
+app.post('/verify-otp', async (req, res) => {
+  try {
+    console.log('🔐 WhatsApp OTP verification request received');
+    
+    // Sanitize input data
+    const sanitizedData = sanitizeObject(req.body);
+    
+    // Validate input data
+    const validationResult = verifyOTPSchema.safeParse(sanitizedData);
+    if (!validationResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Validation failed',
+          code: 'VALIDATION_ERROR',
+          details: validationResult.error.errors,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    const { phone, otp, remember_me } = validationResult.data;
+    
+    // Validate and format phone number
+    let formattedPhone;
+    try {
+      formattedPhone = validatePhoneNumber(phone);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: error.message,
+          code: 'INVALID_PHONE_FORMAT',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // Verify OTP
+    let verificationResult;
+    try {
+      verificationResult = await verifyOTP(formattedPhone, otp);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: error.message,
+          code: 'OTP_VERIFICATION_FAILED',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // Check if user exists with this phone number
+    const { data: existingUser, error: userError } = await adminSupabase
+      .from('profiles')
+      .select('id, email, name, role, status, phone')
+      .eq('phone', formattedPhone)
+      .single();
+
+    let userId;
+    let userProfile;
+
+    if (existingUser && !userError) {
+      // User exists, use existing user
+      userId = existingUser.id;
+      userProfile = existingUser;
+
+      // Check if user is active
+      if (existingUser.status !== 'active') {
+        await logActivity('OTP_LOGIN_FAILED', userId, {
+          reason: 'Account inactive',
+          phone: formattedPhone
+        }, req.clientInfo.ipAddress, req.clientInfo.userAgent);
+
+        return res.status(403).json({
+          success: false,
+          error: {
+            message: 'Account is not active',
+            code: 'ACCOUNT_INACTIVE',
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+    } else {
+      // New user - create Supabase auth user and profile
+      console.log('🆕 Creating new user for phone:', formattedPhone);
+      
+      // Generate a unique email for Supabase (since phone auth doesn't provide email)
+      const generatedEmail = `whatsapp_${Date.now()}@temp.local`;
+      const generatedPassword = crypto.randomBytes(32).toString('hex');
+
+      // Create Supabase auth user
+      const { data: authData, error: authError } = await adminSupabase.auth.signUp({
+        email: generatedEmail,
+        password: generatedPassword,
+        data: {
+          phone: formattedPhone,
+          role: 'agent', // Default role for WhatsApp users
+          source: 'whatsapp_otp'
+        }
+      });
+
+      if (authError || !authData.user) {
+        console.error('❌ Failed to create Supabase user:', authError);
+        return res.status(500).json({
+          success: false,
+          error: {
+            message: 'Failed to create user account',
+            code: 'USER_CREATION_FAILED',
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      userId = authData.user.id;
+
+      // Create user profile
+      const { data: newProfile, error: profileError } = await adminSupabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          email: generatedEmail,
+          name: `WhatsApp User`, // Default name, can be updated later
+          phone: formattedPhone,
+          role: 'agent', // Default role for WhatsApp users
+          status: 'active',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (profileError || !newProfile) {
+        console.error('❌ Failed to create user profile:', profileError);
+        
+        // Rollback: delete the auth user
+        await adminSupabase.auth.admin.deleteUser(userId);
+
+        return res.status(500).json({
+          success: false,
+          error: {
+            message: 'Failed to create user profile',
+            code: 'PROFILE_CREATION_FAILED',
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      userProfile = newProfile;
+
+      // Create agent record for new users
+      const { error: agentError } = await adminSupabase
+        .from('agents')
+        .insert({
+          user_id: userId,
+          agency_name: 'Not Specified',
+          status: 'pending',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+      if (agentError) {
+        console.error('❌ Failed to create agent record:', agentError);
+        // Continue anyway, agent record can be created later
+      }
+    }
+
+    // Generate session token
+    const sessionToken = jwt.sign(
+      {
+        userId: userId,
+        phone: formattedPhone,
+        role: userProfile.role,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + (remember_me ? 30 * 24 * 60 * 60 : 24 * 60 * 60) // 30 days or 1 day
+      },
+      process.env.JWT_SECRET || 'fallback-secret-key'
+    );
+
+    // Log successful OTP login
+    await logActivity('OTP_LOGIN_SUCCESS', userId, {
+      phone: formattedPhone,
+      role: userProfile.role,
+      is_new_user: !existingUser
+    }, req.clientInfo.ipAddress, req.clientInfo.userAgent);
+
+    // Return success response
+    res.status(200).json({
+      success: true,
+      data: {
+        user: {
+          id: userProfile.id,
+          name: userProfile.name,
+          email: userProfile.email,
+          phone: userProfile.phone,
+          role: userProfile.role,
+          status: userProfile.status,
+          created_at: userProfile.created_at,
+          updated_at: userProfile.updated_at
+        },
+        session: {
+          access_token: existingUser ? 'generated_by_supabase' : 'new_user_token',
+          refresh_token: existingUser ? 'generated_by_supabase' : 'new_user_refresh',
+          expires_at: Math.floor(Date.now() / 1000) + (remember_me ? 30 * 24 * 60 * 60 : 24 * 60 * 60),
+          token_type: 'bearer',
+          session_token: sessionToken,
+          is_new_user: !existingUser
+        }
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    handleError(res, error, 500);
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   handleError(res, error, 500);
@@ -694,6 +1065,8 @@ app.listen(PORT, () => {
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Agent signup: http://localhost:${PORT}/signup/agent`);
   console.log(`🔑 Login: http://localhost:${PORT}/login`);
+  console.log(`📱 WhatsApp OTP send: http://localhost:${PORT}/send-otp`);
+  console.log(`🔐 WhatsApp OTP verify: http://localhost:${PORT}/verify-otp`);
   console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 

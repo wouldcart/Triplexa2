@@ -418,7 +418,7 @@ export default function AgentManagement() {
 
         // Fallback: local staff storage
         try {
-          const staff = getStoredStaff();
+          const staff = await getStoredStaff();
           (staff || []).forEach(member => {
             if (member?.id && member?.name) {
               creatorNameMap.set(String(member.id), String(member.name));

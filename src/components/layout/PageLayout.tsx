@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import SEOHead from '@/components/seo/SEOHead';
 import { useAuth } from '@/contexts/AuthContext';
 import { updateStaffActivity } from '@/services/loginRecordService';
+import { FloatingAIChat } from '@/components/ai/FloatingAIChat';
 
 interface PageLayoutProps {
   children: React.ReactNode;
@@ -95,6 +96,11 @@ const PageLayout: React.FC<PageLayoutProps> = ({
           />
         )}
       </div>
+      
+      {/* AI Chat Assistant - Only show when user is logged in */}
+      {user && !isFullscreen && (
+        <FloatingAIChat />
+      )}
     </>
   );
 };

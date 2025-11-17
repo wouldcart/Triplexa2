@@ -176,6 +176,7 @@ function fromQuery(q: Query, userId?: string | null): EnquiryRow {
     priority: q.priority ?? 'normal',
     communication_preference: q.communicationPreference ?? 'email',
     city_allocations: q.cityAllocations ?? [],
+
     created_by: userId ?? null,
   };
 }
@@ -717,6 +718,7 @@ export async function updateEnquiry(id: string, patch: Partial<Query>) {
     meal_plan: patch.inclusions?.mealPlan,
     sightseeing: patch.inclusions?.sightseeing,
     assigned_to: typeof patch.assignedTo === 'string' ? (resolvedStaffId || patch.assignedTo) : undefined,
+    city_allocations: (patch as any)?.cityAllocations as any,
     // Timestamp
     updated_at: new Date().toISOString(),
   };

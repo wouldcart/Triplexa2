@@ -213,8 +213,23 @@ const EmailTemplates: React.FC = () => {
     setIsEditDialogOpen(true);
   };
 
-  const categories = ['all', 'lead', 'quotation', 'booking', 'payment', 'account'];
+  const categories = ['all', 'lead', 'quotation', 'booking', 'payment', 'account', 'itinerary', 'reminder', 'feedback', 'support'];
   const stats = emailTemplateService.getTemplateStats();
+
+  const getCategoryVariant = (category: string) => {
+    const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+      lead: 'default',
+      quotation: 'secondary',
+      booking: 'default',
+      payment: 'destructive',
+      account: 'secondary',
+      itinerary: 'outline',
+      reminder: 'secondary',
+      feedback: 'outline',
+      support: 'destructive'
+    };
+    return variants[category] || 'outline';
+  };
 
   return (
     <PageLayout title="Email Templates">
@@ -280,6 +295,20 @@ const EmailTemplates: React.FC = () => {
         </Card>
       </div>
 
+      {/* Category Statistics */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {Object.entries(stats.byCategory).map(([category, count]) => (
+          <Card key={category}>
+            <CardContent className="p-3">
+              <div className="text-center">
+                <p className="text-xs font-medium text-muted-foreground uppercase">{category}</p>
+                <p className="text-xl font-bold">{count}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
       {/* Filters */}
       <div className="flex gap-4">
         <div className="relative flex-1">
@@ -298,7 +327,7 @@ const EmailTemplates: React.FC = () => {
           <SelectContent>
             {categories.map(category => (
               <SelectItem key={category} value={category}>
-                {category.charAt(0).toUpperCase() + category.slice(1)}
+                {category === 'all' ? 'All Categories' : category.charAt(0).toUpperCase() + category.slice(1)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -323,7 +352,7 @@ const EmailTemplates: React.FC = () => {
                 </div>
               </div>
               <div className="flex gap-2 mt-2">
-                <Badge variant={template.category === 'lead' ? 'default' : 'secondary'}>
+                <Badge variant={getCategoryVariant(template.category)}>
                   {template.category}
                 </Badge>
                 <Badge variant="outline">
@@ -425,6 +454,10 @@ const EmailTemplates: React.FC = () => {
                       <SelectItem value="booking">Booking</SelectItem>
                       <SelectItem value="payment">Payment</SelectItem>
                       <SelectItem value="account">Account</SelectItem>
+                      <SelectItem value="itinerary">Itinerary</SelectItem>
+                      <SelectItem value="reminder">Reminder</SelectItem>
+                      <SelectItem value="feedback">Feedback</SelectItem>
+                      <SelectItem value="support">Support</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -542,6 +575,10 @@ const EmailTemplates: React.FC = () => {
                       <SelectItem value="booking">Booking</SelectItem>
                       <SelectItem value="payment">Payment</SelectItem>
                       <SelectItem value="account">Account</SelectItem>
+                      <SelectItem value="itinerary">Itinerary</SelectItem>
+                      <SelectItem value="reminder">Reminder</SelectItem>
+                      <SelectItem value="feedback">Feedback</SelectItem>
+                      <SelectItem value="support">Support</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

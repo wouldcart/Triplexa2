@@ -3,15 +3,44 @@ import { supabase } from './supabaseClient';
 const PROFILE_API_BASE = 'http://localhost:3003';
 
 // Helper function to get auth token
+const MAX_RETRIES = 1; // Only retry once
+
+// Helper function to get auth token, ensuring it's fresh
 async function getAuthToken(): Promise<string | null> {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token || null;
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error) {
+    console.error("Error getting session:", error);
+    return null;
+  }
+
+  if (session) {
+    // Check if the token is expired or about to expire (e.g., within 60 seconds)
+    const expiresAt = session.expires_at * 1000; // Convert to milliseconds
+    const now = Date.now();
+    const expiresIn = expiresAt - now;
+
+    if (expiresIn < 60000) { // If token expires in less than 60 seconds
+      console.log("Access token is about to expire or has expired, refreshing session...");
+      const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) {
+        console.error("Error refreshing session:", refreshError);
+        return null;
+      }
+      if (refreshedSession) {
+        console.log("Session refreshed successfully.");
+        return refreshedSession.access_token;
+      }
+    }
+    return session.access_token;
+  }
+  return null;
 }
 
-// Helper function to make authenticated requests
+// Helper function to make authenticated requests with retry logic
 async function makeAuthenticatedRequest(
   endpoint: string, 
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retryCount: number = 0
 ): Promise<Response> {
   const token = await getAuthToken();
   
@@ -25,10 +54,24 @@ async function makeAuthenticatedRequest(
     ...options.headers,
   };
 
-  return fetch(`${PROFILE_API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  try {
+    const response = await fetch(`${PROFILE_API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+    });
+
+    if (!response.ok && response.status === 401 && retryCount < MAX_RETRIES) {
+      console.warn("Authentication failed, attempting to refresh token and retry...");
+      // Force a session refresh before retrying
+      await supabase.auth.refreshSession(); 
+      return makeAuthenticatedRequest(endpoint, options, retryCount + 1);
+    }
+
+    return response;
+  } catch (error) {
+    console.error("Request failed:", error);
+    throw error;
+  }
 }
 
 export interface Profile {

@@ -43,6 +43,7 @@ import { CountryBasedAssignmentDialog } from '@/components/queries/CountryBasedA
 import QueryFiltersComponent from '@/components/queries/components/QueryFilters';
 import EnhancedEnquiryCard from '@/components/queries/EnhancedEnquiryCard';
 import EnquiryListTable from '@/components/queries/EnquiryListTable';
+import ResponsiveTestPanel from '@/components/queries/ResponsiveTestPanel';
 import BulkOperationsPanel from '@/components/queries/BulkOperationsPanel';
 import AdvancedFilters from '@/components/queries/AdvancedFilters';
 import { useQueryFilters } from '@/components/queries/hooks/useQueryFilters';
@@ -425,64 +426,66 @@ const Queries: React.FC = () => {
         <Checkbox
           checked={isSelected}
           onCheckedChange={(checked) => handleSelectQuery(query, !!checked)}
-          className="mt-4"
+          className="mt-4 flex-shrink-0"
         />
-        <div className="flex-1">
-          <div className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <h3 className="text-lg font-semibold text-blue-700">{query.id}</h3>
-                <Badge variant="outline" className="text-xs">
+        <div className="flex-1 min-w-0">
+          <div className="border rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow bg-white">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <h3 className="text-base md:text-lg font-semibold text-blue-700 truncate">{query.id}</h3>
+                <Badge variant="outline" className="text-xs flex-shrink-0">
                   {paxInfo.total} PAX ({paxInfo.breakdown})
                 </Badge>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={query.status === 'new' ? 'secondary' : 'default'}>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Badge variant={query.status === 'new' ? 'secondary' : 'default'} className="text-xs md:text-sm">
                   {query.status.replace('-', ' ').toUpperCase()}
                 </Badge>
                 <Button 
                   variant="outline" 
                   size="sm"
                   onClick={() => navigate(`/queries/edit/${encodeURIComponent(query.id)}`)}
+                  className="text-xs md:text-sm"
                 >
-                  <Edit className="h-4 w-4 mr-2" />
+                  <Edit className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
                   Edit
                 </Button>
               </div>
             </div>
             
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <p className="text-muted-foreground">Agent</p>
-                <p className="font-medium">{query.agentName}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 text-sm">
+              <div className="min-w-0">
+                <p className="text-muted-foreground text-xs md:text-sm">Agent</p>
+                <p className="font-medium text-sm md:text-base truncate">{query.agentName}</p>
               </div>
-              <div>
-                <p className="text-muted-foreground">Destination</p>
-                <p className="font-medium">{query.destination.country}</p>
-                <p className="text-xs text-muted-foreground">{query.destination.cities.join(', ')}</p>
+              <div className="min-w-0">
+                <p className="text-muted-foreground text-xs md:text-sm">Destination</p>
+                <p className="font-medium text-sm md:text-base truncate">{query.destination.country}</p>
+                <p className="text-xs text-muted-foreground truncate">{query.destination.cities.join(', ')}</p>
               </div>
-              <div>
-                <p className="text-muted-foreground">Travel Date</p>
-                <p className="font-medium">{new Date(query.travelDates.from).toLocaleDateString()}</p>
+              <div className="min-w-0">
+                <p className="text-muted-foreground text-xs md:text-sm">Travel Date</p>
+                <p className="font-medium text-sm md:text-base">{new Date(query.travelDates.from).toLocaleDateString()}</p>
               </div>
-              <div>
-                <p className="text-muted-foreground">Duration</p>
-                <p className="font-medium">{query.tripDuration.nights}N/{query.tripDuration.days}D</p>
+              <div className="min-w-0">
+                <p className="text-muted-foreground text-xs md:text-sm">Duration</p>
+                <p className="font-medium text-sm md:text-base">{query.tripDuration.nights}N/{query.tripDuration.days}D</p>
               </div>
             </div>
             
-            <div className="flex items-center justify-between mt-4 pt-3 border-t">
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <span>Budget: ${query.budget.min.toLocaleString()} - ${query.budget.max.toLocaleString()}</span>
-                <span>Created: {new Date(query.createdAt).toLocaleDateString()}</span>
-                <span>Updated: {new Date(query.updatedAt).toLocaleDateString()}</span>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4 pt-3 border-t">
+              <div className="flex flex-wrap items-center gap-2 md:gap-4 text-xs md:text-sm text-muted-foreground min-w-0">
+                <span className="break-words">Budget: ${query.budget.min.toLocaleString()} - ${query.budget.max.toLocaleString()}</span>
+                <span className="break-words">Created: {new Date(query.createdAt).toLocaleDateString()}</span>
+                <span className="break-words">Updated: {new Date(query.updatedAt).toLocaleDateString()}</span>
               </div>
               <Button 
                 variant="outline" 
                 size="sm"
                 onClick={() => handleQuickAssign(query)}
+                className="text-xs md:text-sm flex-shrink-0"
               >
-                <User className="h-4 w-4 mr-2" />
+                <User className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
                 {query.status === 'new' ? 'Assign' : 'Reassign'}
               </Button>
             </div>
@@ -496,26 +499,26 @@ const Queries: React.FC = () => {
     <PageLayout>
       <div className="space-y-6 p-4 lg:p-6">
         {/* Enhanced Header */}
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
               Enhanced Query Management
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-muted-foreground mt-1 text-sm md:text-base">
               Comprehensive enquiry tracking with detailed travel information and real-time updates
             </p>
-            <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
-              <Activity className="h-4 w-4" />
-              <span>Showing {filteredAndSortedQueries.length} of {queries.length} enquiries • Sorted by newest first</span>
-              <span className="text-green-600">• Live</span>
+            <div className="flex flex-wrap items-center gap-2 mt-2 text-xs md:text-sm text-muted-foreground">
+              <Activity className="h-3 w-3 md:h-4 md:w-4 flex-shrink-0" />
+              <span className="break-words">Showing {filteredAndSortedQueries.length} of {queries.length} enquiries • Sorted by newest first</span>
+              <span className="text-green-600 whitespace-nowrap">• Live</span>
             </div>
           </div>
           
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge 
                 variant={isAutoAssignmentEnabled ? "default" : "secondary"}
-                className={`flex items-center gap-1 ${
+                className={`flex items-center gap-1 text-xs md:text-sm ${
                   isAutoAssignmentEnabled ? "bg-green-600" : ""
                 }`}
               >
@@ -530,39 +533,40 @@ const Queries: React.FC = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setIsRealTimeEnabled(!isRealTimeEnabled)}
-                className={isRealTimeEnabled ? "border-green-500 text-green-700" : ""}
+                className={`${isRealTimeEnabled ? "border-green-500 text-green-700" : ""} text-xs md:text-sm`}
               >
                 <RefreshCw className={`h-3 w-3 mr-1 ${isRealTimeEnabled ? 'animate-spin' : ''}`} />
                 Real-time {isRealTimeEnabled ? "ON" : "OFF"}
               </Button>
-              <span className="text-sm text-muted-foreground">
+              <span className="text-xs md:text-sm text-muted-foreground whitespace-nowrap">
                 ({availableStaffCount} staff available)
               </span>
             </div>
             
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button 
                 variant="outline" 
                 size="sm"
                 onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className="text-xs md:text-sm"
               >
-                <Settings className="h-4 w-4 mr-2" />
+                <Settings className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
                 Settings
               </Button>
-              <Button variant="outline" size="sm">
-                <Upload className="h-4 w-4 mr-2" />
+              <Button variant="outline" size="sm" className="text-xs md:text-sm">
+                <Upload className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
                 Import
               </Button>
-              <Button variant="outline" size="sm" onClick={handleBulkExport}>
-                <Download className="h-4 w-4 mr-2" />
+              <Button variant="outline" size="sm" onClick={handleBulkExport} className="text-xs md:text-sm">
+                <Download className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
                 Export All
               </Button>
-              <Button onClick={() => navigate('/queries/create')} size="sm" className="bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700">
-                <Plus className="h-4 w-4 mr-2" />
+              <Button onClick={() => navigate('/queries/create')} size="sm" className="bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-xs md:text-sm">
+                <Plus className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
                 Create Enquiry
               </Button>
-              <Button onClick={() => setShowQuickCreate(true)} size="sm" className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700">
-                <Plus className="h-4 w-4 mr-2" />
+              <Button onClick={() => setShowQuickCreate(true)} size="sm" className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-xs md:text-sm">
+                <Plus className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
                 Quick Create
               </Button>
             </div>
@@ -590,7 +594,7 @@ const Queries: React.FC = () => {
         )}
 
         {/* Enhanced Statistics Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 md:gap-4">
           <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -706,9 +710,9 @@ const Queries: React.FC = () => {
                   {filteredAndSortedQueries.length} items • Newest first
                 </Badge>
               </div>
-              <div className="flex items-center gap-2">
-                <Button onClick={() => navigate('/queries/create')} size="sm" className="bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700">
-                  <Plus className="h-4 w-4 mr-2" />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={() => navigate('/queries/create')} size="sm" className="bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-xs md:text-sm">
+                  <Plus className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
                   Create New Enquiry
                 </Button>
                 <div className="flex items-center gap-1">
@@ -716,22 +720,24 @@ const Queries: React.FC = () => {
                     checked={selectedQueries.length === filteredAndSortedQueries.length && filteredAndSortedQueries.length > 0}
                     onCheckedChange={handleSelectAll}
                   />
-                  <span className="text-sm text-muted-foreground">Select All</span>
+                  <span className="text-xs md:text-sm text-muted-foreground">Select All</span>
                 </div>
                 <Button
                   variant={viewMode === 'card' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setViewMode('card')}
+                  className="text-xs md:text-sm"
                 >
-                  <Grid3X3 className="h-4 w-4 mr-2" />
+                  <Grid3X3 className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
                   Card View
                 </Button>
                 <Button
                   variant={viewMode === 'table' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setViewMode('table')}
+                  className="text-xs md:text-sm"
                 >
-                  <List className="h-4 w-4 mr-2" />
+                  <List className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
                   Table View
                 </Button>
               </div>
@@ -739,23 +745,23 @@ const Queries: React.FC = () => {
           </CardHeader>
           <CardContent className="p-6">
             {/* Search and Filters */}
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
               <div className="flex flex-1 items-center space-x-2">
-                <Search className="h-4 w-4 text-muted-foreground" />
+                <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 <Input
                   placeholder="Search by ID, agent, destination, or city..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="max-w-sm"
+                  className="max-w-full md:max-w-sm"
                 />
               </div>
               
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
+              <div className="flex flex-wrap items-center gap-2">
+                <Filter className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 <select 
                   value={selectedStatus}
                   onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="border border-input rounded-md px-3 py-2 text-sm"
+                  className="border border-input rounded-md px-3 py-2 text-sm min-w-[120px]"
                 >
                   <option value="all">All Status</option>
                   <option value="new">New</option>
@@ -770,6 +776,7 @@ const Queries: React.FC = () => {
                   variant="outline" 
                   size="sm"
                   onClick={() => navigate('/queries/assign')}
+                  className="whitespace-nowrap"
                 >
                   <ArrowRightLeft className="h-4 w-4 mr-2" />
                   Assign Queries
@@ -779,57 +786,59 @@ const Queries: React.FC = () => {
 
             {/* Sorting Controls */}
             <div className="flex flex-wrap gap-2 mb-4 p-3 bg-gray-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-600 mr-2">Sort by:</span>
-              <Button
-                variant={sortConfig.key === 'createdAt' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleSort('createdAt')}
-                className="gap-2"
-              >
-                <CalendarDays className="h-4 w-4" />
-                Created (Newest First)
-                {getSortIcon('createdAt')}
-              </Button>
-              <Button
-                variant={sortConfig.key === 'priority' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleSort('priority')}
-                className="gap-2"
-              >
-                <AlertCircle className="h-4 w-4" />
-                Priority
-                {getSortIcon('priority')}
-              </Button>
-              <Button
-                variant={sortConfig.key === 'departure' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleSort('departure')}
-                className="gap-2"
-              >
-                <CalendarDays className="h-4 w-4" />
-                Departure
-                {getSortIcon('departure')}
-              </Button>
-              <Button
-                variant={sortConfig.key === 'budget' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleSort('budget')}
-                className="gap-2"
-              >
-                <TrendingUp className="h-4 w-4" />
-                Budget
-                {getSortIcon('budget')}
-              </Button>
-              <Button
-                variant={sortConfig.key === 'pax' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleSort('pax')}
-                className="gap-2"
-              >
-                <User className="h-4 w-4" />
-                PAX Count
-                {getSortIcon('pax')}
-              </Button>
+              <span className="text-sm font-medium text-gray-600 mr-2 whitespace-nowrap">Sort by:</span>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={sortConfig.key === 'createdAt' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleSort('createdAt')}
+                  className="gap-2 text-xs md:text-sm"
+                >
+                  <CalendarDays className="h-3 w-3 md:h-4 md:w-4" />
+                  Created
+                  {getSortIcon('createdAt')}
+                </Button>
+                <Button
+                  variant={sortConfig.key === 'priority' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleSort('priority')}
+                  className="gap-2 text-xs md:text-sm"
+                >
+                  <AlertCircle className="h-3 w-3 md:h-4 md:w-4" />
+                  Priority
+                  {getSortIcon('priority')}
+                </Button>
+                <Button
+                  variant={sortConfig.key === 'departure' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleSort('departure')}
+                  className="gap-2 text-xs md:text-sm"
+                >
+                  <CalendarDays className="h-3 w-3 md:h-4 md:w-4" />
+                  Departure
+                  {getSortIcon('departure')}
+                </Button>
+                <Button
+                  variant={sortConfig.key === 'budget' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleSort('budget')}
+                  className="gap-2 text-xs md:text-sm"
+                >
+                  <TrendingUp className="h-3 w-3 md:h-4 md:w-4" />
+                  Budget
+                  {getSortIcon('budget')}
+                </Button>
+                <Button
+                  variant={sortConfig.key === 'pax' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleSort('pax')}
+                  className="gap-2 text-xs md:text-sm"
+                >
+                  <User className="h-3 w-3 md:h-4 md:w-4" />
+                  PAX Count
+                  {getSortIcon('pax')}
+                </Button>
+              </div>
             </div>
 
             {/* Results Summary */}
@@ -848,14 +857,15 @@ const Queries: React.FC = () => {
                 filteredAndSortedQueries.map(renderEnquiryRow)
               ) : (
                 // Table View
-                <div className="space-y-2">
+                <div className="space-y-2 overflow-x-auto">
                   {filteredAndSortedQueries.map((query) => (
-                    <div key={query.id} className="flex items-center gap-3 p-2 border rounded-lg hover:bg-gray-50 transition-colors">
+                    <div key={query.id} className="flex items-center gap-3 p-2 border rounded-lg hover:bg-gray-50 transition-colors min-w-max">
                       <Checkbox
                         checked={selectedQueries.some(q => q.id === query.id)}
                         onCheckedChange={(checked) => handleSelectQuery(query, !!checked)}
+                        className="flex-shrink-0"
                       />
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <EnquiryListTable 
                           queries={[query]}
                           onAssignQuery={handleQuickAssign}
@@ -899,6 +909,9 @@ const Queries: React.FC = () => {
             onOpenChange={setShowCountryAssignment}
           />
         )}
+
+        {/* Responsive Testing Panel - For development/testing only */}
+        <ResponsiveTestPanel />
       </div>
     </PageLayout>
   );

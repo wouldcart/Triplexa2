@@ -27,6 +27,8 @@ export const useTransportData = ({ itemsPerPage = 10 }: UseTransportDataProps = 
   
   // Initialize data
   useEffect(() => {
+    const abortController = new AbortController();
+    
     const loadData = async () => {
       // Load countries and cities from services
       try {
@@ -49,6 +51,7 @@ export const useTransportData = ({ itemsPerPage = 10 }: UseTransportDataProps = 
         }
         // Load transport types from Supabase (admin client)
         try {
+          if (abortController.signal.aborted) return;
           const rows = await listTransportTypes();
           const mapped: TransportType[] = rows.map(r => ({
             id: r.id,
@@ -60,6 +63,7 @@ export const useTransportData = ({ itemsPerPage = 10 }: UseTransportDataProps = 
           }));
           setTransport(mapped);
         } catch (err) {
+          if (abortController.signal.aborted) return;
           console.warn('Failed to load transport types from Supabase, falling back to local data:', err);
           // Fallback to local transport types
           setTransport(
@@ -80,6 +84,7 @@ export const useTransportData = ({ itemsPerPage = 10 }: UseTransportDataProps = 
 
     const loadLocationCodesFromSupabase = async () => {
       try {
+        if (abortController.signal.aborted) return;
         const rows = await listLocationCodes();
         const mappedLocations: LocationCode[] = rows.map((row: any) => ({
           id: row.id,
@@ -96,6 +101,7 @@ export const useTransportData = ({ itemsPerPage = 10 }: UseTransportDataProps = 
         setLocations(mappedLocations);
         console.log(`Loaded ${mappedLocations.length} location codes from database`);
       } catch (err) {
+        if (abortController.signal.aborted) return;
         console.warn('Failed to load location codes from Supabase, falling back to local data:', err);
         // Fallback to local location codes
         setLocations(
@@ -114,6 +120,7 @@ export const useTransportData = ({ itemsPerPage = 10 }: UseTransportDataProps = 
 
     const loadRoutesFromSupabase = async () => {
       try {
+        if (abortController.signal.aborted) return;
         const rows = await listTransportRoutes();
         const mappedRoutes: TransportRoute[] = rows.map((row: any, idx: number) => {
           const startCode = row.start_location_code || row.start_location || '';
@@ -157,6 +164,7 @@ export const useTransportData = ({ itemsPerPage = 10 }: UseTransportDataProps = 
         });
         setRoutes(mappedRoutes);
       } catch (err) {
+        if (abortController.signal.aborted) return;
         console.error('Failed to load transport routes from Supabase:', err);
         // Fallback to local data to keep the inventory page functional
         const fallbackRoutes: TransportRoute[] = localTransportRoutes.map(r => ({
@@ -221,6 +229,10 @@ export const useTransportData = ({ itemsPerPage = 10 }: UseTransportDataProps = 
       .subscribe();
 
     return () => {
+      // Abort any pending requests
+      abortController.abort();
+      
+      // Remove realtime channels
       try {
         supabase.removeChannel(routesChannel);
         supabase.removeChannel(locationCodesChannel);

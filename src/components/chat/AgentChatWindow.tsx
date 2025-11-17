@@ -54,7 +54,7 @@ const AgentChatWindow: React.FC<AgentChatWindowProps> = ({ open, onOpenChange, m
             Start a quick conversation with your assigned manager. Messages here are not persisted.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col h-80">
+        <div className="flex flex-col h-[60vh] max-h-[80vh]">
           <ScrollArea className="flex-1 rounded border p-3" ref={scrollRef as any}>
             <div className="space-y-2">
               {messages.map((m, idx) => (

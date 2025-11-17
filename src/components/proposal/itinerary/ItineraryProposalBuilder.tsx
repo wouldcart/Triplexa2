@@ -14,6 +14,8 @@ import { EnhancedInventorySelector } from './EnhancedInventorySelector';
 import { ItineraryExport } from './ItineraryExport';
 import { ItineraryChat } from './ItineraryChat';
 import { DayByDayProposalCreator } from './DayByDayProposalCreator';
+import { OptionalRecords } from '@/types/optionalRecords';
+import { supabase } from '@/lib/supabaseClient';
 import { 
   Calendar, MapPin, Users, Clock, DollarSign, 
   Save, Send, Download, MessageCircle, Settings,
@@ -34,6 +36,16 @@ const ItineraryProposalBuilder: React.FC<ItineraryProposalBuilderProps> = ({ que
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('timeline');
   const [saving, setSaving] = useState(false);
+  const [optionalRecords, setOptionalRecords] = useState<OptionalRecords>({});
+
+  // Helper function to check if a country is optional (derived from its cities)
+  const isCountryOptional = (countryName: string) => {
+    if (!optionalRecords?.cities || !query?.destination.cities) return false;
+    
+    // If any city in the country is optional, consider the country optional
+    const optionalCities = optionalRecords.cities.filter((city: any) => city.isOptional);
+    return optionalCities.length > 0;
+  };
 
   const currentQueryId = queryId || id;
 
@@ -50,6 +62,21 @@ const ItineraryProposalBuilder: React.FC<ItineraryProposalBuilderProps> = ({ que
         }
 
         setQuery(queryData);
+
+        // Load optional records from proposals table
+        try {
+          const { data: proposalData, error } = await supabase
+            .from('proposals')
+            .select('optional_records')
+            .eq('id', currentQueryId)
+            .single();
+          
+          if (proposalData?.optional_records) {
+            setOptionalRecords(proposalData.optional_records);
+          }
+        } catch (error) {
+          console.error('Error loading optional records:', error);
+        }
 
         // Try to load existing itinerary or generate new one
         const existingItinerary = await loadExistingItinerary(currentQueryId);
@@ -237,7 +264,14 @@ const ItineraryProposalBuilder: React.FC<ItineraryProposalBuilderProps> = ({ que
                   <CardTitle className="text-2xl">Enhanced Day-to-Day Itinerary Builder</CardTitle>
                 </div>
                 <p className="text-blue-100 dark:text-blue-200">
-                  {query.destination.cities.join(', ')}, {query.destination.country} • {query.paxDetails.adults + query.paxDetails.children + query.paxDetails.infants} travelers
+                  {query.destination.cities.join(', ')}, {query.destination.country}
+                  {isCountryOptional(query.destination.country) && (
+                    <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 ml-1">
+                      Optional Country
+                    </Badge>
+                  )}
+                  {' • '}
+                  {query.paxDetails.adults + query.paxDetails.children + query.paxDetails.infants} travelers
                 </p>
                 <p className="text-sm text-blue-100 dark:text-blue-200 mt-1">
                   {query.travelDates.from} to {query.travelDates.to} • {itinerary.duration.days} days, {itinerary.duration.nights} nights

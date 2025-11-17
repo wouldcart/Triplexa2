@@ -49,6 +49,13 @@ const GoogleHotelImporter: React.FC<GoogleHotelImporterProps> = ({ onClose }) =>
     // Simulate API delay for realistic experience
     await new Promise(resolve => setTimeout(resolve, 2000));
     
+    // Return empty array - Google API integration should be added here
+    // For now, users should add hotels manually through the hotel management interface
+    return [];
+    
+    /*
+    // Commented out mock data - Google API integration should be added here
+    // For now, users should add hotels manually through the hotel management interface
     const mockResults: GoogleHotelData[] = [];
     const query = searchQuery.toLowerCase();
     
@@ -514,11 +521,18 @@ const GoogleHotelImporter: React.FC<GoogleHotelImporterProps> = ({ onClose }) =>
       );
     }
     
-    return mockResults;
+    // return mockResults;
+    */
   };
 
   // Parse Google Travel URL to extract hotel data - supports ALL hotel types
   const parseGoogleTravelUrl = (url: string): GoogleHotelData[] => {
+    // Return empty array - Google API integration should be added here
+    // For now, users should add hotels manually through the hotel management interface
+    return [];
+    
+    /*
+    // Commented out mock data - Google API integration should be added here
     // Detect location from URL to provide relevant hotels
     const urlLower = url.toLowerCase();
     let mockHotels: GoogleHotelData[] = [];
@@ -726,7 +740,8 @@ const GoogleHotelImporter: React.FC<GoogleHotelImporterProps> = ({ onClose }) =>
     }
 
     // Return ALL hotel types (no filtering by star rating)
-    return mockHotels;
+    // return mockHotels;
+    */
   };
 
   const handleSearch = async () => {

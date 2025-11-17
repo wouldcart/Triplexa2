@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -12,6 +12,8 @@ import { ItineraryDay } from './DayByDayItineraryBuilder';
 import { useProposalPersistence } from '@/hooks/useProposalPersistence';
 import { useDebounce } from '@/hooks/useDebounce';
 import { computeProposalSummarySnapshot, snapshotToEnhancedMarkupData, dispatchProposalSummaryUpdate } from '@/utils/markupSync';
+import { OptionalRecords } from '@/types/optionalRecords';
+import { useOptionalRecords } from '@/hooks/useOptionalRecords';
 interface CompactProposalSummaryProps {
   days: ItineraryDay[];
   query: Query;
@@ -19,16 +21,94 @@ interface CompactProposalSummaryProps {
   accommodationsByDay: {
     [dayNumber: number]: AccommodationStay[];
   };
+  optionalRecords?: OptionalRecords;
+  proposalId?: string;
+  showEnhancedOptional?: boolean;
 }
 export const CompactProposalSummary: React.FC<CompactProposalSummaryProps> = ({
   days,
   query,
   accommodations,
-  accommodationsByDay
+  accommodationsByDay,
+  optionalRecords,
+  proposalId,
+  showEnhancedOptional = false
 }) => {
   const queryId = query?.id || '';
   const { updateAccommodationData } = useProposalPersistence(queryId, 'enhanced');
   const { debouncedFn: debouncedUpdate } = useDebounce(updateAccommodationData, 1000);
+
+  // Helper function to check if a country is optional (derived from its cities)
+  const isCountryOptional = (countryName: string) => {
+    if (!optionalRecords?.cities || !query?.destination.cities) return false;
+    
+    // Get all cities for this country from the query
+    const countryCities = query.destination.cities;
+    
+    // Check if any of the country's cities are marked as optional
+    return countryCities.some(countryCity => {
+      return optionalRecords.cities.some((optionalCity: any) => {
+        // Check both possible data structures for backward compatibility
+        // New format: cityId/cityName
+        if (optionalCity.cityId && optionalCity.cityName) {
+          return optionalCity.cityName.toLowerCase() === countryCity.toLowerCase() && optionalCity.isOptional;
+        }
+        // Old format: city field
+        if (optionalCity.city) {
+          return optionalCity.city.toLowerCase() === countryCity.toLowerCase() && optionalCity.isOptional;
+        }
+        // Direct comparison for other formats
+        return false;
+      });
+    });
+  };
+
+  // Helper function to check if a specific city is optional
+  const isCityOptional = (cityName: string) => {
+    if (!optionalRecords?.cities || !cityName) return false;
+    
+    // Check both possible data structures for backward compatibility
+    return optionalRecords.cities.some((city: any) => {
+      // New format: cityId/cityName
+      if (city.cityId && city.cityName) {
+        return city.cityName.toLowerCase() === cityName.toLowerCase() && city.isOptional;
+      }
+      // Old format: city field
+      if (city.city) {
+        return city.city.toLowerCase() === cityName.toLowerCase() && city.isOptional;
+      }
+      // Direct city name comparison
+      return false;
+    });
+  };
+
+  // Real-time validation effect for optional cities
+  useEffect(() => {
+    console.log('🔍 CompactProposalSummary: Validating optional cities in real-time:', optionalRecords);
+    
+    if (optionalRecords?.cities) {
+      console.log('📍 Optional cities detected in CompactProposalSummary:', optionalRecords.cities);
+      
+      // Validate each city in the query
+      if (query?.destination.cities) {
+        query.destination.cities.forEach(city => {
+          const isOptional = isCityOptional(city);
+          console.log(`🏙️ CompactProposalSummary: City "${city}" is optional:`, isOptional);
+        });
+      }
+    }
+  }, [optionalRecords, query?.destination.cities]);
+
+  // Enhanced optional calculations using the new optional records system
+  const enhancedOptionalCalculations = useMemo(() => {
+    if (!showEnhancedOptional || !proposalId) {
+      return null;
+    }
+
+    // This will be used to integrate with the enhanced optional system
+    // For now, return null to maintain backward compatibility
+    return null;
+  }, [showEnhancedOptional, proposalId]);
 
   // Compute and persist pricing snapshot whenever data changes - with proper debouncing
   useEffect(() => {
@@ -351,6 +431,69 @@ export const CompactProposalSummary: React.FC<CompactProposalSummaryProps> = ({
             />
           ));
         })()}
+
+        {/* Enhanced Optional Components Summary */}
+        {showEnhancedOptional && proposalId && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Eye className="h-4 w-4 text-amber-600" />
+              <h4 className="font-medium text-amber-800 dark:text-amber-200">
+                Optional Components
+              </h4>
+              <Badge variant="outline" className="ml-auto bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200">
+                Enhanced
+              </Badge>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card className="p-4 bg-gradient-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200/50 dark:border-blue-800/50">
+                <div className="space-y-3">
+                  <h5 className="font-medium flex items-center gap-2 text-blue-800 dark:text-blue-200">
+                    <Package className="h-4 w-4" />
+                    Base Package (Mandatory)
+                  </h5>
+                  <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">
+                    {formatCurrency(baseCost, query?.destination.country || 'USA')}
+                  </div>
+                  <div className="text-sm text-blue-600 dark:text-blue-400">
+                    {sightseeingActivities.length + transportActivities.length} mandatory components
+                  </div>
+                </div>
+              </Card>
+              
+              <Card className="p-4 bg-gradient-to-br from-amber-50/50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200/50 dark:border-amber-800/50">
+                <div className="space-y-3">
+                  <h5 className="font-medium flex items-center gap-2 text-amber-800 dark:text-amber-200">
+                    <Eye className="h-4 w-4" />
+                    Optional Add-ons
+                  </h5>
+                  <div className="text-2xl font-bold text-amber-900 dark:text-amber-100">
+                    +{formatCurrency(0, query?.destination.country || 'USA')}
+                  </div>
+                  <div className="text-sm text-amber-600 dark:text-amber-400">
+                    Use EnhancedProposalSummary for detailed optional tracking
+                  </div>
+                </div>
+              </Card>
+            </div>
+            
+            <div className="p-4 bg-gradient-to-r from-blue-50/30 via-amber-50/30 to-green-50/30 dark:from-blue-950/20 dark:via-amber-950/20 dark:to-green-950/20 rounded-lg border">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-lg font-semibold">Enhanced Package Range</div>
+                  <div className="text-sm text-muted-foreground">
+                    Base Total → Base + Optional Components
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-bold text-primary">
+                    {formatCurrency(baseCost, query?.destination.country || 'USA')} → Dynamic Range
+                  </div>
+                  <div className="text-xs text-muted-foreground">Use EnhancedProposalSummary for full functionality</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Enhanced Activities Summary */}
         {sightseeingActivities.length > 0 && <div className="space-y-4">
@@ -755,9 +898,23 @@ export const CompactProposalSummary: React.FC<CompactProposalSummaryProps> = ({
           <Badge variant="outline" className="text-xs">
             <MapPin className="h-3 w-3 mr-1" />
             {query?.destination.country}
+            {isCountryOptional(query?.destination.country || '') && (
+              <span className="ml-1 text-purple-600 dark:text-purple-400">• Optional</span>
+            )}
           </Badge>
           {query?.destination.cities.length > 0 && <Badge variant="secondary" className="text-xs">
-              {query.destination.cities.slice(0, 2).join(', ')}
+              {query.destination.cities.slice(0, 2).map(city => (
+                <span key={city} className="inline-flex items-center gap-1">
+                  {city}
+                  {isCityOptional(city) && (
+                    <span className="text-xs text-orange-600 bg-orange-50 border border-orange-300 rounded-full px-1 py-0.5 ml-1">
+                      Optional
+                    </span>
+                  )}
+                </span>
+              )).reduce((prev, curr, idx) => (
+                idx === 0 ? [curr] : [...prev, <span key={`sep-${idx}`} className="mx-1">,</span>, curr]
+              ), [] as React.ReactNode[])}
               {query.destination.cities.length > 2 && ` +${query.destination.cities.length - 2}`}
             </Badge>}
           {query?.travelDates?.from && query?.travelDates?.to && <Badge variant="outline" className="text-xs">

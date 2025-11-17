@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import * as React from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import PageLayout from "@/components/layout/PageLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +20,8 @@ import { useToast } from "@/hooks/use-toast";
 import { AgentSelector } from '@/components/queries/AgentSelector';
 import { CountryCitySelector } from './components/CountryCitySelector';
 import { CityNightAllocator } from '@/components/proposal/CityNightAllocator';
+import { OptionalSightseeingOptions } from '@/components/queries/OptionalSightseeingOptions';
+import { OptionalTransportOptions } from '@/components/queries/OptionalTransportOptions';
 import { Query } from '@/types/query';
 import { createEnquiry } from '@/services/enquiriesService';
 import { EnqIdGenerator } from '@/utils/enqIdGenerator';
@@ -27,6 +30,7 @@ import { findSupabaseAgentByNumericId } from '@/utils/supabaseAgentIds';
 import { useAgentData } from '@/hooks/useAgentData';
 import { useSupabaseAgentsList } from '@/hooks/useSupabaseAgentsList';
 import { toNumericAgentId } from '@/utils/supabaseAgentIds';
+import { useOptionalCities } from '@/hooks/useOptionalCities';
 
 const CreateQuery: React.FC = () => {
   const navigate = useNavigate();
@@ -59,6 +63,83 @@ const CreateQuery: React.FC = () => {
   
   // City night allocations
   const [cityAllocations, setCityAllocations] = useState([]);
+
+  // Optional city allocation toggle and percentages (independent of night allocations)
+  const {
+    cityAllocations: optionalCityAllocations,
+    onCityAllocationsChange: setOptionalCityAllocations,
+    isOptionalEnabled,
+    setOptionalEnabled,
+  } = useOptionalCities();
+
+  const [cityOptionalFlags, setCityOptionalFlags] = useState<Record<string, boolean>>({});
+  const handleCityOptionalChange = (cityName: string, optional: boolean) => {
+    setCityOptionalFlags(prev => ({ ...prev, [cityName]: optional }));
+  };
+
+  // Clear transfer selections when package type changes to hotel-only
+  useEffect(() => {
+    if (packageType === 'hotel-only') {
+      setInclusions(prev => ({
+        ...prev,
+        transportTypes: [],
+        transfers: ''
+      }));
+    }
+  }, [packageType]);
+
+  // Optional sightseeing options
+  const [optionalSightseeingOptions, setOptionalSightseeingOptions] = useState([
+    { id: 'option1', title: 'Option 1: Cultural Heritage Tour', description: 'Museums, historical sites, and cultural experiences', activities: [], isOptional: false },
+    { id: 'option2', title: 'Option 2: Adventure & Nature Tour', description: 'Outdoor activities, nature walks, and adventure sports', activities: [], isOptional: false }
+  ]);
+
+  const updateSightseeingOption = (id: string, field: string, value: any) => {
+    setOptionalSightseeingOptions(prev => prev.map(option => 
+      option.id === id ? { ...option, [field]: value } : option
+    ));
+  };
+
+  const addSightseeingActivity = (optionId: string) => {
+    setOptionalSightseeingOptions(prev => prev.map(option => 
+      option.id === optionId ? {
+        ...option,
+        activities: [...option.activities, { name: '', duration: '', cost: 0, description: '' }]
+      } : option
+    ));
+  };
+
+  const updateSightseeingActivity = (optionId: string, activityIndex: number, field: string, value: any) => {
+    setOptionalSightseeingOptions(prev => prev.map(option => 
+      option.id === optionId ? {
+        ...option,
+        activities: option.activities.map((activity, index) => 
+          index === activityIndex ? { ...activity, [field]: value } : activity
+        )
+      } : option
+    ));
+  };
+
+  const removeSightseeingActivity = (optionId: string, activityIndex: number) => {
+    setOptionalSightseeingOptions(prev => prev.map(option => 
+      option.id === optionId ? {
+        ...option,
+        activities: option.activities.filter((_, index) => index !== activityIndex)
+      } : option
+    ));
+  };
+
+  // Optional transport options
+  const [optionalTransportOptions, setOptionalTransportOptions] = useState([
+    { id: 'transport1', type: 'private' as const, description: 'Private car with driver', cost: 0, isOptional: false },
+    { id: 'transport2', type: 'shared' as const, description: 'Shared shuttle service', cost: 0, isOptional: false }
+  ]);
+
+  const updateTransportOption = (id: string, field: string, value: any) => {
+    setOptionalTransportOptions(prev => prev.map(option => 
+      option.id === id ? { ...option, [field]: value } : option
+    ));
+  };
 
   const calculateTripDuration = () => {
     if (isManualDuration) {
@@ -100,6 +181,23 @@ const CreateQuery: React.FC = () => {
     const supabaseAgent = findSupabaseAgentByNumericId(agents, numericAgentId);
     const agentUuid = supabaseAgent?.id;
     
+    const finalCityAllocations = (() => {
+      const existing = cityAllocations || [];
+      const byCity = new Map<string, any>();
+      existing.forEach((a: any) => {
+        const key = typeof a.city === 'string' ? a.city : String(a.city);
+        byCity.set(key, a);
+      });
+      const merged: any[] = [];
+      destination.cities.filter(c => c.trim() !== '').forEach((city) => {
+        const key = city;
+        const alloc = byCity.get(key) || { id: key, city: key, nights: 0, isOptional: false, estimatedCost: 0 };
+        const opt = !!cityOptionalFlags[key];
+        merged.push({ ...alloc, isOptional: opt });
+      });
+      return merged;
+    })();
+
     const queryData: Omit<Query, 'createdAt' | 'updatedAt'> = {
       id: enquiryId,
       agentId: numericAgentId,
@@ -126,7 +224,9 @@ const CreateQuery: React.FC = () => {
       communicationPreference,
       hotelDetails,
       inclusions,
-      cityAllocations: cityAllocations // Include city allocations in the query data
+      cityAllocations: finalCityAllocations,
+      optionalSightseeingOptions: [],
+      optionalTransportOptions: []
     };
 
     try {
@@ -281,6 +381,12 @@ const CreateQuery: React.FC = () => {
                   <CountryCitySelector
                     destination={destination}
                     onDestinationChange={setDestination}
+                    cityAllocations={optionalCityAllocations}
+                    onCityAllocationsChange={setOptionalCityAllocations}
+                    isOptionalEnabled={isOptionalEnabled}
+                    onOptionalToggle={setOptionalEnabled}
+                    cityOptionalFlags={cityOptionalFlags}
+                    onCityOptionalChange={handleCityOptionalChange}
                   />
                 </CardContent>
               </Card>
@@ -306,7 +412,9 @@ const CreateQuery: React.FC = () => {
                           min="1"
                           value={paxDetails.adults}
                           onChange={(e) => setPaxDetails(prev => ({ ...prev, adults: parseInt(e.target.value) || 0 }))}
-                          className="text-center bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                          placeholder="0"
+                          className="text-center bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 min-h-[48px] text-base sm:text-lg md:text-base touch-manipulation"
+                          inputMode="numeric"
                         />
                       </div>
                       <div className="space-y-2">
@@ -317,7 +425,9 @@ const CreateQuery: React.FC = () => {
                           min="0"
                           value={paxDetails.children}
                           onChange={(e) => setPaxDetails(prev => ({ ...prev, children: parseInt(e.target.value) || 0 }))}
-                          className="text-center bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                          placeholder="0"
+                          className="text-center bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 min-h-[48px] text-base sm:text-lg md:text-base touch-manipulation"
+                          inputMode="numeric"
                         />
                       </div>
                       <div className="space-y-2">
@@ -328,7 +438,9 @@ const CreateQuery: React.FC = () => {
                           min="0"
                           value={paxDetails.infants}
                           onChange={(e) => setPaxDetails(prev => ({ ...prev, infants: parseInt(e.target.value) || 0 }))}
-                          className="text-center bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                          placeholder="0"
+                          className="text-center bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 min-h-[48px] text-base sm:text-lg md:text-base touch-manipulation"
+                          inputMode="numeric"
                         />
                       </div>
                     </div>
@@ -451,7 +563,9 @@ const CreateQuery: React.FC = () => {
                               min="1"
                               value={manualDuration.days}
                               onChange={(e) => handleManualDurationChange('days', e.target.value)}
-                              className="h-7 text-sm"
+                              placeholder="0"
+                              className="h-7 text-sm min-h-[48px] sm:min-h-[32px] text-base sm:text-sm touch-manipulation"
+                              inputMode="numeric"
                             />
                           </div>
                           <div className="space-y-1">
@@ -461,7 +575,9 @@ const CreateQuery: React.FC = () => {
                               min="0"
                               value={manualDuration.nights}
                               onChange={(e) => handleManualDurationChange('nights', e.target.value)}
-                              className="h-7 text-sm"
+                              placeholder="0"
+                              className="h-7 text-sm min-h-[48px] sm:min-h-[32px] text-base sm:text-sm touch-manipulation"
+                              inputMode="numeric"
                             />
                           </div>
                         </div>
@@ -545,9 +661,11 @@ const CreateQuery: React.FC = () => {
                     </div>
 
                     {/* Transfer Types */}
-                    <div>
+                    <div className={packageType === 'hotel-only' ? 'opacity-50' : ''}>
                       <Label className="text-sm font-medium mb-2 block text-gray-900 dark:text-gray-100">Transfer Types (Optional)</Label>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">You can select one or both transfer types, or leave unselected if not needed</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                        You can select one or both transfer types, or leave unselected if not needed
+                      </p>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="flex items-center space-x-3">
                           <Checkbox
@@ -609,7 +727,9 @@ const CreateQuery: React.FC = () => {
                           min="1"
                           value={hotelDetails.rooms}
                           onChange={(e) => setHotelDetails(prev => ({ ...prev, rooms: parseInt(e.target.value) || 1 }))}
-                          className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                          placeholder="0"
+                          className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 min-h-[48px] text-base sm:text-lg md:text-base touch-manipulation"
+                          inputMode="numeric"
                         />
                       </div>
                       <div className="space-y-2">
@@ -667,7 +787,8 @@ const CreateQuery: React.FC = () => {
                         value={budget.min}
                         onChange={(e) => setBudget(prev => ({ ...prev, min: parseInt(e.target.value) || 0 }))}
                         placeholder="0"
-                        className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                        className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 min-h-[48px] text-base sm:text-lg md:text-base touch-manipulation"
+                        inputMode="numeric"
                       />
                     </div>
                     <div className="space-y-2">
@@ -679,7 +800,8 @@ const CreateQuery: React.FC = () => {
                         value={budget.max}
                         onChange={(e) => setBudget(prev => ({ ...prev, max: parseInt(e.target.value) || 0 }))}
                         placeholder="0"
-                        className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                        className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 min-h-[48px] text-base sm:text-lg md:text-base touch-manipulation"
+                        inputMode="numeric"
                       />
                     </div>
                     <div className="space-y-2">

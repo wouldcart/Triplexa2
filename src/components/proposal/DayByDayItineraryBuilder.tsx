@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,9 +8,11 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, X, MapPin, Clock, DollarSign, Save, Send, Wand2, Trash2, Car, Hotel, Activity, Eye, Camera, Calendar, LogOut, LogIn, CheckCircle2, Package, Calculator, Settings, Users, UtensilsCrossed } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { useProposalBuilder } from "@/hooks/useProposalBuilder";
 import { useAutoSaveProposal } from "@/hooks/useAutoSaveProposal";
 import { Query } from '@/types/query';
+import { OptionalRecords } from '@/types/optionalRecords';
 import { AutoDayGenerator } from './AutoDayGenerator';
 import { EnhancedInventorySuggestionPanel } from './EnhancedInventorySuggestionPanel';
 import { SmartSuggestionsPopover } from './SmartSuggestionsPopover';
@@ -23,7 +25,14 @@ import { useToast } from '@/hooks/use-toast';
 import { CapacityValidator } from './transfer/CapacityValidator';
 import { VehicleQuantitySelector } from './transfer/VehicleQuantitySelector';
 import { useProposalPersistence } from '@/hooks/useProposalPersistence';
-export interface ItineraryActivity {
+import RealTimeOptionalToggle from './itinerary/RealTimeOptionalToggle';
+import { useOptionalItem } from '@/hooks/useOptionalRecords';
+import ActivityOptionalToggle from './itinerary/ActivityOptionalToggle';
+// Optional modules removed for cleaner UI
+// import CitySelectionPanel from '@/components/proposal/options/CitySelectionPanel';
+// import SightseeingOptionsModule from '@/components/proposal/options/SightseeingOptionsModule';
+// import TransportOptionsModule from '@/components/proposal/options/TransportOptionsModule';
+interface ItineraryActivity {
   id: string;
   name: string;
   description: string;
@@ -45,6 +54,7 @@ export interface ItineraryActivity {
   seatingCapacity?: number;
   vehicleCount?: number;
 }
+
 export interface ItineraryDay {
   id: string;
   dayNumber: number;
@@ -61,49 +71,6 @@ export interface ItineraryDay {
     hotel?: string;
     roomType?: string;
   };
-  transport: {
-    id: string;
-    name: string;
-    from: string;
-    to: string;
-    price: number;
-    type?: string;
-    routeCode?: string;
-    vehicleType?: string;
-    pickupLocation?: string;
-    dropLocation?: string;
-    pickupTime?: string;
-    dropTime?: string;
-    vehicleSummary?: string;
-    totalCapacity?: number;
-    totalPax?: number;
-  }[];
-  accommodations: {
-    id: string;
-    name: string;
-    type: string;
-    price: number;
-    hotel?: string;
-    roomType?: string;
-  }[];
-  hotelCheckout?: {
-    id: string;
-    name: string;
-    checkoutTime: string;
-    price: number;
-  };
-  hotelCheckin?: {
-    id: string;
-    name: string;
-    checkinTime: string;
-    price: number;
-  };
-  meals: {
-    breakfast: boolean;
-    lunch: boolean;
-    dinner: boolean;
-  };
-  totalCost: number;
 }
 interface DayByDayItineraryBuilderProps {
   queryId: string;
@@ -111,13 +78,17 @@ interface DayByDayItineraryBuilderProps {
   initialDays?: ItineraryDay[];
   onSave?: (days: ItineraryDay[]) => void;
   onDataChange?: (days: ItineraryDay[]) => void;
+  optionalRecords?: OptionalRecords;
+  onToggleCityOptional?: (cityId: string, isOptional: boolean) => void;
 }
 export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> = ({
   queryId,
   query,
   initialDays = [],
   onSave,
-  onDataChange
+  onDataChange,
+  optionalRecords,
+  onToggleCityOptional
 }) => {
   const {
     toast
@@ -126,16 +97,100 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
   // Editable heading state
   const [itineraryTitle, setItineraryTitle] = useState("Itinerary Builder");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
+  const [editingTransportId, setEditingTransportId] = useState<string | null>(null);
+  const [quickTransportForDay, setQuickTransportForDay] = useState<string | null>(null);
+  const [quickTransportType, setQuickTransportType] = useState<string>('PVT');
+  const [quickVehicleType, setQuickVehicleType] = useState<string>('private_car');
+  const [quickStartLocation, setQuickStartLocation] = useState<string>('');
+  const [quickEndLocation, setQuickEndLocation] = useState<string>('');
+  const [quickPrice, setQuickPrice] = useState<number>(0);
 
-  // Generate dynamic title for the itinerary
-  const generateDynamicTitle = () => {
-    if (query) {
-      const cities = query.destination.cities?.join(", ") || query.destination.country;
-      const dayCount = days.length || query.tripDuration?.days || 0;
-      return `${queryId} - ${cities} - ${dayCount} Days Itinerary`;
-    }
-    return "Itinerary Builder";
+  // Activity edit state
+  const [editingActivityData, setEditingActivityData] = useState<{
+    name: string;
+    description: string;
+    duration: string;
+    cost: number;
+    pickupLocation: string;
+    dropoffLocation: string;
+  }>({
+    name: '',
+    description: '',
+    duration: '',
+    cost: 0,
+    pickupLocation: '',
+    dropoffLocation: ''
+  });
+
+  // Transport edit state
+  const [editingTransportData, setEditingTransportData] = useState<{
+    name: string;
+    from: string;
+    to: string;
+    price: number;
+    transportType: string;
+    pickupLocation: string;
+    dropLocation: string;
+    pickupTime: string;
+    dropTime: string;
+  }>({
+    name: '',
+    from: '',
+    to: '',
+    price: 0,
+    transportType: 'PVT',
+    pickupLocation: '',
+    dropLocation: '',
+    pickupTime: '',
+    dropTime: ''
+  });
+
+  // Helper function to check if a city is optional
+  const isCityOptional = (cityName: string) => {
+    if (!optionalRecords?.cities || !cityName) return false;
+    
+    // Check both possible data structures for backward compatibility
+    return optionalRecords.cities.some((city: any) => {
+      // New format: cityId/cityName
+      if (city.cityId && city.cityName) {
+        return city.cityName.toLowerCase() === cityName.toLowerCase() && city.isOptional;
+      }
+      // Old format: city field
+      if (city.city) {
+        return city.city.toLowerCase() === cityName.toLowerCase() && city.isOptional;
+      }
+      // Direct city name comparison
+      return false;
+    });
   };
+
+  // Helper function to check if a country is optional (derived from its cities)
+  const isCountryOptional = (countryName: string) => {
+    if (!optionalRecords?.cities || !query?.destination.cities) return false;
+    
+    // Get all cities for this country from the query
+    const countryCities = query.destination.cities;
+    
+    // Check if any of the country's cities are marked as optional
+    return countryCities.some(countryCity => {
+      return optionalRecords.cities.some((optionalCity: any) => {
+        // Check both possible data structures for backward compatibility
+        // New format: cityId/cityName
+        if (optionalCity.cityId && optionalCity.cityName) {
+          return optionalCity.cityName.toLowerCase() === countryCity.toLowerCase() && optionalCity.isOptional;
+        }
+        // Old format: city field
+        if (optionalCity.city) {
+          return optionalCity.city.toLowerCase() === countryCity.toLowerCase() && optionalCity.isOptional;
+        }
+        // Direct comparison for other formats
+        return false;
+      });
+    });
+  };
+
+  // Real-time validation effect for optional cities - removed from here, will be added after days declaration
 
   const {
     days,
@@ -156,6 +211,166 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
     generateProposal
   } = useProposalBuilder(queryId);
 
+  // Generate dynamic title for the itinerary - moved after days declaration
+  const generateDynamicTitle = () => {
+    if (query) {
+      const cities = query.destination.cities?.join(", ") || query.destination.country;
+      const dayCount = days.length || query.tripDuration?.days || 0;
+      const countryOptional = isCountryOptional(query.destination.country);
+      const optionalCities = query.destination.cities?.filter(city => isCityOptional(city)) || [];
+      
+      let title = `${queryId} - ${cities} - ${dayCount} Days Itinerary`;
+      
+      if (countryOptional) {
+        title += " (Optional Country)";
+      } else if (optionalCities.length > 0) {
+        title += ` (${optionalCities.length} Optional Cities)`;
+      }
+      
+      return title;
+    }
+    return "Itinerary Builder";
+  };
+
+  // Activity editing functions
+  const startEditingActivity = (activity: any) => {
+    setEditingActivityId(activity.id);
+    setEditingActivityData({
+      name: activity.name || '',
+      description: activity.description || '',
+      duration: activity.duration || '',
+      cost: activity.cost || 0,
+      pickupLocation: activity.pickupLocation || '',
+      dropoffLocation: activity.dropoffLocation || ''
+    });
+  };
+
+  const saveActivityEdit = (dayId: string, activityId: string) => {
+    updateActivity(dayId, activityId, editingActivityData);
+    setEditingActivityId(null);
+  };
+
+  const cancelActivityEdit = () => {
+    setEditingActivityId(null);
+    setEditingActivityData({
+      name: '',
+      description: '',
+      duration: '',
+      cost: 0,
+      pickupLocation: '',
+      dropoffLocation: ''
+    });
+  };
+
+  const updateEditingActivityData = (field: keyof typeof editingActivityData, value: any) => {
+    setEditingActivityData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // Transport editing functions
+  const startEditingTransport = (transport: any) => {
+    setEditingTransportId(transport.id);
+    setEditingTransportData({
+      name: transport.name || '',
+      from: transport.from || '',
+      to: transport.to || '',
+      price: transport.price || 0,
+      transportType: transport.transportType || 'PVT',
+      pickupLocation: transport.pickupLocation || '',
+      dropLocation: transport.dropLocation || '',
+      pickupTime: transport.pickupTime || '',
+      dropTime: transport.dropTime || ''
+    });
+  };
+
+  const saveTransportEdit = (dayId: string, transportId: string) => {
+    const day = days.find(d => d.id === dayId);
+    if (!day) return;
+    
+    const updatedTransport = (day.transport || []).map(t => 
+      t.id === transportId ? { ...t, ...editingTransportData } : t
+    );
+    
+    updateDay(dayId, { transport: updatedTransport });
+    setEditingTransportId(null);
+  };
+
+  const cancelTransportEdit = () => {
+    setEditingTransportId(null);
+    setEditingTransportData({
+      name: '',
+      from: '',
+      to: '',
+      price: 0,
+      transportType: 'PVT',
+      pickupLocation: '',
+      dropLocation: '',
+      pickupTime: '',
+      dropTime: ''
+    });
+  };
+
+  const updateEditingTransportData = (field: keyof typeof editingTransportData, value: any) => {
+    setEditingTransportData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // Real-time validation effect for optional cities - added after days declaration
+  useEffect(() => {
+    console.log('🔍 Validating optional cities in real-time:', optionalRecords);
+    
+    // Force re-render when optional records change
+    if (optionalRecords?.cities) {
+      console.log('📍 Optional cities detected:', optionalRecords.cities);
+      
+      // Validate each day against optional records
+      days.forEach(day => {
+        if (day.city) {
+          const isOptional = isCityOptional(day.city);
+          console.log(`🏙️ City "${day.city}" is optional:`, isOptional);
+        }
+      });
+      
+      // No need to force re-render - React will re-render when days change through proper API
+      // The validation logging above will help debug optional city functionality
+    }
+  }, [optionalRecords, days]);
+
+  // Enhanced validation function for real-time updates - added after days declaration
+  const validateOptionalCities = useCallback(() => {
+    if (!optionalRecords?.cities || !days.length) return;
+    
+    console.log('🔄 Running enhanced optional city validation...');
+    
+    const validationResults = days.map(day => {
+      if (!day.city) return null;
+      
+      const isOptional = isCityOptional(day.city);
+      const isCountryOptionalStatus = isCountryOptional(query?.destination.country || '');
+      
+      console.log(`📊 Validation: "${day.city}" - Optional: ${isOptional}, Country Optional: ${isCountryOptionalStatus}`);
+      
+      return {
+        dayId: day.id,
+        city: day.city,
+        isOptional,
+        isCountryOptional: isCountryOptionalStatus
+      };
+    }).filter(Boolean);
+    
+    console.log('✅ Validation complete:', validationResults);
+    return validationResults;
+  }, [optionalRecords, days, query?.destination.country, isCityOptional, isCountryOptional]);
+
+  // Optional item hooks for toggle states
+  const privateCityTourOptional = useOptionalItem(queryId, 'private_city_tour', 'sightseeing');
+  const adventureSportsOptional = useOptionalItem(queryId, 'adventure_sports_package', 'sightseeing');
+  const transportOptional = useOptionalItem(queryId, 'transport_config_1', 'transport');
+
   // Auto-save integration
   const {
     triggerAutoSave,
@@ -164,6 +379,7 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
     queryId,
     days,
     totalCost,
+    query,
     enabled: true,
     debounceMs: 2000
   });
@@ -567,6 +783,7 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
       totalCapacity: transport.totalCapacity,
       vehicleCount: transport.vehicleCount,
       totalPax: query?.paxDetails ? query.paxDetails.adults + query.paxDetails.children : undefined,
+      isOptional: false, // Default to false, can be toggled later
       // For single vehicle selections, ensure we still show configuration
       ...(transport.selectedVehicleType && !transport.isMultiVehicle && {
         vehicleSummary: `1x ${transport.selectedVehicleType}`,
@@ -583,6 +800,22 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
       totalCost: updatedTotalCost
     });
   };
+  
+  const handleTransportOptionalToggle = (dayId: string, transportId: string) => {
+    const day = days.find(d => d.id === dayId);
+    if (!day) return;
+    
+    const updatedTransport = day.transport?.map(transport => 
+      transport.id === transportId 
+        ? { ...transport, isOptional: !transport.isOptional }
+        : transport
+    ) || [];
+    
+    updateDay(dayId, {
+      transport: updatedTransport
+    });
+  };
+  
   const handleSmartAddActivity = (dayId: string, activity: any, price: number) => {
     // Extract enhanced data from SmartSuggestionsPopover
     const pricingSelection = activity.pricingSelection || {};
@@ -780,7 +1013,7 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
           selectedDayId,
           totalDays: days.length,
           citiesVisited: [...new Set(days.map(day => day.city))],
-          activitiesCount: days.reduce((sum, day) => sum + day.activities.length, 0),
+          activitiesCount: days.reduce((sum, day) => sum + day.activities.filter(activity => activity.type !== 'transport').length, 0),
           transportCount: days.reduce((sum, day) => sum + (day.transport?.length || 0), 0),
           accommodationsCount: accommodations.length
         }
@@ -878,7 +1111,14 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                 title="Click to edit title"
               >
                 {query ? 
-                  `${queryId} - ${query.destination.cities?.join(", ") || query.destination.country} - ${days.length || query.tripDuration?.days || 0} Days Itinerary` : 
+                  <div className="flex items-center gap-2">
+                    <span>{generateDynamicTitle()}</span>
+                    {isCountryOptional(query.destination.country) && (
+                      <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                        Optional Country
+                      </Badge>
+                    )}
+                  </div> : 
                   "Itinerary Builder"
                 }
               </h2>
@@ -942,19 +1182,31 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
         </div>
 
         {/* Compact Proposal Summary */}
-        <CompactProposalSummary days={days} query={query} accommodations={accommodations} accommodationsByDay={accommodationsByDay} />
+        <CompactProposalSummary days={days} query={query} accommodations={accommodations} accommodationsByDay={accommodationsByDay} optionalRecords={optionalRecords} />
 
         {/* Destination and Stats Badges */}
         {query && <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="text-xs">
               <MapPin className="h-3 w-3 mr-1" />
               {query.destination.country}
+              {isCountryOptional(query.destination.country) && (
+                <span className="ml-1 text-purple-600 dark:text-purple-400">• Optional</span>
+              )}
             </Badge>
             <Badge variant="secondary" className="text-xs">
               {availableCities.length} cities
             </Badge>
             {query.destination.cities.length > 0 && <Badge variant="default" className="text-xs">
-                {query.destination.cities.slice(0, 2).join(', ')}
+                {query.destination.cities.slice(0, 2).map(city => (
+                  <span key={city} className={isCityOptional(city) ? 'opacity-60' : ''}>
+                    {city}
+                    {isCityOptional(city) && <span className="ml-1 text-orange-600">(O)</span>}
+                  </span>
+                )).reduce((prev, curr, index) => [
+                  prev,
+                  index < query.destination.cities.slice(0, 2).length - 1 ? ', ' : '',
+                  curr
+                ] as any)}
                 {query.destination.cities.length > 2 && ` +${query.destination.cities.length - 2}`}
               </Badge>}
             {/* Travel Period Badge */}
@@ -995,7 +1247,7 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                         </Badge>
                         <div className="min-w-0 flex-1 space-y-1">
                           <CardTitle className="text-lg font-bold bg-gradient-to-r from-slate-800 via-blue-700 to-purple-700 dark:from-slate-200 dark:via-blue-300 dark:to-purple-300 bg-clip-text text-transparent leading-tight">
-                            {day.title || `Day ${day.dayNumber}`}
+                            {day.title || `${day.city}${isCityOptional(day.city) ? ' (Optional)' : ''} - Day ${day.dayNumber}`}
                           </CardTitle>
                           
                           {/* Location and Date Row */}
@@ -1003,10 +1255,12 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                             <div className="flex items-center gap-1 bg-gradient-to-r from-emerald-100 to-teal-100 dark:from-emerald-900/30 dark:to-teal-900/30 px-2 py-1 rounded border border-emerald-200 dark:border-emerald-800">
                               <MapPin className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
                               <span className="font-medium text-emerald-800 dark:text-emerald-200">{day.city}</span>
-                            </div>
-                            <div className="flex items-center gap-1 bg-gradient-to-r from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
-                              <Calendar className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-                              <span className="font-medium text-amber-800 dark:text-amber-200">{day.date}</span>
+                              {/* Optional City Indicator */}
+                              {isCityOptional(day.city) && (
+                                <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                  Optional
+                                </Badge>
+                              )}
                             </div>
                           </div>
 
@@ -1015,7 +1269,7 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                             {/* Activities Count */}
                             <div className="flex items-center gap-1 bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900/40 dark:to-pink-900/40 text-purple-800 dark:text-purple-200 px-2 py-1 rounded border border-purple-200 dark:border-purple-700">
                               <Activity className="h-3 w-3 text-purple-600 dark:text-purple-400" />
-                              <span className="font-medium">{day.activities.length}</span>
+                              <span className="font-medium">{day.activities.filter(activity => activity.type !== 'transport').length}</span>
                             </div>
                             
                             {/* Transport Count */}
@@ -1203,10 +1457,29 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
 
                     {/* 2. City/Destination */}
                     <div>
-                      <label className="text-sm font-medium flex items-center gap-2">
-                        City/Destination
-                        {query && query.destination.cities.includes(day.city) && <Badge variant="outline" className="text-xs">Primary</Badge>}
-                      </label>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-medium flex items-center gap-2">
+                          City/Destination
+                          {query && query.destination.cities.includes(day.city) && !isCityOptional(day.city) && <Badge variant="outline" className="text-xs">Primary</Badge>}
+                          {/* Optional City Indicator */}
+                          {isCityOptional(day.city) && (
+                            <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                              Optional
+                            </Badge>
+                          )}
+                        </label>
+                        {/* Optional City Toggle */}
+                        {onToggleCityOptional && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">Optional</span>
+                            <Switch
+                              checked={isCityOptional(day.city)}
+                              onCheckedChange={(checked) => onToggleCityOptional(day.city, checked)}
+                              size="sm"
+                            />
+                          </div>
+                        )}
+                      </div>
                       <Select value={day.city} onValueChange={value => updateDay(day.id, {
                     city: value
                   })}>
@@ -1225,8 +1498,13 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                                   </div>
                                 </SelectItem>)}
                               <div className="border-t my-1"></div>
-                              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground flex items-center gap-2">
                                 Other Cities in {query.destination.country}
+                                {isCountryOptional(query.destination.country) && (
+                                  <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                    Optional
+                                  </Badge>
+                                )}
                               </div>
                             </>}
                           {availableCities.filter(city => !query?.destination.cities.includes(city)).map(city => <SelectItem key={`other-${city}`} value={city}>
@@ -1300,11 +1578,34 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                                           <div className="flex items-center gap-2">
                                             <Car className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                                             <h4 className="font-semibold text-blue-900 dark:text-blue-100">Transport Configuration</h4>
+                                            {transport.isOptional && (
+                                              <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                                Optional
+                                              </Badge>
+                                            )}
                                           </div>
                                           <div className="flex items-center gap-2">
                                             <Badge variant="outline" className="text-xs">
                                               Route Active
                                             </Badge>
+                                            {/* Optional Toggle Switch */}
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-xs text-gray-600 dark:text-gray-400">Optional</span>
+                                              <button
+                                                onClick={() => handleTransportOptionalToggle(day.id, transport.id)}
+                                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                                                  transport.isOptional 
+                                                    ? 'bg-blue-600' 
+                                                    : 'bg-gray-200 dark:bg-gray-700'
+                                                }`}
+                                              >
+                                                <span
+                                                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                                                    transport.isOptional ? 'translate-x-5' : 'translate-x-1'
+                                                  }`}
+                                                />
+                                              </button>
+                                            </div>
                                           </div>
                                         </div>
 
@@ -1516,15 +1817,77 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                                      </p>
                                    </div>
                                  </div>
-                                 <Button variant="ghost" size="sm" onClick={e => {
-                          e.stopPropagation();
-                          removeTransportFromDay(day.id, transport.id);
-                        }} className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0 shrink-0">
-                                   <Trash2 className="h-3 w-3" />
-                                 </Button>
+                                 <div className="flex items-center gap-1">
+                                   <Button variant="ghost" size="sm" onClick={e => {
+                                     e.stopPropagation();
+                                     if (editingTransportId === transport.id) {
+                                       cancelTransportEdit();
+                                     } else {
+                                       startEditingTransport(transport);
+                                     }
+                                   }} className="h-8 w-8 p-0 shrink-0">
+                                     <Settings className="h-3 w-3" />
+                                   </Button>
+                                   <Button variant="ghost" size="sm" onClick={e => {
+                                     e.stopPropagation();
+                                     removeTransportFromDay(day.id, transport.id);
+                                   }} className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0 shrink-0">
+                                     <Trash2 className="h-3 w-3" />
+                                   </Button>
+                                 </div>
                                </div>
                                
-                                {/* Hidden - Editable Pickup/Drop Location Fields removed as requested */}
+                                {editingTransportId === transport.id && (
+                                  <div className="mt-2 p-2 border rounded-md">
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
+                                      <Select value={editingTransportData?.transportType ?? (transport.transportType || 'PVT')} onValueChange={(v) => {
+                                        updateEditingTransportData('transportType', v);
+                                      }}>
+                                        <SelectTrigger className="h-8 text-xs w-full">
+                                          <SelectValue placeholder="Transfer type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="PVT">Private (PVT)</SelectItem>
+                                          <SelectItem value="SIC">Shared (SIC)</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <Input value={editingTransportData?.from ?? (transport.from || '')} onChange={(e) => {
+                                        updateEditingTransportData('from', e.target.value);
+                                      }} placeholder="Start location" className="h-8 text-xs" />
+                                      <Input value={editingTransportData?.to ?? (transport.to || '')} onChange={(e) => {
+                                        updateEditingTransportData('to', e.target.value);
+                                      }} placeholder="End location" className="h-8 text-xs" />
+                                      <Input type="number" value={editingTransportData?.price ?? (transport.price || 0)} onChange={(e) => {
+                                        updateEditingTransportData('price', Number(e.target.value) || 0);
+                                      }} placeholder={editingTransportData?.transportType === 'PVT' ? 'Price per vehicle' : 'Price per person'} className="h-8 text-xs" />
+                                    </div>
+                                    
+                                    {/* Manual Save/Cancel Buttons */}
+                                    <div className="flex gap-2 pt-2">
+                                      <Button 
+                                        size="sm" 
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          saveTransportEdit(day.id, transport.id);
+                                        }}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                                      >
+                                        Save
+                                      </Button>
+                                      <Button 
+                                        size="sm" 
+                                        variant="outline"
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          cancelTransportEdit();
+                                        }}
+                                        className="border-blue-200 dark:border-blue-800/50"
+                                      >
+                                        Cancel
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
                               </div>)}
                         </div>
                       </div>}
@@ -1583,7 +1946,7 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="font-medium flex items-center gap-2">
                           <Eye className="h-4 w-4" />
-                          Sightseeing & Activities ({day.activities.length})
+                          Sightseeing & Activities ({day.activities.filter(activity => activity.type !== 'transport').length})
                         </h4>
                         <Button variant="outline" size="sm" onClick={e => {
                       e.stopPropagation();
@@ -1592,10 +1955,90 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                           <Plus className="h-3 w-3 mr-1" />
                           Add Activity
                         </Button>
+                        <Button variant="outline" size="sm" onClick={e => {
+                      e.stopPropagation();
+                      setQuickTransportForDay(prev => {
+                        const newValue = prev === day.id ? null : day.id;
+                        // Reset form fields when closing the transport dialog
+                        if (newValue === null) {
+                          setQuickStartLocation('');
+                          setQuickEndLocation('');
+                          setQuickPrice(0);
+                          setQuickVehicleType('private_car');
+                          setQuickTransportType('PVT');
+                        }
+                        return newValue;
+                      });
+                    }} className="ml-2">
+                          <Car className="h-3 w-3 mr-1" />
+                          Add Transport
+                        </Button>
                       </div>
 
-                      {day.activities.length > 0 ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {day.activities.map((activity, index) => <div key={`activity-${activity.id || `${day.id}-${index}`}`} className="p-4 bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/50 rounded-lg hover:shadow-sm transition-shadow">
+                      {quickTransportForDay === day.id && (
+                        <div className="mb-3 grid grid-cols-1 md:grid-cols-5 gap-2">
+                          <Select value={quickTransportType} onValueChange={(v) => {
+                            setQuickTransportType(v);
+                            // Reset vehicle type when transport type changes
+                            if (v === 'PVT') {
+                              setQuickVehicleType('private_car');
+                            } else {
+                              setQuickVehicleType('shared_car');
+                            }
+                          }}>
+                            <SelectTrigger className="h-8 text-xs w-full">
+                              <SelectValue placeholder="Transfer type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="PVT">Private (PVT)</SelectItem>
+                              <SelectItem value="SIC">Shared (SIC)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Select value={quickVehicleType} onValueChange={(v) => setQuickVehicleType(v)}>
+                            <SelectTrigger className="h-8 text-xs w-full">
+                              <SelectValue placeholder="Vehicle" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="private_car">Private Car</SelectItem>
+                              <SelectItem value="private_van">Private Van</SelectItem>
+                              <SelectItem value="shared_car">Shared Car</SelectItem>
+                              <SelectItem value="bus">Bus</SelectItem>
+                              <SelectItem value="minibus">Mini Bus</SelectItem>
+                              <SelectItem value="taxi">Taxi</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Input value={quickStartLocation} onChange={(e) => setQuickStartLocation(e.target.value)} placeholder="Start location" className="h-8 text-xs" />
+                          <Input value={quickEndLocation} onChange={(e) => setQuickEndLocation(e.target.value)} placeholder="End location" className="h-8 text-xs" />
+                          <div className="flex items-center gap-2">
+                            <Input type="number" value={quickPrice} onChange={(e) => setQuickPrice(Number(e.target.value) || 0)} placeholder={quickTransportType === 'PVT' ? 'Price per vehicle' : 'Price per person'} className="h-8 text-xs" />
+                            <Button size="sm" onClick={() => {
+                              const transportData = {
+                                id: `transport_${Date.now()}`,
+                                name: `${day.city} Transfer`,
+                                from: quickStartLocation || day.city || 'Origin',
+                                to: quickEndLocation || day.city || 'Destination',
+                                price: quickPrice || 0,
+                                type: 'One-Way',
+                                vehicleType: quickVehicleType,
+                                transportType: quickTransportType,
+                                priceUnit: quickTransportType === 'PVT' ? 'per-vehicle' : 'per-person'
+                              } as any;
+                              addTransportToDay(day.id, transportData);
+                              setQuickTransportForDay(null);
+                              setQuickStartLocation('');
+                              setQuickEndLocation('');
+                              setQuickPrice(0);
+                              setQuickVehicleType('private_car');
+                            }}>
+                              <Plus className="h-3 w-3 mr-1" />
+                              Add
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {day.activities.filter(activity => activity.type !== 'transport').length > 0 ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {day.activities.filter(activity => activity.type !== 'transport').map((activity, index) => <div key={`activity-${activity.id || `${day.id}-${index}`}`} className="p-4 bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/50 rounded-lg hover:shadow-sm transition-shadow">
                               <div className="flex items-start justify-between">
                                 <div className="flex-1 space-y-2">
                                   <div className="flex items-center gap-2">
@@ -1605,6 +2048,14 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                                     <h5 className="font-semibold text-purple-900 dark:text-purple-100">
                                       {activity.name || 'Untitled Activity'}
                                     </h5>
+                                    {/* Optional Toggle for Sightseeing Activities */}
+                                    <ActivityOptionalToggle
+                                      proposalId={queryId}
+                                      activityId={activity.id}
+                                      activityName={activity.name || 'Untitled Activity'}
+                                      dayId={day.id}
+                                      onUpdateActivity={updateActivity}
+                                    />
                                   </div>
                                   
                                   {activity.description && <p className="text-sm text-purple-700 dark:text-purple-300 line-clamp-2">
@@ -1833,39 +2284,64 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
                                      </div>}
                                 </div>
                                 
-                                <Button variant="ghost" size="sm" onClick={e => {
-                          e.stopPropagation();
-                          removeActivity(day.id, activity.id);
-                        }} className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0 shrink-0">
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                  <Button variant="ghost" size="sm" onClick={e => {
+                                  e.stopPropagation();
+                                  removeActivity(day.id, activity.id);
+                                }} className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0 shrink-0">
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                  <Button variant="ghost" size="sm" onClick={e => {
+                                    e.stopPropagation();
+                                    if (editingActivityId === activity.id) {
+                                      cancelActivityEdit();
+                                    } else {
+                                      startEditingActivity(activity);
+                                    }
+                                  }} className="h-8 w-8 p-0 shrink-0">
+                                    <Settings className="h-3 w-3" />
+                                  </Button>
+                                </div>
                               </div>
 
-                              {/* Editable Fields - Only show for activities with missing data */}
-                              {(!activity.name || !activity.description) && <div className="mt-3 pt-3 border-t border-purple-200 dark:border-purple-800/50 space-y-2">
-                                  {!activity.name && <Input value={activity.name ?? ''} onChange={e => updateActivity(day.id, activity.id, {
-                          name: e.target.value
-                        })} placeholder="Enter activity name" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />}
-                                  {!activity.description && <Textarea value={activity.description ?? ''} onChange={e => updateActivity(day.id, activity.id, {
-                          description: e.target.value
-                        })} placeholder="Describe the activity..." rows={2} onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />}
+                              {/* Editable Fields - Show when missing data or edit icon activated */}
+                              {((activity.name === undefined || activity.name === null || activity.description === undefined || activity.description === null) || editingActivityId === activity.id) && <div className="mt-3 pt-3 border-t border-purple-200 dark:border-purple-800/50 space-y-2">
+                                  <Input value={editingActivityData?.name ?? activity.name ?? ''} onChange={e => updateEditingActivityData('name', e.target.value)} placeholder="Enter activity name" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
+                                  <Textarea value={editingActivityData?.description ?? activity.description ?? ''} onChange={e => updateEditingActivityData('description', e.target.value)} placeholder="Describe the activity..." rows={2} onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
                                    <div className="grid grid-cols-2 gap-2">
-                                     <Input value={activity.duration ?? ''} onChange={e => updateActivity(day.id, activity.id, {
-                            duration: e.target.value
-                          })} placeholder="Duration" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
-                                     <Input type="number" value={activity.cost ?? 0} onChange={e => updateActivity(day.id, activity.id, {
-                            cost: parseFloat(e.target.value) || 0
-                          })} placeholder="Cost" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
+                                     <Input value={editingActivityData?.duration ?? activity.duration ?? ''} onChange={e => updateEditingActivityData('duration', e.target.value)} placeholder="Duration" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
+                                     <Input type="number" value={editingActivityData?.cost ?? activity.cost ?? 0} onChange={e => updateEditingActivityData('cost', parseFloat(e.target.value) || 0)} placeholder="Cost" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
                                    </div>
                                    <div className="grid grid-cols-2 gap-2">
-                                     <Input value={activity.pickupLocation || ''} onChange={e => updateActivity(day.id, activity.id, {
-                            pickupLocation: e.target.value
-                          })} placeholder="Pickup location" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
-                                     <Input value={activity.dropoffLocation || ''} onChange={e => updateActivity(day.id, activity.id, {
-                            dropoffLocation: e.target.value
-                          })} placeholder="Drop-off location" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
+                                     <Input value={editingActivityData?.pickupLocation ?? (activity.pickupLocation || '')} onChange={e => updateEditingActivityData('pickupLocation', e.target.value)} placeholder="Pickup location" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
+                                     <Input value={editingActivityData?.dropoffLocation ?? (activity.dropoffLocation || '')} onChange={e => updateEditingActivityData('dropoffLocation', e.target.value)} placeholder="Drop-off location" onClick={e => e.stopPropagation()} className="border-purple-200 dark:border-purple-800/50 focus:border-purple-400 text-sm" />
                                    </div>
-                                </div>}
+                                   
+                                   {/* Manual Save/Cancel Buttons */}
+                                   <div className="flex gap-2 pt-2">
+                                     <Button 
+                                       size="sm" 
+                                       onClick={e => {
+                                         e.stopPropagation();
+                                         saveActivityEdit(day.id, activity.id);
+                                       }}
+                                       className="bg-purple-600 hover:bg-purple-700 text-white"
+                                     >
+                                       Save
+                                     </Button>
+                                     <Button 
+                                       size="sm" 
+                                       variant="outline"
+                                       onClick={e => {
+                                         e.stopPropagation();
+                                         cancelActivityEdit();
+                                       }}
+                                       className="border-purple-200 dark:border-purple-800/50"
+                                     >
+                                       Cancel
+                                     </Button>
+                                   </div>
+                                  </div>}
                             </div>)}
                         </div> : <div className="text-center py-4 border-2 border-dashed border-purple-200 dark:border-purple-800/50 rounded-lg bg-purple-50/50 dark:bg-purple-950/10">
                           <Camera className="mx-auto h-8 w-8 text-purple-400 dark:text-purple-500 mb-2" />
@@ -2005,6 +2481,15 @@ export const DayByDayItineraryBuilder: React.FC<DayByDayItineraryBuilderProps> =
         {/* Compact Suggestion Panel - Takes up less space */}
         
       </div>
+      {/* Optional Modules Section - REMOVED for cleaner UI */}
+      {/* <div className="xl:col-span-4">
+        <Separator />
+        {query && (
+          <CitySelectionPanel query={query} />
+        )}
+        <SightseeingOptionsModule queryId={queryId} />
+        <TransportOptionsModule queryId={queryId} />
+      </div> */}
     </div>
 };
 

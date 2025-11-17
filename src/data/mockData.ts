@@ -206,6 +206,12 @@ export const sidebarItems = [
         icon: "Settings"
       },
       {
+        title: "SMS & OTP",
+        path: "/settings/sms-otp",
+        icon: "MessageSquare",
+        adminOnly: true
+      },
+      {
         title: "Pricing",
         path: "/settings/pricing",
         icon: "DollarSign"
@@ -221,6 +227,19 @@ export const sidebarItems = [
         path: "/settings/agent-management",
         icon: "Users",
         adminOnly: true
+      }
+    ]
+  }
+  ,
+  {
+    section: true,
+    title: "Email",
+    icon: "MessageSquare",
+    items: [
+      {
+        title: "Marketing & Communication",
+        path: "/email/marketing/communications",
+        icon: "MessageSquare"
       }
     ]
   }

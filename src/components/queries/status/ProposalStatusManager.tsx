@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -243,6 +243,9 @@ export const ProposalStatusManager: React.FC<ProposalStatusManagerProps> = ({
               <DialogContent className="max-w-md">
                 <DialogHeader>
                   <DialogTitle>Modify Proposal</DialogTitle>
+                  <DialogDescription>
+                    Request changes to the proposal with details for the agent
+                  </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div>

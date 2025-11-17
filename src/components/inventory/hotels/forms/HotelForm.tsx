@@ -10,9 +10,12 @@ import ImagesSection from './hotel-form/ImagesSection';
 import AmenitiesSection from './hotel-form/AmenitiesSection';
 import { initialCities } from '@/pages/inventory/cities/data/cityData';
 import { useRealTimeCountriesData } from '@/hooks/useRealTimeCountriesData';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { Country } from '@/pages/inventory/countries/types/country';
 import { Hotel, StarRating, HotelStatus } from '../types/hotel';
+import { useAutoSave } from '../hooks/useEnhancedAutoSave';
+import { Badge } from '@/components/ui/badge';
+import { Save, Loader2 } from 'lucide-react';
 // Removed legacy transport currency utils; currency now derives from countries override
 
 interface HotelFormProps {
@@ -35,7 +38,6 @@ const HotelForm: React.FC<HotelFormProps> = ({
   isSubmitting 
 }) => {
   // Access toast notifications
-  const { toast } = useToast();
   const { activeCountries: countries, loading } = useRealTimeCountriesData();
   
   // Get current date for default values
@@ -85,9 +87,39 @@ const HotelForm: React.FC<HotelFormProps> = ({
     currency: hotel?.currency || 'USD',
     currencySymbol: hotel?.currencySymbol || '$'
   });
+
+  // Additional details state
+  const [additionalDetails, setAdditionalDetails] = useState<{ title: string; content: string }[]>([]);
   
   // State for cities
   const [availableCities, setAvailableCities] = useState<string[]>([]);
+  
+  // Auto-save functionality
+  const {
+    isAutoSaving,
+    lastSavedAt,
+    hasUnsavedChanges,
+    textSelection,
+  } = useAutoSave(formData, {
+    delay: 2000, // Auto-save after 2 seconds for regular inputs
+    textareaDelay: 15000, // Auto-save after 15 seconds for textarea content
+    onSave: async (data) => {
+      // Create a minimal update payload with only changed fields
+      const updateData = {
+        ...data,
+        updatedAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        isAutoSave: true, // Flag to indicate this is an auto-save
+        additionalDetails: additionalDetails.length > 0 ? additionalDetails : undefined,
+      };
+      
+      // Call the parent's onSubmit for auto-save
+      await onSubmit(updateData);
+    },
+    onError: (error) => {
+      console.error('Auto-save error:', error);
+    }
+  });
   
   // Load cities data when country changes
   useEffect(() => {
@@ -136,13 +168,17 @@ const HotelForm: React.FC<HotelFormProps> = ({
     }
   }, [countries, formData.country]);
   
-  // Handle form input changes
+  // Handle form input changes - removed auto-save triggering from here
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+    
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
+    
+    // Auto-save is now handled by the useAutoSave hook watching formData changes
+    // No manual triggering needed here
   };
   
   // Handle star rating changes
@@ -290,6 +326,19 @@ const HotelForm: React.FC<HotelFormProps> = ({
       ]
     }));
   };
+
+  // Handle additional details
+  const handleAddDetail = (detail: { title: string; content: string }) => {
+    setAdditionalDetails(prev => [...prev, detail]);
+  };
+
+  const handleRemoveDetail = (index: number) => {
+    setAdditionalDetails(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleEditDetail = (index: number, detail: { title: string; content: string }) => {
+    setAdditionalDetails(prev => prev.map((item, i) => i === index ? detail : item));
+  };
   
   // Handle form submission
   const handleSubmit = (e: React.FormEvent) => {
@@ -297,11 +346,7 @@ const HotelForm: React.FC<HotelFormProps> = ({
     
     // Basic validation
     if (!formData.name || !formData.country || !formData.city) {
-      toast({
-        title: 'Validation Error', 
-        description: 'Please fill in all required fields including hotel name, country, and city.',
-        variant: "destructive"
-      });
+      toast.error('Please fill in all required fields including hotel name, country, and city.');
       return;
     }
     
@@ -309,7 +354,9 @@ const HotelForm: React.FC<HotelFormProps> = ({
     const finalData = {
       ...formData,
       updatedAt: new Date().toISOString(),
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
+      isAutoSave: false, // Flag to indicate this is a manual save
+      additionalDetails: additionalDetails.length > 0 ? additionalDetails : undefined,
     };
     
     onSubmit(finalData);
@@ -317,6 +364,41 @@ const HotelForm: React.FC<HotelFormProps> = ({
 
   return (
     <div>
+      {/* Auto-save Status Indicator */}
+      <div className="flex items-center justify-between mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border">
+        <div className="flex items-center gap-2">
+          {isAutoSaving ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+              <span className="text-sm text-blue-600 dark:text-blue-400">Saving...</span>
+            </>
+          ) : hasUnsavedChanges ? (
+            <>
+              <div className="h-2 w-2 bg-yellow-500 rounded-full animate-pulse" />
+              <span className="text-sm text-yellow-600 dark:text-yellow-400">Unsaved changes</span>
+            </>
+          ) : (
+            <>
+              <Save className="h-4 w-4 text-green-500" />
+              <span className="text-sm text-green-600 dark:text-green-400">All changes saved</span>
+            </>
+          )}
+          {textSelection && (
+            <>
+              <span className="text-xs text-purple-500">•</span>
+              <span className="text-xs text-purple-600 dark:text-purple-400">
+                {textSelection.text.length} chars selected
+              </span>
+            </>
+          )}
+        </div>
+        {lastSavedAt && (
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            Last saved: {lastSavedAt.toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+      
       <form onSubmit={handleSubmit}>
         <div className="space-y-8">
           {/* Basic Information */}
@@ -338,6 +420,10 @@ const HotelForm: React.FC<HotelFormProps> = ({
           <DescriptionSection 
             formData={formData}
             handleInputChange={handleInputChange}
+            additionalDetails={additionalDetails}
+            onAddDetail={handleAddDetail}
+            onRemoveDetail={handleRemoveDetail}
+            onEditDetail={handleEditDetail}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

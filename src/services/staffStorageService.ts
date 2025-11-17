@@ -3,10 +3,15 @@ import { EnhancedStaffMember } from '@/types/staff';
 import { supabase } from '@/integrations/supabase/client';
 import { adminSupabase, isAdminClientConfigured } from '@/lib/supabaseClient';
 
-// Local storage source removed. Return empty array to avoid legacy fallback usage.
-export const getStoredStaff = (): EnhancedStaffMember[] => {
-  console.warn('getStoredStaff: local storage source removed; returning empty list');
-  return [];
+// Fetch staff data from Supabase instead of local storage
+export const getStoredStaff = async (): Promise<EnhancedStaffMember[]> => {
+  try {
+    const staff = await fetchStaffFromSupabase();
+    return staff;
+  } catch (error) {
+    console.error('getStoredStaff: Error fetching from Supabase:', error);
+    return [];
+  }
 };
 
 // Supabase-only helpers

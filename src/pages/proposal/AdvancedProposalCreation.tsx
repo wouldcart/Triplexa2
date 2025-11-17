@@ -1,6 +1,9 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+
+// UUID validation regex - shared across the component
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +30,8 @@ import { useProposalGeneration } from '@/hooks/useProposalGeneration';
 import { TabErrorBoundary } from '@/components/common/TabErrorBoundary';
 import { useAuth } from '@/contexts/AuthContext';
 import { createWorkflowEvent } from '@/services/workflowEventsService';
+import { OptionalRecords } from '@/types/optionalRecords';
+import { supabase } from '@/lib/supabaseClient';
 
 // Activity type mapping functions - fixed to handle the correct type mappings
 const mapBuilderActivityTypeToCore = (builderType: 'sightseeing' | 'transport' | 'meal' | 'accommodation' | 'activity'): CoreItineraryActivity['type'] => {
@@ -210,6 +215,7 @@ const AdvancedProposalCreation: React.FC = () => {
   
   const [itineraryData, setItineraryData] = useState<BuilderItineraryDay[]>([]);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [optionalRecords, setOptionalRecords] = useState<OptionalRecords>({});
   
   const [hasShownDraftLoadedToast, setHasShownDraftLoadedToast] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -247,6 +253,43 @@ const AdvancedProposalCreation: React.FC = () => {
       console.warn('Failed to log tab engagement:', e);
     }
   }, [activeTab, query?.id]);
+
+  // Sync optional records to proposal when they change
+  useEffect(() => {
+    const syncOptionalRecords = async () => {
+      if (!query?.id || Object.keys(optionalRecords).length === 0) return;
+
+      try {
+        // Determine if query.id is a UUID or enquiry ID
+        const isUuid = UUID_REGEX.test(query.id);
+        
+        let updateQuery = supabase
+          .from('proposals')
+          .update({
+            optional_records: optionalRecords,
+            last_saved: new Date().toISOString()
+          });
+
+        // Use appropriate field based on ID format
+        if (isUuid) {
+          updateQuery = updateQuery.eq('id', query.id);
+        } else {
+          updateQuery = updateQuery.eq('proposal_id', query.id);
+        }
+
+        const { error } = await updateQuery;
+
+        if (error) throw error;
+        console.log('Optional records synced to proposal successfully');
+      } catch (error) {
+        console.error('Error syncing optional records to proposal:', error);
+      }
+    };
+
+    // Debounce the sync to avoid too many API calls
+    const timeoutId = setTimeout(syncOptionalRecords, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [optionalRecords, query?.id]);
 
   // Enhanced useProposalBuilder with URL parameter support
   const {
@@ -439,11 +482,125 @@ const AdvancedProposalCreation: React.FC = () => {
     // Remove auto-save - data will only be saved on manual save
   }, []);
 
+  // Auto-save optional records when they change
+  useEffect(() => {
+    const saveOptionalRecords = async () => {
+      if (!query?.id || !query?.proposalId) return;
+
+      try {
+        console.log('💾 Auto-saving optional records to proposals and enquiries tables...');
+        
+        // Save to proposals table
+        // Determine if proposalId is a UUID or enquiry ID (use shared constant)
+        const isUuid = UUID_REGEX.test(query.proposalId);
+        
+        let proposalUpdateQuery = supabase
+          .from('proposals')
+          .update({ 
+            optional_records: optionalRecords,
+            last_saved: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (isUuid) {
+          // If it's a UUID, update by the 'id' field
+          proposalUpdateQuery = proposalUpdateQuery.eq('id', query.proposalId);
+        } else {
+          // If it's an enquiry ID, update by the 'proposal_id' field
+          proposalUpdateQuery = proposalUpdateQuery.eq('proposal_id', query.proposalId);
+        }
+
+        const { error: proposalError } = await proposalUpdateQuery;
+
+        if (proposalError) {
+          console.error('❌ Error saving optional records to proposals:', proposalError);
+          throw proposalError;
+        }
+
+        console.log('✅ Optional records saved to proposals table');
+
+        // Save to enquiries table (update cityAllocations based on optional records)
+        const optionalCities = optionalRecords.cities?.filter(city => city.isOptional).map(city => city.city) || [];
+        
+        const { error: enquiryError } = await supabase
+          .from('enquiries')
+          .update({ 
+            city_allocations: optionalCities,
+            updated_at: new Date().toISOString()
+          })
+          .eq('enquiry_id', query.id);
+
+        if (enquiryError) {
+          console.error('❌ Error saving optional records to enquiries:', enquiryError);
+          throw enquiryError;
+        }
+
+        console.log('✅ Optional records saved to enquiries table');
+
+      } catch (error) {
+        console.error('❌ Error auto-saving optional records:', error);
+        toast({
+          title: "Error saving optional city settings",
+          description: "Failed to save optional city settings. Please try again.",
+          variant: "destructive",
+          duration: 3000,
+        });
+      }
+    };
+
+    // Debounce the save to avoid too many rapid updates
+    const timeoutId = setTimeout(() => {
+      saveOptionalRecords();
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [optionalRecords, query?.id, query?.proposalId, toast]);
+
   // Manual save handler - only save when user explicitly clicks save
   const handleItinerarySave = async (data: BuilderItineraryDay[]) => {
     const saveSuccess = saveItineraryData(data, 'manual-save');
     // No toast message - silent save
     return saveSuccess;
+  };
+
+  // Handle optional city toggle
+  const handleToggleCityOptional = (cityId: string, isOptional: boolean) => {
+    setOptionalRecords(prev => {
+      const existingCities = prev.cities || [];
+      const existingIndex = existingCities.findIndex(record => 
+        record.city === cityId || 
+        record.cityName === cityId ||
+        record.cityId === cityId
+      );
+      
+      if (existingIndex >= 0) {
+        // Update existing record
+        const updated = [...existingCities];
+        updated[existingIndex] = { 
+          ...updated[existingIndex], 
+          isOptional,
+          city: cityId, // Ensure city field is updated
+          cityName: cityId, // Ensure cityName field is updated for new format
+          updatedAt: new Date().toISOString()
+        };
+        return { ...prev, cities: updated };
+      } else {
+        // Add new record with both old and new format for compatibility
+        const newRecord = {
+          city: cityId,
+          cityName: cityId,
+          cityId: cityId,
+          isOptional,
+          allocation: 0,
+          nights: 0,
+          updatedAt: new Date().toISOString()
+        };
+        return { ...prev, cities: [...existingCities, newRecord] };
+      }
+    });
+    
+    // Log the toggle action for debugging
+    console.log(`🏙️ City toggle: ${cityId} -> ${isOptional ? 'optional' : 'required'}`);
   };
 
   useEffect(() => {
@@ -463,6 +620,68 @@ const AdvancedProposalCreation: React.FC = () => {
         }
 
         setQuery(queryData);
+        
+        // Load optional records from the proposal
+        if (queryData?.proposalId) {
+          try {
+            // Determine if proposalId is a UUID or enquiry ID (use shared constant)
+            const isUuid = UUID_REGEX.test(queryData.proposalId);
+            
+            let proposalQuery = supabase
+              .from('proposals')
+              .select('optional_records');
+
+            if (isUuid) {
+              // If it's a UUID, query by the 'id' field
+              proposalQuery = proposalQuery.eq('id', queryData.proposalId);
+            } else {
+              // If it's an enquiry ID, query by the 'proposal_id' field
+              proposalQuery = proposalQuery.eq('proposal_id', queryData.proposalId);
+            }
+
+            const { data: proposalData, error } = await proposalQuery.maybeSingle();
+            
+            if (!error && proposalData?.optional_records) {
+              console.log('📋 Loaded optional records from proposal:', proposalData.optional_records);
+              setOptionalRecords(proposalData.optional_records);
+            } else {
+              console.log('ℹ️ No optional records found in proposal, checking enquiry...');
+              
+              // Try to load from enquiry if not found in proposal
+              if (queryData?.city_allocations) {
+                const cityOptionalRecords = queryData.city_allocations.map((city: string) => ({
+                  city: city,
+                  cityName: city,
+                  cityId: city,
+                  isOptional: true,
+                  allocation: 0,
+                  nights: 0,
+                  updatedAt: new Date().toISOString()
+                }));
+                
+                console.log('📍 Loaded optional cities from enquiry:', cityOptionalRecords);
+                setOptionalRecords({ cities: cityOptionalRecords });
+              }
+            }
+          } catch (error) {
+            console.error('Error loading optional records:', error);
+          }
+        } else if (queryData?.cityAllocations) {
+          // If no proposalId but has cityAllocations, create optional records from enquiry
+          // Create optional records from enquiry cityAllocations with proper isOptional flag
+          const cityOptionalRecords = queryData.cityAllocations.map((allocation: any) => ({
+            city: typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || allocation.cityId,
+            cityName: typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || allocation.cityId,
+            cityId: typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || allocation.cityId,
+            isOptional: allocation.isOptional || false,
+            allocation: allocation.allocation || 0,
+            nights: allocation.nights || 0,
+            updatedAt: new Date().toISOString()
+          }));
+          
+          console.log('📍 Created optional records from enquiry cityAllocations:', cityOptionalRecords);
+          setOptionalRecords({ cities: cityOptionalRecords });
+        }
         
         // Load saved itinerary data after query is loaded - with URL parameter support
         setTimeout(() => {
@@ -693,42 +912,47 @@ const AdvancedProposalCreation: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
       <PageLayout>
         <div className="space-y-6">
-          {/* Improved Header */}
-          <div className="flex items-start justify-between">
-            <div className="space-y-4">
+          {/* Enhanced Header */}
+          <div className="flex items-center justify-between bg-white/50 backdrop-blur-sm rounded-xl p-6 shadow-sm border border-gray-100">
+            <div className="space-y-3">
               <div className="flex items-center gap-4">
                 <Button 
-                  variant="outline" 
+                  variant="ghost" 
                   size="sm"
                   onClick={() => navigate('/queries')}
-                  className="gap-2"
+                  className="gap-2 hover:bg-white/80 transition-all duration-200"
                 >
                   <ArrowLeft className="h-4 w-4" />
                   Back
                 </Button>
                 
-                <div>
-                  <h1 className="text-3xl font-bold tracking-tight">Create Proposal</h1>
-                  <p className="text-muted-foreground">Query ID: {query.id}</p>
+                <div className="space-y-1">
+                  <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                    Create Proposal
+                  </h1>
+                  <p className="text-sm text-gray-600 font-medium">Query ID: {query.id}</p>
                 </div>
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {/* HIDDEN: Auto-add days button removed from header
               {tripDuration && days.length < tripDuration.days && (
                 <Button 
                   variant="outline" 
                   size="sm"
                   onClick={autoAddDaysForDuration}
-                  className="gap-2"
+                  className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800 transition-all duration-200 shadow-sm"
                   disabled={!!actionLoading}
                 >
                   <Plus className="h-4 w-4" />
                   Auto-Add {tripDuration.days - days.length} Days
                 </Button>
               )}
-              <Button 
+              */}
+              {/* Preview Button Hidden - Commented out for future use */}
+              {/* <Button 
                 variant="outline" 
                 size="sm"
                 onClick={() => setActiveView(activeView === 'planning' ? 'summary' : 'planning')}
@@ -737,13 +961,13 @@ const AdvancedProposalCreation: React.FC = () => {
               >
                 <Eye className="h-4 w-4" />
                 {activeView === 'planning' ? 'Preview' : 'Edit'}
-              </Button>
+              </Button> */}
               <Button 
                 variant="outline" 
                 size="sm"
                 onClick={handleSaveDraft}
                 disabled={proposalLoading || actionLoading === 'save'}
-                className="gap-2"
+                className="gap-2 border-green-200 text-green-700 hover:bg-green-50 hover:text-green-800 transition-all duration-200 shadow-sm"
               >
                 {actionLoading === 'save' ? (
                   <>
@@ -761,7 +985,7 @@ const AdvancedProposalCreation: React.FC = () => {
                 size="sm"
                 onClick={handleValidateAndGenerate}
                 disabled={!query || proposalLoading || itineraryData.length === 0 || isGenerating}
-                className="gap-2"
+                className="gap-2 shadow-lg hover:shadow-xl transition-all duration-200"
                 variant={query && hasErrors ? "destructive" : "default"}
               >
                 {isGenerating ? (
@@ -780,31 +1004,54 @@ const AdvancedProposalCreation: React.FC = () => {
           </div>
 
           {/* Enhanced Query Summary Card */}
-          <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+          <Card className="bg-gradient-to-r from-blue-50/80 to-indigo-50/80 backdrop-blur-sm border-blue-200 shadow-sm">
             <CardHeader>
-              <CardTitle className="text-blue-800">Query Summary</CardTitle>
+              <CardTitle className="text-blue-800 font-semibold">Query Summary</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div>
                   <p className="text-sm font-medium text-blue-700">Destination</p>
                   <p className="text-sm text-blue-600">{query.destination.country}</p>
-                  <p className="text-xs text-blue-500">
+                  <div className="text-xs text-blue-500">
                     {query.cityAllocations && query.cityAllocations.length > 0 
-                      ? query.cityAllocations.map((allocation: any, index: number) => (
-                          <span key={index}>
-                            {typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || 'City'} {allocation.nights}N
-                            {index < query.cityAllocations.length - 1 ? ' + ' : ''}
-                          </span>
-                        ))
-                      : query.destination.cities.map((city: any, index: number) => (
-                          <span key={index}>
-                            {typeof city === 'string' ? city : (city as any)?.name || (city as any)?.city || 'City'} {tripDuration ? Math.floor(tripDuration.nights / query.destination.cities.length) : 0}N
-                            {index < query.destination.cities.length - 1 ? ' + ' : ''}
-                          </span>
-                        ))
+                      ? query.cityAllocations.map((allocation: any, index: number) => {
+                          const cityName = typeof allocation.city === 'string' ? allocation.city : (allocation.city as any)?.name || (allocation.city as any)?.city || 'City';
+                          return (
+                            <span key={index} className="inline-flex items-center gap-1">
+                              <span className={allocation.isOptional ? 'opacity-60' : ''}>
+                                {cityName} {allocation.nights}N
+                              </span>
+                              {allocation.isOptional && (
+                                <Badge variant="outline" className="text-xs px-1 py-0 border-orange-300 text-orange-600 bg-orange-50">
+                                  Optional
+                                </Badge>
+                              )}
+                              {index < query.cityAllocations.length - 1 && <span className="mx-1">+</span>}
+                            </span>
+                          );
+                        })
+                      : query.destination.cities.map((city: any, index: number) => {
+                          const cityName = typeof city === 'string' ? city : (city as any)?.name || (city as any)?.city || 'City';
+                          const nights = tripDuration ? Math.floor(tripDuration.nights / query.destination.cities.length) : 0;
+                          const isOptional = query.cityAllocations?.find((alloc: any) => alloc.cityId === cityName)?.isOptional || false;
+                          
+                          return (
+                            <span key={index} className="inline-flex items-center gap-1">
+                              <span className={isOptional ? 'opacity-60' : ''}>
+                                {cityName} {nights}N
+                              </span>
+                              {isOptional && (
+                                <Badge variant="outline" className="text-xs px-1 py-0 border-orange-300 text-orange-600 bg-orange-50">
+                                  Optional
+                                </Badge>
+                              )}
+                              {index < query.destination.cities.length - 1 && <span className="mx-1">+</span>}
+                            </span>
+                          );
+                        })
                     }
-                  </p>
+                  </div>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-blue-700">Travel Dates</p>
@@ -848,6 +1095,11 @@ const AdvancedProposalCreation: React.FC = () => {
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="itinerary" className="flex items-center gap-2">
                 <span>Day Wise Itinerary</span>
+                {query?.cityAllocations?.some((alloc: any) => alloc.isOptional) && (
+                  <Badge variant="outline" className="text-xs px-1 py-0 border-orange-300 text-orange-600 bg-orange-50">
+                    {query.cityAllocations.filter((alloc: any) => alloc.isOptional).length} Optional
+                  </Badge>
+                )}
               </TabsTrigger>
               <TabsTrigger value="proposal" className="flex items-center gap-2">
                 <span>Proposal Management</span>
@@ -861,6 +1113,8 @@ const AdvancedProposalCreation: React.FC = () => {
               </div>
             )}
 
+            {/* Optional Cities Display - Integrated directly into query summary */}
+
             <TabsContent value="itinerary" className="mt-6">
               <TabErrorBoundary tabName="Day Wise Itinerary">
                 {query && (
@@ -870,6 +1124,8 @@ const AdvancedProposalCreation: React.FC = () => {
                     initialDays={itineraryData}
                     onDataChange={(newData) => handleItineraryDataChange(newData, 'tab-switch')}
                     onSave={handleItinerarySave}
+                    optionalRecords={optionalRecords}
+                    onToggleCityOptional={handleToggleCityOptional}
                   />
                 )}
               </TabErrorBoundary>

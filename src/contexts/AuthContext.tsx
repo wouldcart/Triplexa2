@@ -13,6 +13,7 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ user: User | null; error: string | null }>;
   signUp: (email: string, password: string, userData: any) => Promise<{ user: User | null; error: string | null }>;
+  signInWithGoogle: (role?: string) => Promise<{ user: User | null; error: string | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   updateProfile: (updates: any) => Promise<{ user: User | null; error: string | null }>;
@@ -90,8 +91,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         
         if (event === 'SIGNED_IN' && session) {
           // User signed in, get their profile
+          console.log('🎉 SIGNED_IN event detected, getting current session for user:', session.user?.email);
           const { user: sessionUser, error } = await AuthService.getCurrentSession();
           if (!error && sessionUser) {
+            console.log('✅ Session user retrieved:', sessionUser.id, 'with role:', sessionUser.role);
             setUser(sessionUser);
             setSession(session);
             // Record staff login
@@ -102,6 +105,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 console.warn('Staff login recording failed on SIGNED_IN:', e);
               }
             }
+          } else {
+            console.log('❌ Error getting session user:', error);
           }
         } else if (event === 'INITIAL_SESSION') {
           // Handle initial session state on subscription setup
@@ -225,6 +230,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const signInWithGoogle = async (role: string = 'agent') => {
+    try {
+      setLoading(true);
+      const response = await AuthService.signInWithGoogle(role);
+      
+      if (response.error) {
+        return { user: null, error: response.error };
+      }
+      
+      // Google OAuth will redirect, so we don't set user/session here
+      // The auth state change listener will handle the session after redirect
+      return { user: null, error: null };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Google sign in failed';
+      return { user: null, error: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const signOut = async () => {
     try {
       setLoading(true);
@@ -305,6 +330,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loading,
     signIn,
     signUp,
+    signInWithGoogle,
     signOut,
     resetPassword,
     updateProfile,

@@ -3,6 +3,9 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import OptionalToggle from './OptionalToggle';
+import RealTimeOptionalToggle from './RealTimeOptionalToggle';
 import { 
   MapPin, Clock, DollarSign, Calendar, ChevronUp, ChevronDown,
   Sunrise, Sun, Sunset, Moon, Car, Plane, Train, Bus, Ship,
@@ -23,6 +26,12 @@ interface EnhancedDayCardProps {
   onMoveDown?: () => void;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
+  onToggleActivityOptional?: (activityId: string, isOptional: boolean) => void;
+  onToggleTransportOptional?: (transportId: string, isOptional: boolean) => void;
+  optionalRecords?: any;
+  proposalId?: string;
+  onRealTimeUpdate?: (itemId: string, itemType: 'activity' | 'transport', isOptional: boolean) => Promise<void>;
+  isLoading?: boolean;
 }
 
 const EnhancedDayCard: React.FC<EnhancedDayCardProps> = ({
@@ -32,7 +41,13 @@ const EnhancedDayCard: React.FC<EnhancedDayCardProps> = ({
   onMoveUp,
   onMoveDown,
   canMoveUp = false,
-  canMoveDown = false
+  canMoveDown = false,
+  onToggleActivityOptional,
+  onToggleTransportOptional,
+  optionalRecords,
+  proposalId,
+  onRealTimeUpdate,
+  isLoading = false
 }) => {
   // Safely extract location information
   const getLocationName = () => {
@@ -61,6 +76,20 @@ const EnhancedDayCard: React.FC<EnhancedDayCardProps> = ({
 
   const getMeals = () => {
     return day.meals || [];
+  };
+
+  const isActivityOptional = (activityId: string) => {
+    if (!optionalRecords?.sightseeing) return false;
+    return optionalRecords.sightseeing.some((record: any) => 
+      record.optionId === activityId && record.isOptional
+    );
+  };
+
+  const isTransportOptional = (transportId: string) => {
+    if (!optionalRecords?.transport) return false;
+    return optionalRecords.transport.some((record: any) => 
+      record.optionId === transportId && record.isOptional
+    );
   };
 
   const getTimeOfDayIcon = (dayNumber: number) => {
@@ -184,24 +213,70 @@ const EnhancedDayCard: React.FC<EnhancedDayCardProps> = ({
         {/* Transport Section */}
         {getTransport().length > 0 && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 text-sm font-semibold text-foreground dark:text-white">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-emerald-600/20 dark:from-emerald-400/20 dark:to-emerald-500/30 flex items-center justify-center shadow-sm border border-emerald-200/50 dark:border-emerald-400/20">
-                <Car className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3 text-sm font-semibold text-foreground dark:text-white">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-emerald-600/20 dark:from-emerald-400/20 dark:to-emerald-500/30 flex items-center justify-center shadow-sm border border-emerald-200/50 dark:border-emerald-400/20">
+                  <Car className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div>
+                  <span className="text-base text-foreground dark:text-white">Transportation</span>
+                  <Badge variant="outline" className="ml-2 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-400/20 text-emerald-700 dark:text-emerald-300 text-xs">
+                    {getTransport().length} transfers
+                  </Badge>
+                </div>
               </div>
-              <div>
-                <span className="text-base text-foreground dark:text-white">Transportation</span>
-                <Badge variant="outline" className="ml-2 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-400/20 text-emerald-700 dark:text-emerald-300 text-xs">
-                  {getTransport().length} transfers
-                </Badge>
-              </div>
+              {onToggleTransportOptional && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Optional</span>
+                  <Switch
+                    checked={getTransport().some(transport => isTransportOptional(transport.id))}
+                    onCheckedChange={(checked) => {
+                      // Toggle all transport options as optional
+                      getTransport().forEach(transport => {
+                        onToggleTransportOptional(transport.id, checked);
+                      });
+                    }}
+                  />
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-1 gap-4 ml-16">
               {getTransport().map((transport: any, index: number) => (
-                <div key={transport.id || index} className="relative group border border-border dark:border-border rounded-xl p-4 bg-gradient-to-r from-emerald-50/80 to-white dark:from-emerald-900/10 dark:to-card hover:shadow-md transition-all duration-300 backdrop-blur-sm">
+                <div key={transport.id || index} className={`relative group border rounded-xl p-4 bg-gradient-to-r backdrop-blur-sm transition-all duration-300 hover:shadow-md ${
+                  isTransportOptional(transport.id) 
+                    ? 'border-dashed border-emerald-400 bg-gradient-to-r from-emerald-50/60 to-white dark:from-emerald-900/5 dark:to-card opacity-75' 
+                    : 'border-border dark:border-border from-emerald-50/80 to-white dark:from-emerald-900/10 dark:to-card'
+                }`}>
                   {/* Transport visual */}
                   <div className="absolute top-4 right-4 w-10 h-10 bg-gradient-to-br from-emerald-100 to-emerald-200 dark:from-emerald-800 dark:to-emerald-700 rounded-lg flex items-center justify-center opacity-50">
                     <Car className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />
                   </div>
+
+                  {/* Enhanced Optional Toggle */}
+                  {onToggleTransportOptional && (
+                    <div className="absolute top-4 left-4">
+                      {onRealTimeUpdate && proposalId ? (
+                        <RealTimeOptionalToggle
+                          itemId={transport.id}
+                          itemType="transport"
+                          proposalId={proposalId}
+                          isOptional={isTransportOptional(transport.id)}
+                          onToggle={(checked) => onToggleTransportOptional(transport.id, checked)}
+                          onRealTimeUpdate={onRealTimeUpdate}
+                          isLoading={isLoading}
+                          size="sm"
+                          showLabels={false}
+                        />
+                      ) : (
+                        <OptionalToggle
+                          isOptional={isTransportOptional(transport.id)}
+                          onToggle={(checked) => onToggleTransportOptional(transport.id, checked)}
+                          size="sm"
+                          showLabels={false}
+                        />
+                      )}
+                    </div>
+                  )}
                   
                   <div className="flex items-center justify-between pr-12">
                     <div className="flex items-center gap-3">
@@ -211,6 +286,11 @@ const EnhancedDayCard: React.FC<EnhancedDayCardProps> = ({
                       <div>
                         <span className="font-medium text-sm text-foreground dark:text-white">
                           {transport.name || transport.type || 'Transport'}
+                          {isTransportOptional(transport.id) && (
+                            <Badge variant="outline" className="ml-2 text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-600">
+                              Optional
+                            </Badge>
+                          )}
                         </span>
                         <div className="text-xs text-muted-foreground dark:text-gray-400">
                           {typeof transport.from === 'string' ? transport.from : transport.from?.name || 'Start'} → {typeof transport.to === 'string' ? transport.to : transport.to?.name || 'End'}
@@ -419,23 +499,72 @@ const EnhancedDayCard: React.FC<EnhancedDayCardProps> = ({
                   </Badge>
                 </div>
               </div>
-              <div className="text-xs text-muted-foreground dark:text-gray-400 font-medium">
-                Total: {formatCurrency(getActivities().reduce((sum, act) => sum + (act.price || act.cost || 0), 0))}
+              <div className="flex items-center gap-4">
+                <div className="text-xs text-muted-foreground dark:text-gray-400 font-medium">
+                  Total: {formatCurrency(getActivities().reduce((sum, act) => sum + (act.price || act.cost || 0), 0))}
+                </div>
+                {onToggleActivityOptional && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Optional</span>
+                    <Switch
+                      checked={getActivities().some(activity => isActivityOptional(activity.id))}
+                      onCheckedChange={(checked) => {
+                        // Toggle all activities as optional
+                        getActivities().forEach(activity => {
+                          onToggleActivityOptional(activity.id, checked);
+                        });
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             </div>
             
             <div className="space-y-6 ml-16">
               {getActivities().map((activity: any, index: number) => (
-                <div key={activity.id || index} className="bg-gradient-to-br from-slate-50 to-purple-50/30 dark:from-slate-900/50 dark:to-purple-950/20 p-6 rounded-xl border border-slate-200/50 dark:border-slate-700/50 hover:shadow-lg transition-all duration-300">
+                <div key={activity.id || index} className={`bg-gradient-to-br rounded-xl border p-6 hover:shadow-lg transition-all duration-300 ${
+                  isActivityOptional(activity.id)
+                    ? 'border-dashed border-blue-400 bg-gradient-to-br from-slate-50/60 to-purple-50/20 dark:from-slate-900/30 dark:to-purple-950/10 opacity-75'
+                    : 'border-slate-200/50 dark:border-slate-700/50 from-slate-50 to-purple-50/30 dark:from-slate-900/50 dark:to-purple-950/20'
+                }`}>
                   {/* Activity Header */}
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {onToggleActivityOptional && (
+                        <div className="flex-shrink-0">
+                          {onRealTimeUpdate && proposalId ? (
+                            <RealTimeOptionalToggle
+                              itemId={activity.id}
+                              itemType="activity"
+                              proposalId={proposalId}
+                              isOptional={isActivityOptional(activity.id)}
+                              onToggle={(checked) => onToggleActivityOptional(activity.id, checked)}
+                              onRealTimeUpdate={onRealTimeUpdate}
+                              isLoading={isLoading}
+                              size="sm"
+                              showLabels={false}
+                            />
+                          ) : (
+                            <OptionalToggle
+                              isOptional={isActivityOptional(activity.id)}
+                              onToggle={(checked) => onToggleActivityOptional(activity.id, checked)}
+                              size="sm"
+                              showLabels={false}
+                            />
+                          )}
+                        </div>
+                      )}
                       <div className="bg-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shrink-0">
                         #{index + 1}
                       </div>
                       <div className="min-w-0 flex-1">
                         <h5 className="text-lg font-semibold text-foreground mb-1">
                           {activity.name || activity.activityName || `Activity ${index + 1}`}
+                          {isActivityOptional(activity.id) && (
+                            <Badge variant="outline" className="ml-2 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-600">
+                              Optional
+                            </Badge>
+                          )}
                         </h5>
                         {activity.description && (
                           <p className="text-sm text-muted-foreground leading-relaxed">

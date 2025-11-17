@@ -41,6 +41,24 @@ const Login: React.FC = () => {
   const [mobileOtp, setMobileOtp] = useState('');
   const [mobileSending, setMobileSending] = useState(false);
   const [mobileVerifying, setMobileVerifying] = useState(false);
+  const [isExistingMobileUser, setIsExistingMobileUser] = useState<boolean | null>(null);
+  const [mobileMode, setMobileMode] = useState<'login' | 'register' | null>(null);
+
+  // Reset mobile form when switching modes
+  const resetMobileForm = () => {
+    setMobilePhone('');
+    setMobileName('');
+    setMobileRequestId('');
+    setMobileOtp('');
+    setMobileSending(false);
+    setMobileVerifying(false);
+    setIsExistingMobileUser(null);
+  };
+
+  const handleMobileModeChange = (mode: 'login' | 'register' | null) => {
+    resetMobileForm();
+    setMobileMode(mode);
+  };
   
   // Use ApplicationSettings with fallback for unauthenticated users
   let settings = { 
@@ -439,6 +457,27 @@ const Login: React.FC = () => {
     setPassword(password);
   };
 
+  // Check if mobile number exists when user types
+  useEffect(() => {
+    const checkMobileUser = async () => {
+      if (mobilePhone.length === 10) {
+        try {
+          const { exists } = await AuthService.userExistsByPhone(mobilePhone);
+          setIsExistingMobileUser(exists);
+        } catch (error) {
+          console.error('Error checking mobile user:', error);
+          setIsExistingMobileUser(null);
+        }
+      } else {
+        setIsExistingMobileUser(null);
+      }
+    };
+
+    // Debounce the check to avoid too many API calls
+    const timeoutId = setTimeout(checkMobileUser, 500);
+    return () => clearTimeout(timeoutId);
+  }, [mobilePhone]);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       <div className="w-full max-w-md space-y-6 p-6">
@@ -605,58 +644,370 @@ const Login: React.FC = () => {
               </TabsContent>
               <TabsContent value="mobile">
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="mobileName">Name</Label>
-                    <Input id="mobileName" type="text" placeholder="Your name" value={mobileName} onChange={(e)=>setMobileName(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="mobilePhone">Mobile (India)</Label>
-                    <div className="flex gap-3">
-                      <Input id="mobilePhone" type="tel" placeholder="10-digit mobile number" value={mobilePhone} onChange={(e)=>setMobilePhone(e.target.value.replace(/\D/g,''))} maxLength={10} className="flex-1" />
-                      <Button type="button" onClick={async()=>{ setMobileSending(true); const r = await smsSendOtp(mobilePhone,'login'); if (r.ok) { setMobileRequestId(r.data.request_id||''); toast({ title:'OTP sent', description:`Enter the OTP sent to +91${mobilePhone}` }); } else { toast({ title:'Send OTP failed', description:String(r.data?.error||'Unknown error'), variant:'destructive' }); } setMobileSending(false); }} disabled={mobileSending || mobilePhone.length!==10 || mobileName.trim()==='' }>
-                        {mobileSending ? 'Sending…' : 'Send OTP Code'}
-                      </Button>
-                    </div>
-                  </div>
-                  {mobileRequestId && (
-                    <div className="space-y-2">
-                      <Label>OTP</Label>
-                      <Input
-                        inputMode="numeric"
-                        pattern="[0-9]{6}"
-                        maxLength={6}
-                        value={mobileOtp}
-                        onChange={(e)=>setMobileOtp(e.target.value.replace(/\D/g,''))}
-                        placeholder="Enter 6-digit OTP"
-                      />
+                  {!mobileMode && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-4">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                          Mobile Login
+                        </h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          Choose how you'd like to continue
+                        </p>
+                      </div>
+                      
+                      <div className="space-y-3">
+                        <Button 
+                          type="button" 
+                          className="w-full"
+                          onClick={() => handleMobileModeChange('login')}
+                        >
+                          <UserIcon className="h-4 w-4 mr-2" />
+                          Login with Mobile Number
+                        </Button>
+                        
+                        <div className="relative">
+                          <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-gray-300 dark:border-gray-600" />
+                          </div>
+                          <div className="relative flex justify-center text-sm">
+                            <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">or</span>
+                          </div>
+                        </div>
+                        
+                        <Button 
+                          type="button" 
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => handleMobileModeChange('register')}
+                        >
+                          <Mail className="h-4 w-4 mr-2" />
+                          Register New Account
+                        </Button>
+                      </div>
+                      
+                      <p className="text-xs text-center text-gray-500 dark:text-gray-400">
+                        Already have an account? Use "Login with Mobile Number" to sign in
+                      </p>
                     </div>
                   )}
-                  {mobileRequestId && (
-                    <div className="flex items-center gap-3">
-                      <Button type="button" onClick={async()=>{
-                        setMobileVerifying(true);
-                        const r = await smsVerifyOtp(mobilePhone, mobileRequestId, mobileOtp)
-                        if (r.ok) {
-                          const u = await upsertAgentWithPhone(mobilePhone, mobileName || `Agent ${mobilePhone}`)
-                          if (u.ok) {
-                            const emailAlias = u.data.email
-                            const pwd = u.data.password
-                            const resp = await signIn(emailAlias, pwd)
-                            if (resp.error) {
-                              toast({ title:'Login failed', description:String(resp.error), variant:'destructive' })
-                            } else {
-                              toast({ title:'Login successful', description:`Welcome, ${resp.user?.name||'Agent'}` })
-                            }
-                          } else {
-                            toast({ title:'Account creation failed', description:String(u.data?.error||'Unknown error'), variant:'destructive' })
-                          }
-                        } else {
-                          toast({ title:'Verification failed', description:String(r.data?.error||'Unknown error'), variant:'destructive' })
-                        }
-                        setMobileVerifying(false);
-                      }} disabled={mobileVerifying || mobilePhone.length!==10 || mobileName.trim()==='' || mobileOtp.length!==6}>
-                        {mobileVerifying ? 'Verifying…' : 'Verify & Sign In'}
-                      </Button>
+
+                  {mobileMode === 'login' && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                          Mobile Login
+                        </h3>
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleMobileModeChange(null)}
+                        >
+                          Back
+                        </Button>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="mobilePhoneLogin">Mobile (India)</Label>
+                        <div className="flex gap-3">
+                          <Input 
+                            id="mobilePhoneLogin" 
+                            type="tel" 
+                            placeholder="10-digit mobile number" 
+                            value={mobilePhone} 
+                            onChange={(e)=>setMobilePhone(e.target.value.replace(/\D/g,''))} 
+                            maxLength={10} 
+                            className="flex-1" 
+                          />
+                          <Button 
+                            type="button" 
+                            onClick={async()=>{ 
+                              setMobileSending(true); 
+                              try {
+                                const r = await smsSendOtp(mobilePhone,'login'); 
+                                if (!r.error) { 
+                                  setMobileRequestId(r.data.request_id||''); 
+                                  toast({ 
+                                    title:'OTP sent', 
+                                    description:`Enter the OTP sent to +91${mobilePhone}` 
+                                  }); 
+                                } else { 
+                                  toast({ 
+                                    title:'Send OTP failed', 
+                                    description:String(r.error?.message||'Unknown error'), 
+                                    variant:'destructive' 
+                                  }); 
+                                }
+                              } catch (error) {
+                                console.error('OTP send error:', error);
+                                toast({ 
+                                  title:'Send OTP failed', 
+                                  description:'Failed to send OTP. Please try again.', 
+                                  variant:'destructive' 
+                                });
+                              }
+                              setMobileSending(false); 
+                            }} 
+                            disabled={mobileSending || mobilePhone.length!==10}
+                          >
+                            {mobileSending ? 'Sending…' : 'Send OTP'}
+                          </Button>
+                        </div>
+                        {isExistingMobileUser === false && mobilePhone.length === 10 && (
+                          <p className="text-xs text-orange-600 dark:text-orange-400">
+                            ⚠ This number is not registered. Please use "Register New Account" instead.
+                          </p>
+                        )}
+                      </div>
+                      
+                      {mobileRequestId && (
+                        <div className="space-y-2">
+                          <Label>OTP</Label>
+                          <Input
+                            inputMode="numeric"
+                            pattern="[0-9]{6}"
+                            maxLength={6}
+                            value={mobileOtp}
+                            onChange={(e)=>setMobileOtp(e.target.value.replace(/\D/g,''))}
+                            placeholder="Enter 6-digit OTP"
+                          />
+                          <Button 
+                            type="button" 
+                            className="w-full"
+                            onClick={async()=>{
+                              setMobileVerifying(true);
+                              try {
+                                const r = await smsVerifyOtp(mobilePhone, mobileRequestId, mobileOtp)
+                                if (!r.error) {
+                                  // Check if user exists with this phone number
+                                  const { exists, id: existingUserId } = await AuthService.userExistsByPhone(mobilePhone);
+                                  
+                                  if (exists && existingUserId) {
+                                    // Existing user - proceed with login
+                                    try {
+                                      const { data: profileData, error: profileError } = await supabase
+                                        .from('profiles')
+                                        .select('email, name, role, phone')
+                                        .eq('id', existingUserId)
+                                        .single();
+                                      
+                                      if (profileError || !profileData) {
+                                        toast({ 
+                                          title: 'Profile not found', 
+                                          description: 'Could not find your account details. Please contact support.',
+                                          variant: 'destructive' 
+                                        });
+                                        setMobileVerifying(false);
+                                        return;
+                                      }
+                                      
+                                      // Check if this is an agent account
+                                      if (profileData.role === 'agent') {
+                                        // Use the existing upsertAgentWithPhone to handle login
+                                        const u = await upsertAgentWithPhone(mobilePhone, profileData.name || `Agent ${mobilePhone}`)
+                                        if (!u.error) {
+                                          const emailAlias = u.data.email
+                                          const pwd = u.data.password
+                                          const resp = await signIn(emailAlias, pwd)
+                                          if (resp.error) {
+                                            toast({ title:'Login failed', description:String(resp.error), variant:'destructive' })
+                                          } else {
+                                            toast({ title:'Login successful', description:`Welcome back, ${resp.user?.name||'Agent'}` })
+                                          }
+                                        } else {
+                                          toast({ title:'Login setup failed', description:String(u.error?.message||'Unknown error'), variant:'destructive' })
+                                        }
+                                      } else {
+                                        // Non-agent user - mobile login not supported
+                                        toast({ 
+                                          title: 'Mobile login not available', 
+                                          description: 'Please use email login for your account type.',
+                                          variant: 'destructive' 
+                                        });
+                                      }
+                                    } catch (error) {
+                                      console.error('Error during existing user mobile login:', error);
+                                      toast({ 
+                                        title: 'Login error', 
+                                        description: 'An error occurred during login. Please try again.',
+                                        variant: 'destructive' 
+                                      });
+                                    }
+                                  } else {
+                                    toast({ 
+                                      title: 'Number not registered', 
+                                      description: 'This mobile number is not registered. Please use "Register New Account" instead.',
+                                      variant: 'destructive' 
+                                    });
+                                  }
+                                } else {
+                                  toast({ title:'Verification failed', description:String(r.error?.message||'Unknown error'), variant:'destructive' })
+                                }
+                              } catch (error) {
+                                console.error('OTP verification error:', error);
+                                toast({ 
+                                  title:'Verification failed', 
+                                  description:'Failed to verify OTP. Please try again.', 
+                                  variant:'destructive' 
+                                });
+                              }
+                              setMobileVerifying(false);
+                            }} 
+                            disabled={mobileVerifying || mobileOtp.length!==6}
+                          >
+                            {mobileVerifying ? 'Verifying…' : 'Verify & Sign In'}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {mobileMode === 'register' && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                          Register New Account
+                        </h3>
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleMobileModeChange(null)}
+                        >
+                          Back
+                        </Button>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="mobileNameRegister">Name</Label>
+                        <Input 
+                          id="mobileNameRegister" 
+                          type="text" 
+                          placeholder="Your name" 
+                          value={mobileName} 
+                          onChange={(e)=>setMobileName(e.target.value)} 
+                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {mobileName ? '✓' : 'ℹ'} Enter your full name
+                        </p>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="mobilePhoneRegister">Mobile (India)</Label>
+                        <div className="flex gap-3">
+                          <Input 
+                            id="mobilePhoneRegister" 
+                            type="tel" 
+                            placeholder="10-digit mobile number" 
+                            value={mobilePhone} 
+                            onChange={(e)=>setMobilePhone(e.target.value.replace(/\D/g,''))} 
+                            maxLength={10} 
+                            className="flex-1" 
+                          />
+                          <Button 
+                            type="button" 
+                            onClick={async()=>{ 
+                              setMobileSending(true); 
+                              try {
+                                const r = await smsSendOtp(mobilePhone,'register'); 
+                                if (!r.error) { 
+                                  setMobileRequestId(r.data.request_id||''); 
+                                  toast({ 
+                                    title:'OTP sent', 
+                                    description:`Enter the OTP sent to +91${mobilePhone}` 
+                                  }); 
+                                } else { 
+                                  toast({ 
+                                    title:'Send OTP failed', 
+                                    description:String(r.error?.message||'Unknown error'), 
+                                    variant:'destructive' 
+                                  }); 
+                                }
+                              } catch (error) {
+                                console.error('OTP send error:', error);
+                                toast({ 
+                                  title:'Send OTP failed', 
+                                  description:'Failed to send OTP. Please try again.', 
+                                  variant:'destructive' 
+                                });
+                              }
+                              setMobileSending(false); 
+                            }} 
+                            disabled={mobileSending || mobilePhone.length!==10 || mobileName.trim()===''}
+                          >
+                            {mobileSending ? 'Sending…' : 'Send OTP'}
+                          </Button>
+                        </div>
+                        {isExistingMobileUser === true && mobilePhone.length === 10 && (
+                          <p className="text-xs text-orange-600 dark:text-orange-400">
+                            ⚠ This number is already registered. Please use "Login with Mobile Number" instead.
+                          </p>
+                        )}
+                      </div>
+                      
+                      {mobileRequestId && (
+                        <div className="space-y-2">
+                          <Label>OTP</Label>
+                          <Input
+                            inputMode="numeric"
+                            pattern="[0-9]{6}"
+                            maxLength={6}
+                            value={mobileOtp}
+                            onChange={(e)=>setMobileOtp(e.target.value.replace(/\D/g,''))}
+                            placeholder="Enter 6-digit OTP"
+                          />
+                          <Button 
+                            type="button" 
+                            className="w-full"
+                            onClick={async()=>{
+                              setMobileVerifying(true);
+                              try {
+                                const r = await smsVerifyOtp(mobilePhone, mobileRequestId, mobileOtp)
+                                if (!r.error) {
+                                  // Check if user exists with this phone number
+                                  const { exists } = await AuthService.userExistsByPhone(mobilePhone);
+                                  
+                                  if (!exists) {
+                                    // New user - create account
+                                    const u = await upsertAgentWithPhone(mobilePhone, mobileName || `Agent ${mobilePhone}`)
+                                    if (!u.error) {
+                                      const emailAlias = u.data.email
+                                      const pwd = u.data.password
+                                      const resp = await signIn(emailAlias, pwd)
+                                      if (resp.error) {
+                                        toast({ title:'Login failed', description:String(resp.error), variant:'destructive' })
+                                      } else {
+                                        toast({ title:'Registration successful', description:`Welcome, ${resp.user?.name||'Agent'}` })
+                                      }
+                                    } else {
+                                      toast({ title:'Account creation failed', description:String(u.error?.message||'Unknown error'), variant:'destructive' })
+                                    }
+                                  } else {
+                                    toast({ 
+                                      title: 'Number already registered', 
+                                      description: 'This mobile number is already registered. Please use login instead.',
+                                      variant: 'destructive' 
+                                    });
+                                  }
+                                } else {
+                                  toast({ title:'Verification failed', description:String(r.error?.message||'Unknown error'), variant:'destructive' })
+                                }
+                              } catch (error) {
+                                console.error('OTP verification error:', error);
+                                toast({ 
+                                  title:'Verification failed', 
+                                  description:'Failed to verify OTP. Please try again.', 
+                                  variant:'destructive' 
+                                });
+                              }
+                              setMobileVerifying(false);
+                            }} 
+                            disabled={mobileVerifying || mobileOtp.length!==6 || mobileName.trim()===''}
+                          >
+                            {mobileVerifying ? 'Verifying…' : 'Create Account & Sign In'}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

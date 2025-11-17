@@ -700,7 +700,7 @@ export const SmartSuggestionsPopover: React.FC<SmartSuggestionsPopoverProps> = (
       <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 py-2">
         <CardTitle className="text-base text-blue-900 dark:text-blue-200 flex items-center gap-2">
           <MapPin className="h-4 w-4" />
-          Smart Suggestions • {dayCity ? dayCity : query.destination.country} • {totalPax} PAX
+          {dayCity ? dayCity : query.destination.country} • {totalPax} PAX
         </CardTitle>
         {dayCity && <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 mt-1">
             <MapPin className="h-3 w-3" />

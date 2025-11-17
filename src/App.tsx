@@ -15,7 +15,7 @@ import { AuthService } from '@/services/authService';
 import { locationResolutionService } from '@/services/locationResolutionService';
 import { telemetryService } from '@/services/telemetryService';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ import ResetPassword from '@/pages/auth/ResetPassword';
 import Unauthorized from '@/pages/auth/Unauthorized';
 import Terms from '@/pages/Terms';
 import Privacy from '@/pages/Privacy';
+import GoogleOAuthDiagnostic from '@/pages/GoogleOAuthDiagnostic';
 
 
 
@@ -84,6 +85,9 @@ import TranslationTool from './pages/settings/TranslationTool';
 import PricingSettings from './pages/settings/PricingSettings';
 import EmailTemplates from './pages/settings/EmailTemplates';
 import CurrencyConverter from './pages/settings/CurrencyConverter';
+import EmailConfiguration from './pages/settings/EmailConfiguration';
+import MarketingCommunications from './pages/email/MarketingCommunications';
+import SmsOtpSettings from './pages/settings/SmsOtpSettings';
 
 
 // Import hotel inventory pages
@@ -97,6 +101,7 @@ import ViewHotel from './pages/inventory/hotels/ViewHotel';
 // Import transport inventory pages
 import TransportRoutesPage from './pages/inventory/transport/TransportRoutesPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
+import LogoTest from '@/pages/settings/LogoTest';
 import TransportTypesPage from './pages/inventory/transport/TransportTypesPage';
 import LocationCodesPage from './pages/inventory/transport/LocationCodesPage';
 
@@ -189,6 +194,8 @@ import PageLayout from '@/components/layout/PageLayout';
 const DashboardRouter: React.FC = () => {
   const { currentUser } = useApp();
   
+  console.log('🧭 DashboardRouter - currentUser:', currentUser?.id, 'role:', currentUser?.role);
+  
   if (!currentUser) return <Navigate to="/login" replace />;
   
   switch (currentUser.role) {
@@ -197,6 +204,7 @@ const DashboardRouter: React.FC = () => {
     case 'manager':
       return <ManagerDashboard />;
     case 'agent':
+      console.log('🎯 Rendering AgentDashboard for user:', currentUser.id);
       return <AgentDashboard />;
     case 'operations':
       return <OperationsDashboard />;
@@ -211,6 +219,7 @@ const DashboardRouter: React.FC = () => {
     case 'user':
       return <TravelerDashboardPage />;
     default:
+      console.log('⚠️ Unknown role in DashboardRouter, rendering default Dashboard');
       return <Dashboard />;
   }
 };
@@ -298,6 +307,9 @@ const RootRedirect = () => {
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle>Reset Your Password</DialogTitle>
+            <DialogDescription>
+              Please enter your new password below. Make sure it's secure and memorable.
+            </DialogDescription>
           </DialogHeader>
           <Card>
             <CardContent className="pt-6">
@@ -334,6 +346,8 @@ const RootRedirect = () => {
   
   // Redirect authenticated users based on their role and department
   const getRedirectPath = (user: User) => {
+    console.log('🧭 RootRedirect - Determining redirect path for user:', user.id, 'with role:', user.role);
+    
     switch (user.role) {
       case 'hr_manager':
         return '/management/hr';
@@ -362,10 +376,12 @@ const RootRedirect = () => {
             return '/dashboard';
         }
       case 'agent':
+        console.log('🎯 Redirecting agent to /dashboards/agent');
         return '/dashboards/agent';
       case 'user':
         return '/traveler';
       default:
+        console.log('⚠️ Unknown role, redirecting to /dashboard');
         return '/dashboard';
     }
   };
@@ -445,6 +461,7 @@ function App() {
           <Route path="/unauthorized" element={<Unauthorized />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
+          <Route path="/debug/google-oauth" element={<GoogleOAuthDiagnostic />} />
         
         {/* Protected Routes */}
         <Route path="/dashboard" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />
@@ -522,7 +539,7 @@ function App() {
         <Route path="/management/admin/role-manager" element={<ProtectedRoute requiredRole={['super_admin', 'admin']}><AdminRoleManager /></ProtectedRoute>} />
         
         {/* Dashboard Routes */}
-        <Route path="/dashboards/agent" element={<ProtectedRoute><AgentDashboard /></ProtectedRoute>} />
+        <Route path="/dashboards/agent" element={<ProtectedRoute requiredRole="agent"><AgentDashboard /></ProtectedRoute>} />
         <Route path="/dashboards/agent/profile" element={<ProtectedRoute><AgentProfileModern /></ProtectedRoute>} />
         <Route path="/dashboards/operations" element={<ProtectedRoute><OperationsDashboard /></ProtectedRoute>} />
         <Route path="/dashboards/manager" element={<ProtectedRoute><ManagerDashboard /></ProtectedRoute>} />
@@ -631,9 +648,13 @@ function App() {
         <Route path="/settings/pricing" element={<ProtectedRoute><PricingSettings /></ProtectedRoute>} />
         <Route path="/settings/currency-converter" element={<ProtectedRoute><CurrencyConverter /></ProtectedRoute>} />
         <Route path="/settings/email-templates" element={<ProtectedRoute><EmailTemplates /></ProtectedRoute>} />
+        <Route path="/settings/email-configuration" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><EmailConfiguration /></ProtectedRoute>} />
+        <Route path="/settings/sms-otp" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><SmsOtpSettings /></ProtectedRoute>} />
         {/* Unified App Settings route for admins/managers */}
         <Route path="/settings/app" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AppSettingsAdmin /></ProtectedRoute>} />
+        <Route path="/settings/logo-test" element={<ProtectedRoute><LogoTest /></ProtectedRoute>} />
         <Route path="/email-templates" element={<ProtectedRoute><EmailTemplates /></ProtectedRoute>} />
+        <Route path="/email/marketing/communications" element={<ProtectedRoute requiredRole={['super_admin','admin','staff']}><MarketingCommunications /></ProtectedRoute>} />
 
         {/* Tools */}
         <Route path="/tools/nominatim" element={<ProtectedRoute requiredRole={["super_admin", "manager"]}><NominatimTools /></ProtectedRoute>} />

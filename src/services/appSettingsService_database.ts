@@ -3,6 +3,77 @@ import { Json } from '@/integrations/supabase/types';
 
 // Using centralized supabase client to avoid multiple GoTrueClient instances
 
+// Circuit breaker for preventing rapid retry attempts
+interface CircuitBreakerState {
+  failureCount: number;
+  lastFailureTime: number;
+  isOpen: boolean;
+}
+
+const circuitBreaker: Record<string, CircuitBreakerState> = {};
+const MAX_FAILURES = 3;
+const CIRCUIT_BREAKER_TIMEOUT = 30000; // 30 seconds
+const STACK_DEPTH_ERROR_CODES = ['54001', '54011'];
+const STACK_DEPTH_ERROR_PATTERNS = [/stack depth/i, /stack overflow/i, /recursion/i];
+
+function getCircuitBreakerKey(operation: string, category?: string, settingKey?: string): string {
+  return `${operation}_${category || 'all'}_${settingKey || 'all'}`;
+}
+
+function shouldAttemptOperation(key: string): boolean {
+  const state = circuitBreaker[key];
+  if (!state) return true;
+  
+  if (state.isOpen) {
+    const timeSinceLastFailure = Date.now() - state.lastFailureTime;
+    if (timeSinceLastFailure > CIRCUIT_BREAKER_TIMEOUT) {
+      // Reset circuit breaker after timeout
+      delete circuitBreaker[key];
+      return true;
+    }
+    return false;
+  }
+  
+  return true;
+}
+
+function recordSuccess(key: string): void {
+  delete circuitBreaker[key];
+}
+
+function isStackDepthError(error: any): boolean {
+  if (!error) return false;
+  
+  const errorCode = error.code || '';
+  const errorMessage = error.message || '';
+  
+  // Check for PostgreSQL stack depth error codes
+  if (STACK_DEPTH_ERROR_CODES.includes(errorCode)) return true;
+  
+  // Check for stack depth patterns in error message
+  return STACK_DEPTH_ERROR_PATTERNS.some(pattern => pattern.test(errorMessage));
+}
+
+function recordFailure(key: string, error?: any): void {
+  const state = circuitBreaker[key] || { failureCount: 0, lastFailureTime: 0, isOpen: false };
+  
+  // For stack depth errors, open circuit breaker immediately
+  if (isStackDepthError(error)) {
+    state.failureCount = MAX_FAILURES;
+    state.isOpen = true;
+    console.warn(`AppSettingsService: Circuit breaker opened for ${key} due to stack depth error`);
+  } else {
+    state.failureCount++;
+    state.isOpen = state.failureCount >= MAX_FAILURES;
+    if (state.isOpen) {
+      console.warn(`AppSettingsService: Circuit breaker opened for ${key} after ${state.failureCount} failures`);
+    }
+  }
+  
+  state.lastFailureTime = Date.now();
+  circuitBreaker[key] = state;
+}
+
 // Type definitions for app settings
 export interface AppSetting {
   id: string;
@@ -112,6 +183,12 @@ class AppSettingsService {
   // Check if database table exists
   static async checkTableExists(): Promise<boolean> {
     try {
+      // If database is marked as inaccessible due to stack depth errors, skip the check
+      if (!this.isDatabaseAccessible()) {
+        console.warn('AppSettingsService: Database marked as inaccessible, skipping table check');
+        return false;
+      }
+      
       // Try to query the table directly with type assertion
       const { error } = await (supabase as any)
         .from('app_settings')
@@ -123,6 +200,14 @@ class AppSettingsService {
         const errorMessage = error.message?.toLowerCase() || '';
         const errorCode = error.code || '';
         const isNetworkFetchError = errorMessage.includes('failed to fetch') || errorMessage.includes('network') || errorMessage.includes('fetch');
+        const isStackDepthError = errorCode === '54001' || /stack depth/i.test(errorMessage);
+        
+        // Stack depth errors: mark DB inaccessible to prevent repeated attempts
+        if (isStackDepthError) {
+          console.warn('AppSettingsService: Stack depth error detected during table check, marking database as inaccessible');
+          this.markDatabaseInaccessible();
+          return false;
+        }
         
         // Common error conditions that indicate table issues
         if (
@@ -157,9 +242,9 @@ class AppSettingsService {
   // Check if user has permission to access app settings
   static async checkPermissions(): Promise<boolean> {
     try {
-      // Supabase-only mode: if we have a session, permit writes without role RPC
-      const { session } = await authHelpers.getSession();
-      return !!session;
+      // Allow both authenticated and anonymous users to access app settings
+      // Anonymous users can save settings to localStorage/database with proper RLS policies
+      return true;
     } catch (error) {
       console.error('AppSettingsService: Error checking permissions:', error);
       return false;
@@ -439,6 +524,24 @@ class AppSettingsService {
 
   // Create a new setting
   static async createSetting(setting: AppSettingInsert): Promise<AppSettingsServiceResponse<AppSetting | null>> {
+    const circuitBreakerKey = getCircuitBreakerKey('create', setting.category, setting.setting_key);
+    
+    // Check circuit breaker before attempting operation
+    if (!shouldAttemptOperation(circuitBreakerKey)) {
+      console.warn(`AppSettingsService: Circuit breaker open for create operation, using localStorage fallback`);
+      const { session } = await authHelpers.getSession();
+      const userId = session?.user?.id;
+      return await this.createSettingInStorage(setting, userId);
+    }
+
+    // If database is marked as inaccessible due to stack depth errors, use localStorage immediately
+    if (!this.isDatabaseAccessible()) {
+      console.warn('AppSettingsService: Database marked as inaccessible due to stack depth errors, using localStorage');
+      const { session } = await authHelpers.getSession();
+      const userId = session?.user?.id;
+      return await this.createSettingInStorage(setting, userId);
+    }
+
     try {
       const hasPermission = await this.checkPermissions();
       const { session } = await authHelpers.getSession();
@@ -463,6 +566,7 @@ class AppSettingsService {
 
         // If stack recursion error occurs, retry without updated_by to bypass potential triggers
         if (error && (error.code === '54001' || /stack depth/i.test(error.message || ''))) {
+          console.warn('AppSettingsService: Stack depth error detected, retrying without updated_by');
           const retry = await (supabase as any)
             .from('app_settings')
             .upsert({ ...upsertPayload, updated_by: null }, { onConflict: 'category,setting_key' })
@@ -478,6 +582,7 @@ class AppSettingsService {
           if (errObj?.code === '54001' || /stack depth/i.test(errObj?.message || '')) {
             console.warn('AppSettingsService: Stack depth error detected. Falling back to localStorage.');
             this.markDatabaseInaccessible();
+            recordFailure(circuitBreakerKey, error);
             const fallback = await this.createSettingInStorage(setting, userId);
             return fallback;
           }
@@ -487,14 +592,17 @@ class AppSettingsService {
             details: errObj?.details,
             hint: errObj?.hint
           });
+          recordFailure(circuitBreakerKey, error);
           return { data: null, error: errObj?.message ?? 'Database error', success: false };
         }
 
+        recordSuccess(circuitBreakerKey);
         return { data: data as AppSetting, error: null, success: true };
       } else {
         return { data: null, error: 'Table app_settings does not exist', success: false };
       }
     } catch (error: any) {
+      recordFailure(circuitBreakerKey, error);
       return {
         data: null,
         error: error.message,
@@ -542,6 +650,24 @@ class AppSettingsService {
     settingKey: string, 
     updates: AppSettingUpdate
   ): Promise<AppSettingsServiceResponse<AppSetting | null>> {
+    const circuitBreakerKey = getCircuitBreakerKey('update', category, settingKey);
+    
+    // Check circuit breaker before attempting operation
+    if (!shouldAttemptOperation(circuitBreakerKey)) {
+      console.warn(`AppSettingsService: Circuit breaker open for update operation, using localStorage fallback`);
+      const { session } = await authHelpers.getSession();
+      const userId = session?.user?.id;
+      return await this.updateSettingInStorage(category, settingKey, updates, userId);
+    }
+
+    // If database is marked as inaccessible due to stack depth errors, use localStorage immediately
+    if (!this.isDatabaseAccessible()) {
+      console.warn('AppSettingsService: Database marked as inaccessible due to stack depth errors, using localStorage');
+      const { session } = await authHelpers.getSession();
+      const userId = session?.user?.id;
+      return await this.updateSettingInStorage(category, settingKey, updates, userId);
+    }
+
     try {
       const hasPermission = await this.checkPermissions();
       const { session } = await authHelpers.getSession();
@@ -571,6 +697,7 @@ class AppSettingsService {
 
         // If recursion error occurs, retry without updated_by to bypass potential triggers
         if (error && (error.code === '54001' || /stack depth/i.test(error.message || ''))) {
+          console.warn('AppSettingsService: Stack depth error detected, retrying without updated_by');
           const retry = await (supabase as any)
             .from('app_settings')
             .upsert({ ...upsertPayload, updated_by: null }, { onConflict: 'category,setting_key' })
@@ -586,6 +713,7 @@ class AppSettingsService {
           if (errObj?.code === '54001' || /stack depth/i.test(errObj?.message || '')) {
             console.warn('AppSettingsService: Stack depth error detected during update. Falling back to localStorage.');
             this.markDatabaseInaccessible();
+            recordFailure(circuitBreakerKey, error);
             const fallback = await this.updateSettingInStorage(category, settingKey, updates, userId);
             return fallback;
           }
@@ -595,9 +723,11 @@ class AppSettingsService {
             details: errObj?.details,
             hint: errObj?.hint,
           });
+          recordFailure(circuitBreakerKey, error);
           return { data: null, error: errObj?.message ?? 'Database error', success: false };
         }
 
+        recordSuccess(circuitBreakerKey);
         return {
           data: data as AppSetting,
           error: null,
@@ -607,6 +737,7 @@ class AppSettingsService {
         return { data: null, error: 'Table app_settings does not exist', success: false };
       }
     } catch (error: any) {
+      recordFailure(circuitBreakerKey);
       return {
         data: null,
         error: error.message,

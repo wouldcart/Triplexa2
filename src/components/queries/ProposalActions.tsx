@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { Query } from '@/types/query';
@@ -19,10 +19,13 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { createWorkflowEvent } from '@/services/workflowEventsService';
+import { updateEnquiry } from '@/services/enquiriesService';
 
 interface ProposalActionsProps {
   query: Query;
   onProposalStateChange?: (state: any) => void;
+  onQueryUpdate?: (updatedQuery: Query) => void;
+  enableAutoStatusUpdate?: boolean;
 }
 
 interface DraftProposal {
@@ -35,7 +38,7 @@ interface DraftProposal {
   type: 'draft';
 }
 
-const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStateChange }) => {
+const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStateChange, onQueryUpdate, enableAutoStatusUpdate = true }) => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -47,6 +50,7 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
   const [deleteDialog, setDeleteDialog] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [proposalStatuses, setProposalStatuses] = useState<Map<string, any>>(new Map());
+  const [hasAttemptedAutoUpdate, setHasAttemptedAutoUpdate] = useState(false);
 
   // Helper functions for better data management
   const getDraftFromLocalStorage = (key: string): any => {
@@ -87,6 +91,30 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
     }
     
     return null;
+  };
+
+  // Helper function to check if draft content is duplicate
+  const isDuplicateDraft = (newDraft: DraftProposal, existingDrafts: DraftProposal[]): boolean => {
+    return existingDrafts.some(existingDraft => {
+      // Check if same query ID and same days content
+      if (existingDraft.queryId !== newDraft.queryId) return false;
+      
+      // Compare days array length
+      if (existingDraft.days.length !== newDraft.days.length) return false;
+      
+      // Compare total cost (with small tolerance for floating point)
+      if (Math.abs(existingDraft.totalCost - newDraft.totalCost) > 0.01) return false;
+      
+      // Compare days content by checking key properties
+      return existingDraft.days.every((day, index) => {
+        const newDay = newDraft.days[index];
+        if (!newDay) return false;
+        
+        return day.id === newDay.id && 
+               day.city === newDay.city && 
+               day.activities.length === newDay.activities.length;
+      });
+    });
   };
 
   const removeDuplicateProposals = (proposals: ProposalData[]): ProposalData[] => {
@@ -190,7 +218,7 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
       console.log('Auto-save draft found:', autoSaveDraft ? 'Yes' : 'No');
       if (autoSaveDraft) {
         const dayWiseDraft = createDraftFromData(`draft_${query.id}`, autoSaveDraft, 'daywise');
-        if (dayWiseDraft) {
+        if (dayWiseDraft && !isDuplicateDraft(dayWiseDraft, draftData)) {
           console.log('Day-wise draft created:', dayWiseDraft);
           draftData.push(dayWiseDraft);
         }
@@ -201,7 +229,7 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
       console.log('Enhanced modules found:', enhancedModules ? 'Yes' : 'No');
       if (enhancedModules) {
         const enhancedDraft = createDraftFromData(`enhanced_draft_${query.id}`, enhancedModules, 'enhanced');
-        if (enhancedDraft) {
+        if (enhancedDraft && !isDuplicateDraft(enhancedDraft, draftData)) {
           console.log('Enhanced draft created:', enhancedDraft);
           draftData.push(enhancedDraft);
         }
@@ -216,9 +244,9 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
 
       additionalKeys.forEach(key => {
         const data = getDraftFromLocalStorage(key);
-        if (data && !draftData.find(d => d.id.includes(key))) {
+        if (data) {
           const draft = createDraftFromData(`additional_${key}`, data, key.includes('enhanced') ? 'enhanced' : 'daywise');
-          if (draft) {
+          if (draft && !isDuplicateDraft(draft, draftData)) {
             console.log(`Additional draft found for key ${key}:`, draft);
             draftData.push(draft);
           }
@@ -275,6 +303,49 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
         )
       };
       onProposalStateChange?.(proposalState);
+
+      if (enableAutoStatusUpdate && proposalState.hasDrafts && !proposalState.hasProposals && (query.status === 'assigned' || query.status === 'new') && !hasAttemptedAutoUpdate) {
+        console.log(`[ProposalActions] Auto-updating enquiry ${query.id} from ${query.status} to in-progress (drafts: ${proposalState.draftCount}, proposals: ${proposalState.proposalCount})`);
+        console.log(`[ProposalActions] Instance ID: ${Math.random().toString(36).substr(2, 9)}`); // Debug: Track which instance is triggering
+        setHasAttemptedAutoUpdate(true); // Prevent duplicate attempts
+        
+        try {
+          // Update database first
+          await updateEnquiry(query.id, { status: 'in-progress', updatedAt: new Date().toISOString() } as any);
+          console.log(`[ProposalActions] Showing toast notification for status update`);
+          toast({ title: 'Status Updated', description: 'Enquiry marked In Progress based on draft activity' });
+          
+          // Immediately update local state for instant UI feedback
+          const updatedQuery = { ...query, status: 'in-progress', updatedAt: new Date().toISOString() };
+          onQueryUpdate?.(updatedQuery);
+          console.log(`Local query status updated to in-progress for enquiry ${query.id}`);
+          try {
+            const saved = localStorage.getItem('travel_queries');
+            if (saved) {
+              const arr = JSON.parse(saved);
+              const idx = Array.isArray(arr) ? arr.findIndex((q: any) => q.id === query.id) : -1;
+              if (idx >= 0) {
+                arr[idx] = { ...arr[idx], status: 'in-progress', updatedAt: new Date().toISOString() };
+                localStorage.setItem('travel_queries', JSON.stringify(arr));
+              }
+            }
+            window.dispatchEvent(new Event('enquiry-saved'));
+          } catch {}
+          
+          // Then refresh from database to ensure consistency
+          try {
+            const { data: refreshedQuery } = await ProposalService.getQueryByIdAsync(query.id);
+            if (refreshedQuery) {
+              onQueryUpdate?.(refreshedQuery);
+              console.log(`Query data refreshed from database for enquiry ${query.id}`);
+            }
+          } catch (refreshError) {
+            console.warn('Failed to refresh query data:', refreshError);
+          }
+        } catch (e: any) {
+          console.warn('Auto status update failed:', e?.message || e);
+        }
+      }
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -505,11 +576,18 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
 
   const handleDeleteDraft = async (draftId: string) => {
     try {
-      const storageKey = draftId.includes('enhanced') 
-        ? `enhanced_proposal_modules_${query.id}`
-        : `proposal_draft_${query.id}`;
+      let storageKey: string | null = null;
+      if (draftId.startsWith('additional_')) {
+        storageKey = draftId.replace('additional_', '');
+      } else if (draftId.includes('enhanced')) {
+        storageKey = `enhanced_proposal_modules_${query.id}`;
+      } else {
+        storageKey = `proposal_draft_${query.id}`;
+      }
       
-      localStorage.removeItem(storageKey);
+      if (storageKey) {
+        localStorage.removeItem(storageKey);
+      }
 
       // Also delete remote draft if it's Supabase-backed
       if (draftId.startsWith('DRAFT-')) {
@@ -813,7 +891,9 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
                         Draft
                       </Badge>
                       <h3 className="font-semibold">
-                        {draft.id.includes('enhanced') ? 'Enhanced Proposal Draft' : 'Day-wise Itinerary Draft'}
+                        {draft.id.includes('enhanced') ? 'Enhanced Proposal Draft' : 
+                         draft.id.includes('daywise') ? 'Day-wise Itinerary Draft' : 
+                         'Proposal Draft'}
                       </h3>
                       <AlertCircle className="h-4 w-4 text-orange-600" />
                     </div>
@@ -867,6 +947,9 @@ const ProposalActions: React.FC<ProposalActionsProps> = ({ query, onProposalStat
                       <DialogContent>
                         <DialogHeader>
                           <DialogTitle>Delete Draft</DialogTitle>
+                          <DialogDescription>
+                            This action cannot be undone
+                          </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4">
                           <p>Are you sure you want to delete this draft?</p>

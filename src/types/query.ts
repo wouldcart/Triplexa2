@@ -53,6 +53,30 @@ export interface Query {
     isOptional: boolean;
     estimatedCost: number;
   }>;
+  optionalSightseeingOptions?: Array<{
+    id: string;
+    title: string;
+    description: string;
+    activities: Array<{
+      name: string;
+      duration: string;
+      cost: number;
+      description?: string;
+    }>;
+    isOptional: boolean;
+  }>;
+  optionalTransportOptions?: Array<{
+    id: string;
+    type: 'private' | 'shared' | 'flight' | 'cruise';
+    description: string;
+    cost: number;
+    isOptional: boolean;
+    details?: {
+      from: string;
+      to: string;
+      duration: string;
+    };
+  }>;
 }
 
 export interface QueryFilters {

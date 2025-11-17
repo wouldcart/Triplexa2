@@ -220,6 +220,50 @@ app.post('/api/test-ai', async (req, res) => {
   }
 });
 
+app.post('/api/generate-email', async (req, res) => {
+  try {
+    const { subject = '', category = 'custom', provider_hint, content_guide = '' } = req.body || {};
+    const basePrompt = `You are an email template generator. Produce responsive, email-client-friendly HTML with inline styles.
+Subject: ${subject}
+Category: ${category}
+Guidelines: ${content_guide}
+Requirements:
+- Header with company placeholder
+- Main content block
+- Bullet list if relevant
+- A clear CTA button with {CTAUrl} placeholder
+- Footer with unsubscribe {UnsubscribeUrl}
+- Use tokens like {Name}, {CompanyName}
+- Keep HTML clean (tables or simple divs), inline styles; avoid external CSS.
+Return ONLY HTML.`;
+
+    const providers = await getActiveProviders();
+    if (!providers.length) {
+      return res.status(400).json({ error: 'No active AI providers configured.' });
+    }
+
+    const ordered = provider_hint
+      ? providers.reduce((acc, p) => {
+          if ((p.provider_name || '').toLowerCase().includes(String(provider_hint).toLowerCase())) acc.unshift(p);
+          else acc.push(p);
+          return acc;
+        }, [])
+      : providers;
+
+    for (let i = 0; i < ordered.length; i++) {
+      const p = ordered[i];
+      const result = await tryProvider(basePrompt, p, 12000);
+      if (result && typeof result.text === 'string') {
+        return res.json({ provider: result.provider, model: result.model, response_time_ms: result.response_time_ms, html: result.text });
+      }
+    }
+    return res.status(503).json({ error: 'All AI providers failed or are busy.' });
+  } catch (error) {
+    console.error('AI generate-email error:', error);
+    res.status(500).json({ error: error?.message || 'Internal error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🤖 AI server running on http://localhost:${PORT}`);
 });

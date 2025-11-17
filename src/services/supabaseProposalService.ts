@@ -279,6 +279,9 @@ export const SupabaseProposalService = {
     const createdBy = await getCurrentProfileId();
     const proposal_id = generateProposalId(query.id);
 
+    // Build optional records from query data
+    const optionalRecords = {}; // Default empty optional records
+
     const row = {
       proposal_id,
       enquiry_id: enquiryUuid,
@@ -302,6 +305,7 @@ export const SupabaseProposalService = {
       agent_feedback: null,
       modifications: [],
       last_saved: new Date().toISOString(),
+      optional_records: optionalRecords,
     };
 
     const { data, error } = await sb
@@ -319,7 +323,19 @@ export const SupabaseProposalService = {
     if (status === 'sent') payload.sent_at = new Date().toISOString();
     if (status === 'accepted') payload.accepted_at = new Date().toISOString();
     if (status === 'rejected') payload.rejected_at = new Date().toISOString();
-    return await sb.from('proposals').update(payload).eq('proposal_id', proposalId);
+    
+    // Handle draft formats by extracting the base enquiry ID
+    let searchId = proposalId;
+    
+    // If it's a draft format like "DRAFT-ENQ20257999-enhanced", extract the base enquiry ID
+    if (proposalId.startsWith('DRAFT-')) {
+      const parts = proposalId.split('-');
+      if (parts.length >= 2 && parts[1].startsWith('ENQ')) {
+        searchId = parts[1]; // Extract "ENQ20257999" from "DRAFT-ENQ20257999-enhanced"
+      }
+    }
+    
+    return await sb.from('proposals').update(payload).eq('proposal_id', searchId);
   },
 
   /**

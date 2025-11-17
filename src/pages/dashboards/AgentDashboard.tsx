@@ -34,6 +34,17 @@ const AgentDashboard: React.FC = () => {
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState('overview');
   const [suspensionReason, setSuspensionReason] = useState<string | undefined>(undefined);
+
+  // Initial debug logging
+  useEffect(() => {
+    console.log('=== AGENT DASHBOARD MOUNTED ===', {
+      currentUser: currentUser,
+      userRole: currentUser?.role,
+      userStatus: currentUser?.status,
+      isAuthenticated: !!currentUser,
+      timestamp: new Date().toISOString()
+    });
+  }, []);
   
   // Initialize real-time notifications
   useRealTimeNotifications();
@@ -78,8 +89,25 @@ const AgentDashboard: React.FC = () => {
   const { loading: guardLoading, shouldRedirect, shouldPopup, completion, status } = useAgentProfileGuard(50);
   const [profilePromptOpen, setProfilePromptOpen] = useState(false);
 
+  // Debug logging for agent dashboard loading
+  useEffect(() => {
+    console.log('=== AGENT DASHBOARD DEBUG ===', {
+      currentUser,
+      userRole: currentUser?.role,
+      userStatus: currentUser?.status,
+      isAgent: currentUser?.role === 'agent',
+      guardLoading,
+      shouldRedirect,
+      shouldPopup,
+      completion,
+      status,
+      timestamp: new Date().toISOString()
+    });
+  }, [currentUser, guardLoading, shouldRedirect, shouldPopup, completion, status]);
+
   useEffect(() => {
     if (shouldRedirect) {
+      console.log('Agent Dashboard: Redirecting to profile due to incomplete profile');
       navigate('/dashboards/agent/profile', { replace: true });
       return;
     }
@@ -104,6 +132,18 @@ const AgentDashboard: React.FC = () => {
     loadReason();
     return () => { mounted = false; };
   }, [currentUser?.id, currentUser?.status, currentUser?.role]);
+
+  // Show loading state while profile guard is checking
+  if (guardLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading agent dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen bg-background ${isMobile ? 'pb-20' : ''}`}>

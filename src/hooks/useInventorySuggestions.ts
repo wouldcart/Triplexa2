@@ -1,9 +1,9 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Query } from '@/types/query';
-import { mockHotels } from '@/components/inventory/hotels/data/hotelData';
 import { transportRoutes } from '@/pages/inventory/transport/data/transportData';
 import { sightseeingData } from '@/pages/inventory/sightseeing/data/initialData';
+import { useHotelCrud } from '@/components/inventory/hotels/hooks/useHotelCrud';
 
 interface SuggestionFilters {
   country: string;
@@ -17,6 +17,9 @@ interface SuggestionFilters {
 
 export const useInventorySuggestions = (query: Query) => {
   const [loading, setLoading] = useState(false);
+  
+  // Use hotel CRUD to get actual hotels from Supabase
+  const { hotels: supabaseHotels } = useHotelCrud();
 
   const filters: SuggestionFilters = useMemo(() => ({
     country: query.destination.country,
@@ -25,9 +28,9 @@ export const useInventorySuggestions = (query: Query) => {
     budget: query.budget
   }), [query]);
 
-  // Filter hotels by destination
+  // Filter hotels by destination - use Supabase hotels instead of mock data
   const suggestedHotels = useMemo(() => {
-    return mockHotels.filter(hotel => {
+    return supabaseHotels.filter(hotel => {
       const hotelCountry = hotel.country || '';
       const hotelCity = hotel.city || '';
       const hotelName = hotel.name || '';
@@ -39,7 +42,7 @@ export const useInventorySuggestions = (query: Query) => {
             hotelName.toLowerCase().includes(filterCity.toLowerCase());
         });
     }).slice(0, 12); // Limit to top 12 suggestions
-  }, [filters]);
+  }, [filters, supabaseHotels]);
 
   // Filter transport by cities
   const suggestedTransport = useMemo(() => {

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Hotel } from '../types/hotel';
 import { useToast } from '@/hooks/use-toast';
-import { mockHotels } from '../data/hotelData';
 import { useHotelFilters } from './useHotelFilters';
 import { useHotelCrud } from './useHotelCrud';
 import { useRoomTypeCrud } from './useRoomTypeCrud';
@@ -52,39 +51,15 @@ export const useHotelsData = () => {
         // Check for saved hotels in localStorage
         const savedHotels = localStorage.getItem('savedHotels');
         
-        // If we have saved hotels, use those
+        // Use only saved hotels from localStorage or Supabase - no mock data fallback
         if (savedHotels) {
           const parsedHotels = JSON.parse(savedHotels);
           setHotels(parsedHotels);
           console.log('Loaded hotels from localStorage:', parsedHotels.length, 'hotels found');
         } else {
-          // Otherwise use mock data
-          setTimeout(() => {
-            // Enrich mock data with the new required properties for compatibility
-            const enrichedHotels = mockHotels.map(hotel => ({
-              ...hotel,
-              roomTypes: hotel.roomTypes.map(roomType => ({
-                ...roomType,
-                // Add the missing properties with calculated values
-                maxOccupancy: roomType.capacity?.adults + roomType.capacity?.children || 2,
-                bedType: roomType.configuration?.split(' ')[0] || 'King',
-                seasonStart: roomType.validFrom,
-                seasonEnd: roomType.validTo,
-                adultRate: roomType.adultPrice,
-                childRate: roomType.childPrice,
-                inventory: 10,
-                amenities: roomType.amenities || [],
-                images: roomType.images || []
-              }))
-            }));
-            
-            setHotels(enrichedHotels);
-            
-            // Store the initial data in localStorage
-            saveHotels(enrichedHotels);
-            
-            console.log('Loaded mock hotels:', enrichedHotels.length, 'hotels found');
-          }, 100);
+          // If no saved hotels, use empty array - data should come from Supabase
+          setHotels([]);
+          console.log('No hotels found in localStorage - using empty array');
         }
       } catch (error) {
         console.error('Error fetching hotels:', error);

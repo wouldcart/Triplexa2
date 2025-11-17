@@ -48,6 +48,50 @@ const Header: React.FC<HeaderProps> = ({ variant = 'default' }) => {
   const [siteTitle, setSiteTitle] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
+
+  // Fix theme detection to use system preference
+  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>('light');
+  
+  useEffect(() => {
+    const updateSystemTheme = () => {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      setSystemTheme(prefersDark ? 'dark' : 'light');
+      console.log('System theme updated:', prefersDark ? 'dark' : 'light');
+    };
+
+    updateSystemTheme();
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    mediaQuery.addEventListener('change', updateSystemTheme);
+    
+    return () => mediaQuery.removeEventListener('change', updateSystemTheme);
+  }, []);
+
+  // Force system theme to override any theme settings
+  const effectiveTheme = systemTheme;
+
+  // Debug theme detection
+  useEffect(() => {
+    const debugTheme = () => {
+      const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const hasDarkClass = document.documentElement.classList.contains('dark');
+      console.log('=== HEADER THEME DEBUG ===', {
+        theme: theme,
+        systemTheme: systemTheme,
+        effectiveTheme: effectiveTheme,
+        systemPrefersDark: systemPrefersDark,
+        documentHasDarkClass: hasDarkClass,
+        logoUrl: logoUrl,
+        logoDarkUrl: logoDarkUrl,
+        willShowDarkLogo: effectiveTheme === 'dark' && logoDarkUrl,
+        willShowLightLogo: effectiveTheme === 'light' && logoUrl,
+        timestamp: new Date().toISOString()
+      });
+    };
+
+    debugTheme();
+    const interval = setInterval(debugTheme, 3000);
+    return () => clearInterval(interval);
+  }, [theme, systemTheme, effectiveTheme, logoUrl, logoDarkUrl]);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [supabaseStatus, setSupabaseStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const [enquiryMatches, setEnquiryMatches] = useState<Array<{ enquiry_id: string; country_name: string; cities: any[]; agent_id: string | null; agent_name: string; agency_name: string }>>([]);
@@ -401,17 +445,6 @@ const Header: React.FC<HeaderProps> = ({ variant = 'default' }) => {
         
         {variant === 'hr' ? (
           <>
-            {(theme === 'dark' ? logoDarkUrl : logoUrl) ? (
-              <img
-                src={theme === 'dark' && logoDarkUrl ? logoDarkUrl : logoUrl}
-                alt="Logo"
-                className="hidden md:block h-6 sm:h-8 w-auto mr-2"
-              />
-            ) : (
-              <div className="hidden md:block max-w-[240px] truncate text-xs sm:text-sm font-semibold text-gray-900 dark:text-white mr-2">
-                {companyName || siteTitle || translate('HR Center') || 'HR Center'}
-              </div>
-            )}
             <div className="relative flex-1 max-w-xs sm:max-w-sm md:max-w-md">
               <Search className="absolute left-2 top-1/2 h-3 w-3 sm:h-4 sm:w-4 -translate-y-1/2 text-muted-foreground" />
               <input
@@ -427,7 +460,6 @@ const Header: React.FC<HeaderProps> = ({ variant = 'default' }) => {
           </>
         ) : (
           <>
-            {/* Removed header brand text to clean up header */}
             <div className="relative flex-1 max-w-xs sm:max-w-sm md:max-w-md">
               <Search className="absolute left-2 top-1/2 h-3 w-3 sm:h-4 sm:w-4 -translate-y-1/2 text-muted-foreground" />
               <input

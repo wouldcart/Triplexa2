@@ -1257,6 +1257,9 @@ const AgentProfile: React.FC = () => {
                     <DialogTitle className="truncate">
                       {previewItem?.name || 'Preview'}
                     </DialogTitle>
+                    <DialogDescription>
+                      Preview of the selected branding file
+                    </DialogDescription>
                   </DialogHeader>
                   <div className="mt-2">
                     {(() => {

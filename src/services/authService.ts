@@ -512,6 +512,44 @@ export class AuthService {
     }
   }
 
+  /**
+   * Sign in with Google OAuth and assign agent role
+   */
+  static async signInWithGoogle(role: string = 'agent'): Promise<AuthResponse> {
+    try {
+      console.log('🔐 Attempting Google OAuth sign-in with role:', role);
+      
+      // Initiate Google OAuth flow
+      const { data, error } = await authHelpers.signInWithGoogle(role);
+      
+      if (error) {
+        console.error('❌ Google OAuth error:', error);
+        return {
+          user: null,
+          error: error.message || 'Google authentication failed',
+          session: null
+        };
+      }
+
+      // The OAuth flow will redirect to Google and back to /login
+      // The session will be handled by the auth state change listener
+      console.log('✅ Google OAuth initiated successfully');
+      
+      return {
+        user: null, // User will be set by auth state change listener
+        error: null,
+        session: null // Session will be set after redirect
+      };
+    } catch (error) {
+      console.error('❌ Google OAuth error:', error);
+      return {
+        user: null,
+        error: error instanceof Error ? error.message : 'Google authentication failed',
+        session: null
+      };
+    }
+  }
+
   static async signOut(): Promise<{ error: string | null }> {
     try {
       const { error } = await authHelpers.signOut();
@@ -540,10 +578,15 @@ export class AuthService {
         .eq('id', (session.user as any).id)
         .maybeSingle();
 
+      console.log('🔍 getCurrentSession - Profile query result:', { profileRow, profileErr });
+
       const profileData: any = profileRow || await AuthService.ensureProfileExists(session.user);
       if (!profileData) {
+        console.log('❌ Profile not found for user:', (session.user as any).id);
         return { user: null, session: session, error: 'Profile not found' };
       }
+      
+      console.log('✅ Profile data found:', profileData.id, 'with role:', profileData.role);
 
       // Post-login enrichment: if metadata contains fields missing in profile, persist them
       try {
@@ -784,12 +827,27 @@ export class AuthService {
       if (isAdminClientConfigured && adminSupabase && authUser?.id) {
         // Determine role via current session RPC when available; default to 'user'
         let role: string = 'user';
-        try {
-          const { data: roleData, error: roleErr } = await (supabase as any).rpc('get_current_user_role');
-          if (!roleErr && typeof roleData === 'string' && roleData) {
-            role = roleData;
+        
+        // Check if user came from Google OAuth with specified role
+        const metadata = authUser?.user_metadata || {};
+        console.log('🔍 ensureProfileExists - Checking metadata for role:', metadata);
+        
+        if (metadata.role) {
+          role = metadata.role;
+          console.log('✅ Found role in metadata:', role);
+        } else {
+          try {
+            const { data: roleData, error: roleErr } = await (supabase as any).rpc('get_current_user_role');
+            if (!roleErr && typeof roleData === 'string' && roleData) {
+              role = roleData;
+              console.log('✅ Found role via RPC:', role);
+            } else {
+              console.log('ℹ️ No role found via RPC, defaulting to user');
+            }
+          } catch (e) {
+            console.log('ℹ️ RPC error, defaulting to user role:', e);
           }
-        } catch {}
+        }
 
         const name = (authUser?.user_metadata?.name) 
           || (authUser?.email ? String(authUser.email).split('@')[0] : 'User');
@@ -815,7 +873,10 @@ export class AuthService {
           .single();
 
         if (!upsertErr && upserted) {
+          console.log('✅ Profile ensured via admin client:', upserted.id, 'with role:', upserted.role);
           return upserted;
+        } else {
+          console.warn('Admin profile upsert error (non-blocking):', upsertErr);
         }
       }
 

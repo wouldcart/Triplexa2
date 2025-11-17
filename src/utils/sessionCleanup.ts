@@ -58,6 +58,12 @@ export class SessionCleanup {
    */
   private static clearLocalStorageItems(): void {
     try {
+      // Check if localStorage is available and accessible
+      if (typeof window === 'undefined' || !window.localStorage) {
+        console.warn('localStorage not available');
+        return;
+      }
+
       const authKeys = [
         'user_permissions',
         'supabase.auth.token',
@@ -67,18 +73,30 @@ export class SessionCleanup {
         'auth_state'
       ];
 
-      // Clear known auth-related keys
+      // Clear known auth-related keys with permission handling
       authKeys.forEach(key => {
-        localStorage.removeItem(key);
+        try {
+          localStorage.removeItem(key);
+        } catch (itemError) {
+          console.warn(`Could not remove localStorage item ${key}:`, itemError);
+        }
       });
 
       // Clear any keys that start with 'sb-' (Supabase keys)
-      const allKeys = Object.keys(localStorage);
-      allKeys.forEach(key => {
-        if (key.startsWith('sb-') || key.includes('supabase')) {
-          localStorage.removeItem(key);
-        }
-      });
+      try {
+        const allKeys = Object.keys(localStorage);
+        allKeys.forEach(key => {
+          if (key.startsWith('sb-') || key.includes('supabase')) {
+            try {
+              localStorage.removeItem(key);
+            } catch (itemError) {
+              console.warn(`Could not remove localStorage item ${key}:`, itemError);
+            }
+          }
+        });
+      } catch (keysError) {
+        console.warn('Could not enumerate localStorage keys:', keysError);
+      }
 
       console.log('localStorage cleared');
     } catch (error) {

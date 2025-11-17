@@ -3,7 +3,7 @@ export type StarRating = 1 | 2 | 3 | 4 | 5;
 export type FilterStarRating = StarRating | 'all';
 export type HotelStatus = 'active' | 'inactive' | 'draft';
 export type FilterHotelStatus = HotelStatus | 'all';
-export type MealPlan = 'Room Only' | 'Bed & Breakfast' | 'Half Board' | 'Full Board' | 'All Inclusive';
+export type MealPlan = 'Room Only' | 'EP (European Plan)' | 'CP (Continental Plan)' | 'MAP (Modified American Plan)' | 'Bed & Breakfast' | 'Half Board' | 'Full Board' | 'All Inclusive';
 
 export interface HotelAmenity {
   id: string;

@@ -242,11 +242,11 @@ const EditableTermsConditions: React.FC<EditableTermsConditionsProps> = ({
             </div>
           </div>
         ) : (
-          <div className="p-4 border rounded-lg bg-gray-50 min-h-[120px]">
+          <div className="p-4 border rounded-lg bg-gray-50 dark:bg-gray-800 min-h-[120px]">
             {termsData[section] ? (
               <div className="whitespace-pre-wrap text-sm">{termsData[section]}</div>
             ) : (
-              <div className="text-gray-500 italic text-sm">{placeholder}</div>
+              <div className="text-gray-500 dark:text-gray-400 italic text-sm">{placeholder}</div>
             )}
           </div>
         )}
@@ -341,7 +341,7 @@ const EditableTermsConditions: React.FC<EditableTermsConditionsProps> = ({
       </Tabs>
 
       {/* Summary */}
-      <Card className="bg-blue-50 border-blue-200">
+      <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
         <CardHeader>
           <CardTitle className="text-lg">Terms Summary</CardTitle>
         </CardHeader>

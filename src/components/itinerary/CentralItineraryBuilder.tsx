@@ -17,6 +17,7 @@ import { formatCurrency } from '@/lib/formatters';
 import ItineraryGenerationForm from './ItineraryGenerationForm';
 import ItineraryTimeline from './ItineraryTimeline';
 import ItineraryCostBreakdown from './ItineraryCostBreakdown';
+import { useAI } from '@/contexts/AIRouterContext';
 
 interface CentralItineraryBuilderProps {
   context: 'query' | 'proposal' | 'package';
@@ -33,6 +34,7 @@ const CentralItineraryBuilder: React.FC<CentralItineraryBuilderProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState('generator');
   const { hotels, sightseeing, restaurants, transportRoutes, cities, countries } = useInventoryData();
+  const { askAI } = useAI();
   
   const {
     itinerary,
@@ -70,8 +72,24 @@ const CentralItineraryBuilder: React.FC<CentralItineraryBuilderProps> = ({
         context,
         contextId,
       });
-      
-      updateItinerary(newItinerary);
+      let aiTitle = '';
+      let aiDesc = '';
+      const prompt = `Create a concise title and a 1-2 sentence description for a trip to ${request.destinations.join(', ')} from ${request.startDate} to ${request.endDate} for ${request.travelers.adults} adults${request.travelers.children > 0 ? ` and ${request.travelers.children} children` : ''}. Interests: ${request.preferences.interests.join(', ')}. Format: Title: <title>\nDescription: <desc>`;
+      try {
+        const res = await askAI(prompt, { timeoutMs: 8000, maxRetriesPerProvider: 1 });
+        const text = res.text || '';
+        const lines = text.split('\n');
+        const tLine = lines.find(l => l.toLowerCase().startsWith('title:')) || '';
+        const dLine = lines.find(l => l.toLowerCase().startsWith('description:')) || '';
+        aiTitle = tLine.replace(/^[Tt]itle:\s*/, '').trim();
+        aiDesc = dLine.replace(/^[Dd]escription:\s*/, '').trim();
+      } catch {}
+      const merged = {
+        ...newItinerary,
+        title: aiTitle || newItinerary.title,
+        description: aiDesc || newItinerary.description,
+      };
+      updateItinerary(merged);
     } catch (error) {
       console.error('Error generating itinerary:', error);
     }

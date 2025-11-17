@@ -1315,6 +1315,9 @@ export const AccommodationSelector: React.FC<AccommodationSelectorProps> = ({
                                   </SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="Room Only">Room Only</SelectItem>
+                                    <SelectItem value="EP (European Plan)">EP (European Plan) - No meals</SelectItem>
+                                    <SelectItem value="CP (Continental Plan)">CP (Continental Plan) - Breakfast only</SelectItem>
+                                    <SelectItem value="MAP (Modified American Plan)">MAP (Modified American Plan) - Breakfast &amp; Lunch/Dinner</SelectItem>
                                     <SelectItem value="Bed & Breakfast">Bed & Breakfast</SelectItem>
                                     <SelectItem value="Half Board">Half Board</SelectItem>
                                     <SelectItem value="Full Board">Full Board</SelectItem>

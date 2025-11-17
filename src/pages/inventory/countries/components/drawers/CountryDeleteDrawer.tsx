@@ -5,6 +5,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,9 @@ const CountryDeleteDrawer: React.FC<CountryDeleteDrawerProps> = ({
           <DialogTitle>
             {fileRef ? "Import Countries" : selectedCountry ? "Confirm Deletion" : "Add Country"}
           </DialogTitle>
+          <DialogDescription>
+            {fileRef ? "Import countries from file" : selectedCountry ? "This action cannot be undone" : "Add a new country"}
+          </DialogDescription>
         </DialogHeader>
         
         {selectedCountry && !fileRef && (

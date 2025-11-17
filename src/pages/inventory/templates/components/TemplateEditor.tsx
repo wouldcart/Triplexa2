@@ -253,6 +253,9 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, isOpen, onClo
               {showSmartSuggestions ? 'Hide' : 'Show'} AI Suggestions
             </Button>
           </DialogTitle>
+          <DialogDescription>
+            {template ? 'Edit template details and content' : 'Create a new template for proposals and itineraries'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex gap-6">

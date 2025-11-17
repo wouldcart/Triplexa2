@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger 
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger 
 } from '@/components/ui/dialog';
 import { 
   Play, Users, MessageSquare, FileText, Calendar, CheckCircle,
@@ -152,6 +152,9 @@ const WorkflowActions: React.FC<WorkflowActionsProps> = ({
         <DialogContent className="max-w-2xl bg-background border-border">
           <DialogHeader>
             <DialogTitle className="text-foreground">Query Workflow - {query.id}</DialogTitle>
+            <DialogDescription>
+              View the complete workflow and status history for this query
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-6">
             {/* Current Status */}

@@ -45,13 +45,16 @@ const EditHotel: React.FC = () => {
       const updatedHotel = updateHotel(id, data);
       
       if (updatedHotel) {
-        toast({
-          title: 'Success',
-          description: `${data.name || 'Hotel'} has been updated successfully!`,
-        });
-        
-        // Navigate back to hotel details page
-        navigate(`/inventory/hotels/${id}`);
+        // Only show toast for manual saves (not auto-saves)
+        if (!data.isAutoSave) {
+          toast({
+            title: 'Success',
+            description: `${data.name || 'Hotel'} has been updated successfully!`,
+          });
+          
+          // Navigate back to hotel details page only for manual saves
+          navigate(`/inventory/hotels/${id}`);
+        }
       }
     } catch (error) {
       console.error('Error updating hotel:', error);
