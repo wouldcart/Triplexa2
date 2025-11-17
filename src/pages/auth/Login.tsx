@@ -16,7 +16,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { User } from '../../types/User';
 import { Eye, EyeOff, Lock, User as UserIcon, Mail, Send, Chrome } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { upsertAgentWithPhone, sendOtp as smsSendOtp, verifyOtp as smsVerifyOtp } from '@/services/smsService';
+import { upsertAgentWithPhone, sendOtp as smsSendOtp, verifyOtp as smsVerifyOtp } from '@/services/smsService.ts';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
