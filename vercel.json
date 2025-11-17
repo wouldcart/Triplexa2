@@ -1,12 +1,43 @@
 {
-  "rewrites": [
+  "version": 2,
+  "functions": {
+    "api/sms/sendOtp.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/sms/verifyOtp.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/sms/test.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/ai/chat.js": {
+      "runtime": "nodejs18.x"
+    }
+  },
+  "routes": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "src": "/api/sms/sendOtp",
+      "dest": "/api/sms/sendOtp.js"
     },
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "src": "/api/sms/verifyOtp",
+      "dest": "/api/sms/verifyOtp.js"
+    },
+    {
+      "src": "/api/sms/test",
+      "dest": "/api/sms/test.js"
+    },
+    {
+      "src": "/api/ai/chat",
+      "dest": "/api/ai/chat.js"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
