@@ -9,6 +9,11 @@
       "destination": "/index.html"
     }
   ],
+  "functions": {
+    "api/**/*.js": {
+      "excludeFiles": "{!*,}"
+    }
+  },
   "headers": [
     {
       "source": "/api/(.*)",
