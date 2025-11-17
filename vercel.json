@@ -10,7 +10,19 @@
     "api/sms/test.js": {
       "runtime": "nodejs18.x"
     },
+    "api/sms/config-status.js": {
+      "runtime": "nodejs18.x"
+    },
     "api/ai/chat.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/auth/send-otp.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/auth/verify-otp.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/auth/upsert-agent-phone.js": {
       "runtime": "nodejs18.x"
     }
   },
@@ -28,8 +40,24 @@
       "dest": "/api/sms/test.js"
     },
     {
+      "src": "/api/sms/config-status",
+      "dest": "/api/sms/config-status.js"
+    },
+    {
       "src": "/api/ai/chat",
       "dest": "/api/ai/chat.js"
+    },
+    {
+      "src": "/api/auth/send-otp",
+      "dest": "/api/auth/send-otp.js"
+    },
+    {
+      "src": "/api/auth/verify-otp",
+      "dest": "/api/auth/verify-otp.js"
+    },
+    {
+      "src": "/api/auth/upsert-agent-phone",
+      "dest": "/api/auth/upsert-agent-phone.js"
     },
     {
       "src": "/api/(.*)",
