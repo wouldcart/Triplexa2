@@ -1,5 +1,34 @@
 {
   "version": 2,
+  "functions": {
+    "api/sms/sendOtp.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/sms/verifyOtp.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/sms/test.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/sms/config-status.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/ai/chat.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/auth/send-otp.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/auth/verify-otp.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/auth/upsert-agent-phone.js": {
+      "runtime": "nodejs18.x"
+    },
+    "api/email/send.js": {
+      "runtime": "nodejs18.x"
+    }
+  },
   "routes": [
     {
       "src": "/api/sms/sendOtp",
@@ -34,12 +63,34 @@
       "dest": "/api/auth/upsert-agent-phone.js"
     },
     {
+      "src": "/api/email/send",
+      "dest": "/api/email/send.js"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "/assets/$1"
+    },
+    {
+      "src": "/(.*)\\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)",
+      "dest": "/$1.$2"
+    },
+    {
       "src": "/api/(.*)",
       "dest": "/api/$1"
     },
     {
       "src": "/(.*)",
       "dest": "/index.html"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/assets/(.*)",
+      "destination": "/assets/$1"
     }
   ]
 }
