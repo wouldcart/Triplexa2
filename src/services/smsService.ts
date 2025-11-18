@@ -7,7 +7,8 @@ const getApiBaseUrl = () => {
     return 'http://localhost:3002';
   }
   // In production, use the deployed URL or current origin
-  return import.meta.env.VITE_VERCEL_URL || window.location.origin;
+  // For Vercel deployments, use the current origin since API routes are served from the same domain
+  return window.location.origin;
 };
 
 export const sendOtp = async (phone: string, type: 'login' | 'register' = 'login') => {

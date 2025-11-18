@@ -27,7 +27,7 @@ export const FloatingAIChat: React.FC<FloatingAIChatProps> = ({ className = '' }
       {/* Chat Window */}
       {isOpen && (
         <div className="relative">
-          <div className="absolute bottom-0 right-0 w-[400px] h-[500px] bg-background rounded-lg shadow-2xl border animate-in slide-in-from-bottom-4 duration-300">
+          <div className="absolute bottom-0 right-0 w-[400px] h-[500px] bg-background rounded-lg shadow-2xl border animate-in slide-in-from-bottom-4 duration-300 flex flex-col">
             <div className="flex items-center justify-between p-3 border-b bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-700">
               <div className="flex items-center gap-2">
                 <Bot className="h-4 w-4 text-primary" />
@@ -42,7 +42,11 @@ export const FloatingAIChat: React.FC<FloatingAIChatProps> = ({ className = '' }
                 <X className="h-3 w-3" />
               </Button>
             </div>
+<<<<<<< HEAD
             <div className="h-[calc(100%-48px)] flex flex-col">
+=======
+            <div className="flex-1 overflow-hidden">
+>>>>>>> origin/main
               <AIChat onClose={() => setIsOpen(false)} />
             </div>
           </div>

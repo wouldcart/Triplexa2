@@ -336,8 +336,8 @@ class EmailConfigurationService {
         </div>
       `;
 
-      // Send test email using the email server
-      const emailServerUrl = 'http://localhost:3003/send-email';
+      // Send test email using the Vercel API route
+      const emailServerUrl = '/api/email/send';
       console.log('Calling email server at:', emailServerUrl);
       
       const response = await fetch(emailServerUrl, {
