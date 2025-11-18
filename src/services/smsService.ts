@@ -24,28 +24,32 @@ export const sendOtp = async (phone: string, type: 'login' | 'register' = 'login
     });
 
     console.log('Response status:', response.status);
-    console.log('Response headers:', response.headers);
     
-    // Check if response has content
+    // Handle different response formats
     const contentType = response.headers.get('content-type');
-    console.log('Content-Type:', contentType);
     
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Error response text:', errorText);
-      return { data: null, error: { message: `HTTP ${response.status}: ${errorText || 'Failed to send OTP'}` } };
+      let errorMessage = 'Failed to send OTP';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: Failed to send OTP`;
+      } catch {
+        const errorText = await response.text();
+        errorMessage = errorText || `HTTP ${response.status}: Failed to send OTP`;
+      }
+      return { data: null, error: { message: errorMessage } };
     }
     
-    // Only try to parse JSON if content-type indicates JSON
+    // Parse successful response
+    let data;
     if (contentType && contentType.includes('application/json')) {
-      const data = await response.json();
-      return { data, error: null };
+      data = await response.json();
     } else {
-      // If not JSON, return the text response
       const text = await response.text();
-      console.log('Non-JSON response:', text);
-      return { data: { message: text, status: 'sent' }, error: null };
+      data = { message: text, status: 'sent' };
     }
+    
+    return { data, error: null };
   } catch (error) {
     console.error('Error sending OTP:', error);
     return { data: null, error: { message: error instanceof Error ? error.message : 'Network error. Please check your connection.' } };

@@ -107,7 +107,7 @@ export const AIChat: React.FC<AIChatProps> = ({ className = '', onClose }) => {
   }
 
   return (
-    <Card className={`flex flex-col h-[70vh] max-h-[80vh] w-full max-w-2xl ${className}`}>
+    <Card className={`flex flex-col h-full w-full max-w-2xl ${className}`}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center gap-2">
@@ -127,7 +127,7 @@ export const AIChat: React.FC<AIChatProps> = ({ className = '', onClose }) => {
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
+      <ScrollArea className="flex-1 p-4 overflow-y-auto" ref={scrollAreaRef}>
         <div className="space-y-4">
           {messages.map((message) => (
             <div

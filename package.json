@@ -14,7 +14,6 @@
     "email-server": "node server/emailServer.js",
     "auth-server": "node server/authServer.js",
     "ai-server": "node server/aiServer.js",
-    "sms-server": "node server/smsServer.js",
     "test:auth": "node tests/auth-endpoints.test.js",
     "test:auth:watch": "nodemon tests/auth-endpoints.test.js",
     "seed:transport": "node scripts/seed-transport-inventory.js",

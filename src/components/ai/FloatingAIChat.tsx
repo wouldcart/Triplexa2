@@ -42,7 +42,7 @@ export const FloatingAIChat: React.FC<FloatingAIChatProps> = ({ className = '' }
                 <X className="h-3 w-3" />
               </Button>
             </div>
-            <div className="h-[calc(100%-48px)]">
+            <div className="h-[calc(100%-48px)] flex flex-col">
               <AIChat onClose={() => setIsOpen(false)} />
             </div>
           </div>
