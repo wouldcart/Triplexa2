@@ -107,11 +107,7 @@ export const AIChat: React.FC<AIChatProps> = ({ className = '', onClose }) => {
   }
 
   return (
-<<<<<<< HEAD
-    <Card className={`flex flex-col h-full w-full max-w-2xl ${className}`}>
-=======
-    <Card className={`flex flex-col h-full w-full ${className}`}>
->>>>>>> origin/main
+    <Card className={`flex flex-col h-[70vh] max-h-[80vh] w-full max-w-2xl ${className}`}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center gap-2">
@@ -131,11 +127,7 @@ export const AIChat: React.FC<AIChatProps> = ({ className = '', onClose }) => {
       </div>
 
       {/* Messages */}
-<<<<<<< HEAD
-      <ScrollArea className="flex-1 p-4 overflow-y-auto" ref={scrollAreaRef}>
-=======
-      <ScrollArea className="flex-1 p-4 overflow-auto" ref={scrollAreaRef}>
->>>>>>> origin/main
+      <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
         <div className="space-y-4">
           {messages.map((message) => (
             <div
@@ -191,21 +183,20 @@ export const AIChat: React.FC<AIChatProps> = ({ className = '', onClose }) => {
       </ScrollArea>
 
       {/* Input */}
-      <div className="p-4 border-t bg-background z-10">
-        <div className="flex gap-2 items-center">
+      <div className="p-4 border-t">
+        <div className="flex gap-2">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Ask me anything about travel..."
             disabled={isLoading}
-            className="flex-1 h-10"
+            className="flex-1"
           />
           <Button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
             size="icon"
-            className="h-10 w-10 flex-shrink-0"
           >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />

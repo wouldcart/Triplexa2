@@ -28,6 +28,7 @@ export default function SmsOtpSettings() {
   const [templateText, setTemplateText] = useState('Hi #VAR1#, Your one time password for phone verification is #VAR2#')
   const [enabledSend, setEnabledSend] = useState(true)
   const [enabledVerify, setEnabledVerify] = useState(true)
+  const [mobileLoginVisible, setMobileLoginVisible] = useState(true)
   const [saving, setSaving] = useState(false)
   const [health, setHealth] = useState<any>(null)
   const [testPhone, setTestPhone] = useState('')
@@ -58,6 +59,7 @@ export default function SmsOtpSettings() {
         setTemplateText(String(j.template_text || templateText))
         setEnabledSend(j.enabled_send !== false)
         setEnabledVerify(j.enabled_verify !== false)
+        setMobileLoginVisible(j.mobile_login_visible !== false)
       }
       const { data } = await supabase.from('otp_logs').select('*').order('created_at',{ ascending: false }).limit(20)
       setLogs(data || [])
@@ -81,6 +83,7 @@ export default function SmsOtpSettings() {
       template_text: templateText,
       enabled_send: enabledSend,
       enabled_verify: enabledVerify,
+      mobile_login_visible: mobileLoginVisible,
     }
     await AppSettingsHelpers.upsertSetting({ category: 'Integrations', setting_key: 'sms_otp_config', setting_json: payload })
     setSaving(false)
@@ -188,6 +191,7 @@ export default function SmsOtpSettings() {
               <div className="flex items-center gap-2"><Switch checked={enabledSend} onCheckedChange={setEnabledSend} /><span>Enable Send</span></div>
               <div className="flex items-center gap-2"><Switch checked={enabledVerify} onCheckedChange={setEnabledVerify} /><span>Enable Verify</span></div>
               <div className="flex items-center gap-2"><Switch checked={isOpenTemplate} onCheckedChange={setIsOpenTemplate} /><span>Open Template</span></div>
+              <div className="flex items-center gap-2"><Switch checked={mobileLoginVisible} onCheckedChange={setMobileLoginVisible} /><span>Show Mobile Login</span></div>
             </div>
             <div className="flex items-center gap-3">
               <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save Configuration'}</Button>

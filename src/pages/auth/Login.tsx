@@ -17,6 +17,7 @@ import { User } from '../../types/User';
 import { Eye, EyeOff, Lock, User as UserIcon, Mail, Send, Chrome } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { upsertAgentWithPhone, sendOtp as smsSendOtp, verifyOtp as smsVerifyOtp } from '@/services/smsService.ts';
+import { AppSettingsService } from '@/services/appSettingsService_database';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -43,6 +44,7 @@ const Login: React.FC = () => {
   const [mobileVerifying, setMobileVerifying] = useState(false);
   const [isExistingMobileUser, setIsExistingMobileUser] = useState<boolean | null>(null);
   const [mobileMode, setMobileMode] = useState<'login' | 'register' | null>(null);
+  const [mobileLoginVisible, setMobileLoginVisible] = useState(true);
 
   // Reset mobile form when switching modes
   const resetMobileForm = () => {
@@ -102,6 +104,32 @@ const Login: React.FC = () => {
       }
     } catch {}
   }, [location.search]);
+
+  // Load SMS configuration to check if mobile login should be visible
+  useEffect(() => {
+    const loadSmsConfig = async () => {
+      try {
+        const config = await AppSettingsService.getSetting('Integrations', 'sms_otp_config');
+        if (config.success && config.data && config.data.setting_json) {
+          const settingJson = config.data.setting_json;
+          // Default to true if setting is not present
+          const isVisible = settingJson.mobile_login_visible !== false;
+          setMobileLoginVisible(isVisible);
+          
+          // If mobile login is hidden and current tab is mobile, switch to email
+          if (!isVisible && activeTab === 'mobile') {
+            setActiveTab('email');
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to load SMS configuration:', error);
+        // Default to visible if loading fails
+        setMobileLoginVisible(true);
+      }
+    };
+    
+    loadSmsConfig();
+  }, [activeTab]);
 
   // Handle Supabase invite/magic link: set session from hash and redirect
   useEffect(() => {
@@ -516,7 +544,7 @@ const Login: React.FC = () => {
             <Tabs value={activeTab} onValueChange={(v:any)=>setActiveTab(v)}>
               <TabsList className="mb-4">
                 <TabsTrigger value="email">Email</TabsTrigger>
-                <TabsTrigger value="mobile">Mobile</TabsTrigger>
+                {mobileLoginVisible && <TabsTrigger value="mobile">Mobile</TabsTrigger>}
               </TabsList>
               <TabsContent value="email">
             <form onSubmit={handleLogin} className="space-y-4">
@@ -642,6 +670,7 @@ const Login: React.FC = () => {
               </div>
             </form>
               </TabsContent>
+              {mobileLoginVisible && (
               <TabsContent value="mobile">
                 <div className="space-y-4">
                   {!mobileMode && (
@@ -1012,6 +1041,7 @@ const Login: React.FC = () => {
                   )}
                 </div>
               </TabsContent>
+              )}
             </Tabs>
            
             

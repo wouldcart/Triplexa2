@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import { User } from '@/types/User';
 import { ThemeProvider } from '@/components/ui/theme-provider';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense, lazy } from 'react';
 import * as serviceWorkerRegistration from '@/utils/serviceWorkerRegistration';
 import { HelmetProvider } from 'react-helmet-async';
 import { SEOProvider } from '@/contexts/SEOContext';
@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { preloadCriticalChunks } from '@/utils/dynamicImports';
 
 // Auth pages
 import Login from '@/pages/auth/Login';
@@ -391,6 +392,12 @@ const RootRedirect = () => {
 
 function App() {
   const location = useLocation();
+  
+  // Preload critical chunks on app initialization
+  useEffect(() => {
+    preloadCriticalChunks();
+  }, []);
+  
   // Pre-warm location cache to improve UX on transport pages
   useEffect(() => {
     locationResolutionService.prewarmCache().catch(() => {});
@@ -445,171 +452,179 @@ function App() {
   }, [location.pathname]);
 
   return (
-    <HelmetProvider>
-      <SEOProvider>
-        <ThemeProvider>
-      <Routes>
-          {/* Root route with proper authentication handling */}
-          <Route path="/" element={<RootRedirect />} />
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+          <p className="text-gray-600">Loading application...</p>
+        </div>
+      </div>
+    }>
+      <HelmetProvider>
+        <SEOProvider>
+          <ThemeProvider>
+            <Routes>
+              {/* Root route with proper authentication handling */}
+              <Route path="/" element={<RootRedirect />} />
+              
+              {/* Authentication routes */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/signup/agent" element={<AgentSignup />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/change-password" element={<ProtectedRoute><AgentPasswordChange /></ProtectedRoute>} />
+              <Route path="/unauthorized" element={<Unauthorized />} />
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/debug/google-oauth" element={<GoogleOAuthDiagnostic />} />
           
-          {/* Authentication routes */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/signup/agent" element={<AgentSignup />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/change-password" element={<ProtectedRoute><AgentPasswordChange /></ProtectedRoute>} />
-          <Route path="/unauthorized" element={<Unauthorized />} />
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy" element={<Privacy />} />
-          <Route path="/debug/google-oauth" element={<GoogleOAuthDiagnostic />} />
-        
-        {/* Protected Routes */}
-        <Route path="/dashboard" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />
-        <Route path="/dashboards" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />
-        <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-        
-        {/* Query Management Routes */}
-        <Route path="/queries" element={<ProtectedRoute><QueryManagement /></ProtectedRoute>} />
-        <Route path="/queries/create" element={<ProtectedRoute><CreateQuery /></ProtectedRoute>} />
-        <Route path="/queries/:id" element={<ProtectedRoute><QueryDetails /></ProtectedRoute>} />
-        <Route path="/queries/:id/edit" element={<ProtectedRoute><EditQuery /></ProtectedRoute>} />
-        <Route path="/queries/edit/:id" element={<ProtectedRoute><EditQuery /></ProtectedRoute>} />
-        <Route path="/queries/assign" element={<ProtectedRoute><AssignQueries /></ProtectedRoute>} />
-        
-        {/* Proposal Creation Routes - Unified to single option */}
-        <Route path="/queries/proposal/:id" element={<ProtectedRoute><AdvancedProposalCreation /></ProtectedRoute>} />
-        <Route path="/queries/advanced-proposal/:id" element={<ProtectedRoute><AdvancedProposalCreation /></ProtectedRoute>} />
-        <Route path="/queries/create-proposal/:id" element={<ProtectedRoute><AdvancedProposalCreation /></ProtectedRoute>} />
-        
-        {/* Day-wise Itinerary Builder Route */}
-        <Route path="/queries/enhanced-daywise/:id" element={<ProtectedRoute><EnhancedDayWiseBuilder /></ProtectedRoute>} />
-        
-        {/* Legacy proposal routes - redirect to unified proposal creation */}
-        <Route path="/queries/basic-proposal/:id" element={<Navigate to="/queries/proposal/:id" replace />} />
-        <Route path="/queries/enhanced-proposal/:id" element={<Navigate to="/queries/proposal/:id" replace />} />
-        
-        {/* Follow-ups Routes */}
-        <Route path="/followups" element={<ProtectedRoute><FollowUps /></ProtectedRoute>} />
-        
-        {/* Booking Management Routes */}
-        <Route path="/bookings" element={<ProtectedRoute><BookingManagement /></ProtectedRoute>} />
-        
-        {/* Itinerary Builder Routes */}
-        <Route path="/itinerary" element={<ProtectedRoute><ItineraryBuilder /></ProtectedRoute>} />
-        
-        {/* Activity Tracking Routes */}
-        <Route path="/activity-tracking" element={<ProtectedRoute><ActivityTrackingDashboard /></ProtectedRoute>} />
-        
-        {/* Reports Routes */}
-        <Route path="/reports" element={<ProtectedRoute><PageLayout><UniversalReportGenerator /></PageLayout></ProtectedRoute>} />
-        
-        {/* Agent Management Routes */}
-        <Route path="/management/agents" element={<ProtectedRoute><AgentManagement /></ProtectedRoute>} />
-        <Route path="/management/agents/add" element={<ProtectedRoute><AddAgent /></ProtectedRoute>} />
-        <Route path="/management/agents/:id" element={<ProtectedRoute><ManagementAgentProfile /></ProtectedRoute>} />
-        <Route path="/management/agents/:id/edit" element={<ProtectedRoute><EditAgent /></ProtectedRoute>} />
-        
-        {/* Staff Management Routes */}
-        <Route path="/management/staff" element={<ProtectedRoute><StaffManagement /></ProtectedRoute>} />
-        <Route path="/management/staff/add" element={<ProtectedRoute><AddStaff /></ProtectedRoute>} />
-        <Route path="/management/staff/departments" element={<ProtectedRoute><Departments /></ProtectedRoute>} />
-        {/* Support both /management/staff/:id and /management/staff/profile/:id */}
-        <Route path="/management/staff/profile/:id" element={<ProtectedRoute><StaffProfile /></ProtectedRoute>} />
-        <Route path="/management/staff/:id" element={<ProtectedRoute><StaffProfile /></ProtectedRoute>} />
-        <Route path="/management/staff/:id/edit" element={<ProtectedRoute><EditStaff /></ProtectedRoute>} />
-        <Route path="/management/staff/edit/:id" element={<ProtectedRoute><EditStaff /></ProtectedRoute>} />
-        <Route path="/management/hr" element={<ProtectedRoute><HRLayout /></ProtectedRoute>}>
-          <Route index element={<HRDashboard />} />
-          <Route path="payroll" element={<PayrollPage />} />
-          <Route path="leaves" element={<LeavesPage />} />
-          <Route path="attendance" element={<AttendanceManagement />} />
-          <Route path="salary" element={<SalaryStructureManager />} />
-          <Route path="staff-docs" element={<StaffDocsVerification />} />
-          <Route path="bank-verification" element={<BankVerification />} />
-          <Route path="onboarding" element={<Onboarding />} />
-          <Route path="offboarding" element={<Offboarding />} />
-          <Route path="compliance" element={<ComplianceCenter />} />
-        </Route>
-        
-        {/* Admin Management Routes */}
-        <Route path="/management/admin" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AdminManagement /></ProtectedRoute>} />
-        {/* Redirect legacy admin app settings route to unified settings path */}
-        <Route path="/management/admin/app-settings" element={<Navigate to="/settings/app" replace />} />
-        <Route path="/management/admin/users" element={<ProtectedRoute requiredRole={['super_admin']}><AdminUsers /></ProtectedRoute>} />
-        <Route path="/management/admin/role-manager" element={<ProtectedRoute requiredRole={['super_admin', 'admin']}><AdminRoleManager /></ProtectedRoute>} />
-        
-        {/* Dashboard Routes */}
-        <Route path="/dashboards/agent" element={<ProtectedRoute requiredRole="agent"><AgentDashboard /></ProtectedRoute>} />
-        <Route path="/dashboards/agent/profile" element={<ProtectedRoute><AgentProfileModern /></ProtectedRoute>} />
-        <Route path="/dashboards/operations" element={<ProtectedRoute><OperationsDashboard /></ProtectedRoute>} />
-        <Route path="/dashboards/manager" element={<ProtectedRoute><ManagerDashboard /></ProtectedRoute>} />
-        <Route path="/dashboards/content" element={<ProtectedRoute><ContentDashboard /></ProtectedRoute>} />
-        <Route path="/dashboards/support" element={<ProtectedRoute><SupportDashboard /></ProtectedRoute>} />
-        <Route path="/dashboards/finance" element={<ProtectedRoute><FinanceDashboard /></ProtectedRoute>} />
-        <Route path="/dashboards/staff" element={<ProtectedRoute><StaffDashboard /></ProtectedRoute>} />
-        
-        {/* Sales Module Routes with Layout */}
-        <Route path="/dashboards/sales" element={<ProtectedRoute><SalesLayout /></ProtectedRoute>}>
-          <Route index element={<SalesDashboard />} />
-        </Route>
-        
-        <Route path="/sales" element={<ProtectedRoute><SalesLayout /></ProtectedRoute>}>
-          <Route index element={<SalesEnquiries />} />
-          <Route path="enquiries" element={<SalesEnquiries />} />
-          <Route path="bookings" element={<SalesBookings />} />
-          <Route path="agents" element={<SalesAgents />} />
-          <Route path="reports" element={<SalesReports />} />
-        </Route>
-        
-        {/* Inventory Routes */}
-        <Route path="/inventory/hotels" element={<ProtectedRoute><Hotels /></ProtectedRoute>} />
-        <Route path="/inventory/hotels/add" element={<ProtectedRoute><AddHotel /></ProtectedRoute>} />
-        <Route path="/inventory/hotels/:id/edit" element={<ProtectedRoute><EditHotel /></ProtectedRoute>} />
-        <Route path="/inventory/hotels/:id" element={<ProtectedRoute><ViewHotel /></ProtectedRoute>} />
-        <Route path="/inventory/hotels/:id/add-room-type" element={<ProtectedRoute><AddRoomType /></ProtectedRoute>} />
-        <Route path="/inventory/hotels/:hotelId/rooms/add" element={<ProtectedRoute><AddRoomType /></ProtectedRoute>} />
-        <Route path="/inventory/hotels/add-room-type/:hotelId" element={<ProtectedRoute><AddRoomType /></ProtectedRoute>} />
-        <Route path="/inventory/hotels/rooms/add" element={<ProtectedRoute><AddRoomTypePage /></ProtectedRoute>} />
-        <Route path="/inventory/hotels/:hotelId/edit-room-type/:roomTypeId" element={<ProtectedRoute><EditRoomType /></ProtectedRoute>} />
-        
-        <Route path="/inventory/restaurants" element={<ProtectedRoute><Restaurants /></ProtectedRoute>} />
-        <Route path="/inventory/restaurants/add" element={<ProtectedRoute><AddEditRestaurant /></ProtectedRoute>} />
-        <Route path="/inventory/restaurants/edit/:id" element={<ProtectedRoute><AddEditRestaurant /></ProtectedRoute>} />
-        <Route path="/inventory/restaurants/:id/edit" element={<ProtectedRoute><AddEditRestaurant /></ProtectedRoute>} />
-        
-        <Route path="/inventory/transport" element={<ProtectedRoute><Transport /></ProtectedRoute>} />
-        <Route path="/inventory/transport/routes" element={<ProtectedRoute><TransportRoutesPage /></ProtectedRoute>} />
-        <Route path="/inventory/transport/types" element={<ProtectedRoute><TransportTypesPage /></ProtectedRoute>} />
-        <Route path="/inventory/transport/locations" element={<ProtectedRoute><LocationCodesPage /></ProtectedRoute>} />
-        
-        <Route path="/inventory/countries" element={<ProtectedRoute><Countries /></ProtectedRoute>} />
-        <Route path="/inventory/cities" element={<ProtectedRoute><Cities /></ProtectedRoute>} />
-        
-        {/* Test routes */}
-        <Route path="/test/database" element={<ProtectedRoute><DatabaseTest /></ProtectedRoute>} />
-        <Route path="/test/supabase" element={<ProtectedRoute><SupabaseConnectionTest /></ProtectedRoute>} />
-        <Route path="/test/seed" element={<ProtectedRoute><TestSeedPage /></ProtectedRoute>} />
-        <Route path="/test/hotel-crud" element={<ProtectedRoute><TestHotelCrud /></ProtectedRoute>} />
-        <Route path="/test/pricing-crud" element={<ProtectedRoute><TestPricingCrud /></ProtectedRoute>} />
-        
-        <Route path="/inventory/sightseeing" element={<ProtectedRoute><Sightseeing /></ProtectedRoute>} />
-        <Route path="/inventory/sightseeing/add" element={<ProtectedRoute><AddSightseeing /></ProtectedRoute>} />
-        <Route path="/inventory/sightseeing/:id/edit" element={<ProtectedRoute><EditSightseeing /></ProtectedRoute>} />
-        <Route path="/inventory/sightseeing/edit/:id" element={<ProtectedRoute><EditSightseeing /></ProtectedRoute>} />
-        
-        <Route path="/inventory/visa" element={<ProtectedRoute><Visa /></ProtectedRoute>} />
-        <Route path="/inventory/visa/wizard" element={<ProtectedRoute><VisaWizard /></ProtectedRoute>} />
-        <Route path="/inventory/visa/dashboard" element={<ProtectedRoute><VisaDashboard /></ProtectedRoute>} />
-        <Route path="/inventory/visa/add" element={<ProtectedRoute><AddVisa /></ProtectedRoute>} />
-        <Route path="/inventory/visa/:id/edit" element={<ProtectedRoute><EditVisa /></ProtectedRoute>} />
-        <Route path="/inventory/visa/:id/view" element={<ProtectedRoute><ViewVisa /></ProtectedRoute>} />
-        
-        <Route path="/inventory/packages" element={<ProtectedRoute><Packages /></ProtectedRoute>} />
-        <Route path="/inventory/packages/create" element={<ProtectedRoute><CreatePackage /></ProtectedRoute>} />
-        {/* Support both /inventory/packages/:id and /inventory/packages/view/:id for viewing packages */}
-        <Route path="/inventory/packages/:id" element={<ProtectedRoute><ViewPackage /></ProtectedRoute>} />
-        <Route path="/inventory/packages/view/:id" element={<ProtectedRoute><ViewPackage /></ProtectedRoute>} />
-        <Route path="/inventory/packages/:id/edit" element={<ProtectedRoute><EditPackage /></ProtectedRoute>} />
+              {/* Protected Routes */}
+              <Route path="/dashboard" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />
+              <Route path="/dashboards" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />
+              <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+              
+              {/* Query Management Routes */}
+              <Route path="/queries" element={<ProtectedRoute><QueryManagement /></ProtectedRoute>} />
+              <Route path="/queries/create" element={<ProtectedRoute><CreateQuery /></ProtectedRoute>} />
+              <Route path="/queries/:id" element={<ProtectedRoute><QueryDetails /></ProtectedRoute>} />
+              <Route path="/queries/:id/edit" element={<ProtectedRoute><EditQuery /></ProtectedRoute>} />
+              <Route path="/queries/edit/:id" element={<ProtectedRoute><EditQuery /></ProtectedRoute>} />
+              <Route path="/queries/assign" element={<ProtectedRoute><AssignQueries /></ProtectedRoute>} />
+              
+              {/* Proposal Creation Routes - Unified to single option */}
+              <Route path="/queries/proposal/:id" element={<ProtectedRoute><AdvancedProposalCreation /></ProtectedRoute>} />
+              <Route path="/queries/advanced-proposal/:id" element={<ProtectedRoute><AdvancedProposalCreation /></ProtectedRoute>} />
+              <Route path="/queries/create-proposal/:id" element={<ProtectedRoute><AdvancedProposalCreation /></ProtectedRoute>} />
+              
+              {/* Day-wise Itinerary Builder Route */}
+              <Route path="/queries/enhanced-daywise/:id" element={<ProtectedRoute><EnhancedDayWiseBuilder /></ProtectedRoute>} />
+              
+              {/* Legacy proposal routes - redirect to unified proposal creation */}
+              <Route path="/queries/basic-proposal/:id" element={<Navigate to="/queries/proposal/:id" replace />} />
+              <Route path="/queries/enhanced-proposal/:id" element={<Navigate to="/queries/proposal/:id" replace />} />
+              
+              {/* Follow-ups Routes */}
+              <Route path="/followups" element={<ProtectedRoute><FollowUps /></ProtectedRoute>} />
+              
+              {/* Booking Management Routes */}
+              <Route path="/bookings" element={<ProtectedRoute><BookingManagement /></ProtectedRoute>} />
+              
+              {/* Itinerary Builder Routes */}
+              <Route path="/itinerary" element={<ProtectedRoute><ItineraryBuilder /></ProtectedRoute>} />
+              
+              {/* Activity Tracking Routes */}
+              <Route path="/activity-tracking" element={<ProtectedRoute><ActivityTrackingDashboard /></ProtectedRoute>} />
+              
+              {/* Reports Routes */}
+              <Route path="/reports" element={<ProtectedRoute><PageLayout><UniversalReportGenerator /></PageLayout></ProtectedRoute>} />
+              
+              {/* Agent Management Routes */}
+              <Route path="/management/agents" element={<ProtectedRoute><AgentManagement /></ProtectedRoute>} />
+              <Route path="/management/agents/add" element={<ProtectedRoute><AddAgent /></ProtectedRoute>} />
+              <Route path="/management/agents/:id" element={<ProtectedRoute><ManagementAgentProfile /></ProtectedRoute>} />
+              <Route path="/management/agents/:id/edit" element={<ProtectedRoute><EditAgent /></ProtectedRoute>} />
+              
+              {/* Staff Management Routes */}
+              <Route path="/management/staff" element={<ProtectedRoute><StaffManagement /></ProtectedRoute>} />
+              <Route path="/management/staff/add" element={<ProtectedRoute><AddStaff /></ProtectedRoute>} />
+              <Route path="/management/staff/departments" element={<ProtectedRoute><Departments /></ProtectedRoute>} />
+              {/* Support both /management/staff/:id and /management/staff/profile/:id */}
+              <Route path="/management/staff/profile/:id" element={<ProtectedRoute><StaffProfile /></ProtectedRoute>} />
+              <Route path="/management/staff/:id" element={<ProtectedRoute><StaffProfile /></ProtectedRoute>} />
+              <Route path="/management/staff/:id/edit" element={<ProtectedRoute><EditStaff /></ProtectedRoute>} />
+              <Route path="/management/staff/edit/:id" element={<ProtectedRoute><EditStaff /></ProtectedRoute>} />
+              <Route path="/management/hr" element={<ProtectedRoute><HRLayout /></ProtectedRoute>}>
+                <Route index element={<HRDashboard />} />
+                <Route path="payroll" element={<PayrollPage />} />
+                <Route path="leaves" element={<LeavesPage />} />
+                <Route path="attendance" element={<AttendanceManagement />} />
+                <Route path="salary" element={<SalaryStructureManager />} />
+                <Route path="staff-docs" element={<StaffDocsVerification />} />
+                <Route path="bank-verification" element={<BankVerification />} />
+                <Route path="onboarding" element={<Onboarding />} />
+                <Route path="offboarding" element={<Offboarding />} />
+                <Route path="compliance" element={<ComplianceCenter />} />
+              </Route>
+              
+              {/* Admin Management Routes */}
+              <Route path="/management/admin" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AdminManagement /></ProtectedRoute>} />
+              {/* Redirect legacy admin app settings route to unified settings path */}
+              <Route path="/management/admin/app-settings" element={<Navigate to="/settings/app" replace />} />
+              <Route path="/management/admin/users" element={<ProtectedRoute requiredRole={['super_admin']}><AdminUsers /></ProtectedRoute>} />
+              <Route path="/management/admin/role-manager" element={<ProtectedRoute requiredRole={['super_admin', 'admin']}><AdminRoleManager /></ProtectedRoute>} />
+              
+              {/* Dashboard Routes */}
+              <Route path="/dashboards/agent" element={<ProtectedRoute requiredRole="agent"><AgentDashboard /></ProtectedRoute>} />
+              <Route path="/dashboards/agent/profile" element={<ProtectedRoute><AgentProfileModern /></ProtectedRoute>} />
+              <Route path="/dashboards/operations" element={<ProtectedRoute><OperationsDashboard /></ProtectedRoute>} />
+              <Route path="/dashboards/manager" element={<ProtectedRoute><ManagerDashboard /></ProtectedRoute>} />
+              <Route path="/dashboards/content" element={<ProtectedRoute><ContentDashboard /></ProtectedRoute>} />
+              <Route path="/dashboards/support" element={<ProtectedRoute><SupportDashboard /></ProtectedRoute>} />
+              <Route path="/dashboards/finance" element={<ProtectedRoute><FinanceDashboard /></ProtectedRoute>} />
+              <Route path="/dashboards/staff" element={<ProtectedRoute><StaffDashboard /></ProtectedRoute>} />
+              
+              {/* Sales Module Routes with Layout */}
+              <Route path="/dashboards/sales" element={<ProtectedRoute><SalesLayout /></ProtectedRoute>}>
+                <Route index element={<SalesDashboard />} />
+              </Route>
+              
+              <Route path="/sales" element={<ProtectedRoute><SalesLayout /></ProtectedRoute>}>
+                <Route index element={<SalesEnquiries />} />
+                <Route path="enquiries" element={<SalesEnquiries />} />
+                <Route path="bookings" element={<SalesBookings />} />
+                <Route path="agents" element={<SalesAgents />} />
+                <Route path="reports" element={<SalesReports />} />
+              </Route>
+              
+              {/* Inventory Routes */}
+              <Route path="/inventory/hotels" element={<ProtectedRoute><Hotels /></ProtectedRoute>} />
+              <Route path="/inventory/hotels/add" element={<ProtectedRoute><AddHotel /></ProtectedRoute>} />
+              <Route path="/inventory/hotels/:id/edit" element={<ProtectedRoute><EditHotel /></ProtectedRoute>} />
+              <Route path="/inventory/hotels/:id" element={<ProtectedRoute><ViewHotel /></ProtectedRoute>} />
+              <Route path="/inventory/hotels/:id/add-room-type" element={<ProtectedRoute><AddRoomType /></ProtectedRoute>} />
+              <Route path="/inventory/hotels/:hotelId/rooms/add" element={<ProtectedRoute><AddRoomType /></ProtectedRoute>} />
+              <Route path="/inventory/hotels/add-room-type/:hotelId" element={<ProtectedRoute><AddRoomType /></ProtectedRoute>} />
+              <Route path="/inventory/hotels/rooms/add" element={<ProtectedRoute><AddRoomTypePage /></ProtectedRoute>} />
+              <Route path="/inventory/hotels/:hotelId/edit-room-type/:roomTypeId" element={<ProtectedRoute><EditRoomType /></ProtectedRoute>} />
+              
+              <Route path="/inventory/restaurants" element={<ProtectedRoute><Restaurants /></ProtectedRoute>} />
+              <Route path="/inventory/restaurants/add" element={<ProtectedRoute><AddEditRestaurant /></ProtectedRoute>} />
+              <Route path="/inventory/restaurants/edit/:id" element={<ProtectedRoute><AddEditRestaurant /></ProtectedRoute>} />
+              <Route path="/inventory/restaurants/:id/edit" element={<ProtectedRoute><AddEditRestaurant /></ProtectedRoute>} />
+              
+              <Route path="/inventory/transport" element={<ProtectedRoute><Transport /></ProtectedRoute>} />
+              <Route path="/inventory/transport/routes" element={<ProtectedRoute><TransportRoutesPage /></ProtectedRoute>} />
+              <Route path="/inventory/transport/types" element={<ProtectedRoute><TransportTypesPage /></ProtectedRoute>} />
+              <Route path="/inventory/transport/locations" element={<ProtectedRoute><LocationCodesPage /></ProtectedRoute>} />
+              
+              <Route path="/inventory/countries" element={<ProtectedRoute><Countries /></ProtectedRoute>} />
+              <Route path="/inventory/cities" element={<ProtectedRoute><Cities /></ProtectedRoute>} />
+              
+              {/* Test routes */}
+              <Route path="/test/database" element={<ProtectedRoute><DatabaseTest /></ProtectedRoute>} />
+              <Route path="/test/supabase" element={<ProtectedRoute><SupabaseConnectionTest /></ProtectedRoute>} />
+              <Route path="/test/seed" element={<ProtectedRoute><TestSeedPage /></ProtectedRoute>} />
+              <Route path="/test/hotel-crud" element={<ProtectedRoute><TestHotelCrud /></ProtectedRoute>} />
+              <Route path="/test/pricing-crud" element={<ProtectedRoute><TestPricingCrud /></ProtectedRoute>} />
+              
+              <Route path="/inventory/sightseeing" element={<ProtectedRoute><Sightseeing /></ProtectedRoute>} />
+              <Route path="/inventory/sightseeing/add" element={<ProtectedRoute><AddSightseeing /></ProtectedRoute>} />
+              <Route path="/inventory/sightseeing/:id/edit" element={<ProtectedRoute><EditSightseeing /></ProtectedRoute>} />
+              <Route path="/inventory/sightseeing/edit/:id" element={<ProtectedRoute><EditSightseeing /></ProtectedRoute>} />
+              
+              <Route path="/inventory/visa" element={<ProtectedRoute><Visa /></ProtectedRoute>} />
+              <Route path="/inventory/visa/wizard" element={<ProtectedRoute><VisaWizard /></ProtectedRoute>} />
+              <Route path="/inventory/visa/dashboard" element={<ProtectedRoute><VisaDashboard /></ProtectedRoute>} />
+              <Route path="/inventory/visa/add" element={<ProtectedRoute><AddVisa /></ProtectedRoute>} />
+              <Route path="/inventory/visa/:id/edit" element={<ProtectedRoute><EditVisa /></ProtectedRoute>} />
+              <Route path="/inventory/visa/:id/view" element={<ProtectedRoute><ViewVisa /></ProtectedRoute>} />
+              
+              <Route path="/inventory/packages" element={<ProtectedRoute><Packages /></ProtectedRoute>} />
+              <Route path="/inventory/packages/create" element={<ProtectedRoute><CreatePackage /></ProtectedRoute>} />
+              {/* Support both /inventory/packages/:id and /inventory/packages/view/:id for viewing packages */}
+              <Route path="/inventory/packages/:id" element={<ProtectedRoute><ViewPackage /></ProtectedRoute>} />
+              <Route path="/inventory/packages/view/:id" element={<ProtectedRoute><ViewPackage /></ProtectedRoute>} />
+              <Route path="/inventory/packages/:id/edit" element={<ProtectedRoute><EditPackage /></ProtectedRoute>} />
         
         {/* Templates Route - New */}
         <Route path="/inventory/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
@@ -663,13 +678,14 @@ function App() {
         <Route path="/settings/languages" element={<ProtectedRoute><LanguageManager /></ProtectedRoute>} />
         <Route path="/management/admin/" element={<ProtectedRoute requiredRole={['super_admin', 'manager']}><AdminManagement /></ProtectedRoute>} />
 
-        {/* 404 Route */}
-        <Route path="*" element={<NotFound />} />
-            </Routes>
-            <Toaster />
+            {/* 404 Route */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+          <Toaster />
         </ThemeProvider>
       </SEOProvider>
     </HelmetProvider>
+  </Suspense>
   );
 }
 
