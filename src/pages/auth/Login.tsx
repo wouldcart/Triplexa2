@@ -788,7 +788,7 @@ const Login: React.FC = () => {
                                       const { data: profileData, error: profileError } = await supabase
                                         .from('profiles')
                                         .select('email, name, role, phone')
-                                        .eq('id', existingUserId)
+                                        .eq('id', existingUserId as any)
                                         .single();
                                       
                                       if (profileError || !profileData) {
